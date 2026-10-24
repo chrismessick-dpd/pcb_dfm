@@ -396,13 +396,56 @@
     const layer = q.layer && viewer && matchLayer(q.layer);
     if (q.x != null && q.y != null && isFinite(+q.x) && isFinite(+q.y)) {
       const near = entry.findings.filter(f => (!q.check || f.check === q.check) && (f.at || f.bbox))
-        .map(f => { const c = f.at || Fab.bbox.center(f.bbox); return { f, d: Math.hypot(c.x - q.x, c.y - q.y) }; }).sort((a, b) => a.d - b.d)[0];
+        .map(f => { const c = f.at || Fab.bbox.center(f.bbox); return { f, d: Math.hypot(c.x - q.x, c.y - q.y), off: layer && f.layer && f.layer !== layer.file.name ? 1 : 0 }; })
+        .sort((a, b) => a.off - b.off || a.d - b.d)[0];
       if (near && near.d < 0.5) focusFinding(near.f);
       else focusFinding({ id: 'link', at: { x: +q.x, y: +q.y }, layer: layer ? layer.file.name : null });
     } else if (q.check) {
       const f = entry.findings.find(x => x.check === q.check && (x.at || x.bbox));
       if (f) focusFinding(f);
     }
+  }
+
+  // ── Keeping scroll position ──
+  // Redraws rebuild HTML, which would reset scrollers to the top. redraw() keeps them when the same
+  // view is drawn again (same key), and starts at the top when the key changes (another view, package
+  // or profile). Inner scrollers (sideways table strips, the findings rail, the console) are matched by
+  // class and order; the console stays pinned to the bottom when it was there.
+  const SCROLLERS = ['table-wrap', 'rail-list', 'console-body'];
+  // Instant, even where the stylesheet asks for smooth scrolling (Signoff's .main does).
+  const jump = (el, top, left) => el.scrollTo({ top, left: left == null ? el.scrollLeft : left, behavior: 'instant' });
+  const scrollKeys = {};
+  function redraw(root, key, fill) {
+    const outer = root.id === 'page' ? $('#main') : root;
+    const same = scrollKeys[root.id] === key;
+    const inner = {};
+    if (same) for (const cls of SCROLLERS) inner[cls] = [...root.getElementsByClassName(cls)].map(el => ({ top: el.scrollTop, left: el.scrollLeft, atEnd: el.scrollHeight - el.scrollTop - el.clientHeight < 40 }));
+    const top = outer.scrollTop, left = outer.scrollLeft;
+    fill();
+    scrollKeys[root.id] = key;
+    if (same) {
+      jump(outer, top, left);
+      for (const cls of SCROLLERS) [...root.getElementsByClassName(cls)].forEach((el, i) => {
+        const was = (inner[cls] || [])[i];
+        if (cls === 'console-body' && (!was || was.atEnd)) { jump(el, el.scrollHeight); return; }
+        if (was) jump(el, was.top, was.left);
+      });
+      if (root.id === 'page') state.pendingTop = top; // content that loads later (recent runs) restores it again
+    } else {
+      jump(outer, 0, 0);
+      state.pendingTop = null;
+      for (const el of root.getElementsByClassName('console-body')) jump(el, el.scrollHeight);
+    }
+  }
+  const pageKey = e => [state.view, e ? e.id : '', e ? e.status === 'needs' : '', state.view === 'rules' ? state.rulesSel || state.profile : ''].join('|');
+
+  // Scroll a row into view only if it is hidden, without moving the list otherwise.
+  function revealRow(row) {
+    if (!row) return;
+    const list = row.closest('.rail-list');
+    if (!list) return;
+    const r = row.getBoundingClientRect(), b = list.getBoundingClientRect();
+    if (r.top < b.top || r.bottom > b.bottom) row.scrollIntoView({ block: 'nearest' });
   }
 
   // ── Rendering ──
@@ -414,18 +457,20 @@
     $('#board-view').hidden = !boardOn;
     $('#page').hidden = boardOn;
     $('#rules-link').classList.toggle('active', state.view === 'rules');
-    if (state.view === 'rules') { $('#page').innerHTML = rulesHtml(); return; }
-    if (!e) { $('#page').innerHTML = emptyHtml(); loadRecent(); return; }
-    if (e.status === 'needs') { $('#page').innerHTML = needsHtml(e); return; }
     if (boardOn) { renderBoard(e); return; }
-    const page = {
-      overview: overviewHtml, findings: findingsHtml, assembly: assemblyHtml, bom: bomHtml, files: filesHtml,
-      revisions: revisionsHtml, archive: archiveHtml, board: overviewHtml,
-    }[state.view];
-    $('#page').innerHTML = page(e);
-    const body = $('#console-body');
-    if (body) body.scrollTop = body.scrollHeight;
-    if (state.view === 'archive') loadArchive(e);
+    const pageEl = $('#page');
+    redraw(pageEl, pageKey(e), () => {
+      if (state.view === 'rules') { pageEl.innerHTML = rulesHtml(); return; }
+      if (!e) { pageEl.innerHTML = emptyHtml(); return; }
+      if (e.status === 'needs') { pageEl.innerHTML = needsHtml(e); return; }
+      const page = {
+        overview: overviewHtml, findings: findingsHtml, assembly: assemblyHtml, bom: bomHtml, files: filesHtml,
+        revisions: revisionsHtml, archive: archiveHtml, board: overviewHtml,
+      }[state.view];
+      pageEl.innerHTML = page(e);
+    });
+    if (!e && state.view !== 'rules') loadRecent();
+    if (e && state.view === 'archive') loadArchive(e);
   }
 
   function renderSidebar() {
@@ -486,6 +531,7 @@
           `<td>${r.sentTo ? esc(r.sentTo.name || r.sentTo.projectId) : '<span class="muted">not sent</span>'}</td>` +
           `<td><button class="btn btn-plain" data-act="delete-run" data-id="${run.id}">Delete</button></td></tr>`;
       }).join('') + '</tbody></table></div>';
+    if (state.pendingTop != null) { jump($('#main'), state.pendingTop); state.pendingTop = null; }
   }
 
   async function openStoredRun(id) {
@@ -785,8 +831,9 @@
   }
 
   function renderLayers(e) {
-    $('#layers-pane').innerHTML = `<div class="side-head"><span class="side-label">Layers</span><button class="btn btn-plain" style="padding:2px 6px;font-size:12px" data-act="layers-off">Hide all</button></div>` +
-      viewer.layers.map((l, i) => `<label class="lay"${l.other ? ' style="opacity:.7"' : ''}><input type="checkbox" data-layer="${i}"${l.visible ? ' checked' : ''}><span class="sw" style="background:${l.color}"></span><span class="nm" title="${esc(l.layer ? l.layer.file.name : l.label)}">${esc(l.label)}</span></label>`).join('');
+    const pane = $('#layers-pane');
+    redraw(pane, e.id, () => { pane.innerHTML = `<div class="side-head"><span class="side-label">Layers</span><button class="btn btn-plain" style="padding:2px 6px;font-size:12px" data-act="layers-off">Hide all</button></div>` +
+      viewer.layers.map((l, i) => `<label class="lay"${l.other ? ' style="opacity:.7"' : ''}><input type="checkbox" data-layer="${i}"${l.visible ? ' checked' : ''}><span class="sw" style="background:${l.color}"></span><span class="nm" title="${esc(l.layer ? l.layer.file.name : l.label)}">${esc(l.label)}</span></label>`).join(''); });
   }
 
   function renderRail(e) {
@@ -805,7 +852,18 @@
       for (const f of list) h += `<div class="rf${state.sel === f.id ? ' sel' : ''}" data-act="board-finding" data-id="${f.id}"><span class="dot ${f.severity}"></span><div class="rf-t">${esc(f.title)}</div><div class="rf-d">${esc(whereText(f))}${f.layer ? ' · ' + esc(f.layer) : ''}</div></div>`;
     }
     if (!fs.length) h += `<div class="side-empty">No located findings match the filter.</div>`;
-    $('#rail').innerHTML = h + '</div>';
+    const rail = $('#rail');
+    redraw(rail, e.id, () => { rail.innerHTML = h + '</div>'; });
+    revealRow(rail.querySelector('.rf.sel'));
+  }
+
+  // Selection change only: move the highlight instead of rebuilding the list.
+  function selectRailRow(id) {
+    const rows = $('#rail').querySelectorAll('.rf');
+    let row = null;
+    rows.forEach(r => { const on = r.dataset.id === id; r.classList.toggle('sel', on); if (on) row = r; });
+    revealRow(row);
+    return !!row;
   }
 
   function setSide(side, quiet) {
@@ -833,7 +891,7 @@
     if (side && (side === 'bottom') !== viewer.view.flip) setSide(side);
     if (entry) entry.visible = true;
     renderLayers(e);
-    renderRail(e);
+    if (!selectRailRow(f.id)) renderRail(e);
     const bb = f.bbox || [f.at.x, f.at.y, f.at.x, f.at.y];
     viewer.highlight = { at: f.at ? { x: f.at.x, y: f.at.y } : null, bbox: f.bbox || null };
     viewer.focus(Fab.bbox.grow(bb, Math.max(0.5, (f.at && f.at.dia) || 0)), 2.5);
