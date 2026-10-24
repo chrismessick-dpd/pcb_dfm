@@ -322,7 +322,9 @@
       const fs = e.findings.filter(f => f.category === cat), cc = counts(fs), tot = fs.length || 1;
       h += `<button class="card cl-card cat-card" data-act="cat" data-cat="${cat}"><div class="cl-card-top"><div><div class="cl-card-title">${title}</div><div class="cl-card-desc">${desc}</div></div>` +
         `<span class="dot ${busy ? '' : cc.error ? 'error' : cc.warn ? 'warn' : 'ok'}" style="margin-top:6px"></span></div>` +
-        `<div class="bar"><i class="b-issue" style="width:${cc.error / tot * 100}%"></i><i class="b-warn" style="width:${cc.warn / tot * 100}%"></i><i class="b-info" style="width:${cc.info / tot * 100}%"></i></div>` +
+        // A finished check with no errors or warnings shows as a full "done" bar, like the run progress.
+        (!busy && e.status === 'ready' && !cc.error && !cc.warn ? `<div class="bar"><i class="b-done" style="width:100%"></i></div>` :
+          `<div class="bar"><i class="b-issue" style="width:${cc.error / tot * 100}%"></i><i class="b-warn" style="width:${cc.warn / tot * 100}%"></i><i class="b-info" style="width:${cc.info / tot * 100}%"></i></div>`) +
         `<div class="cl-card-foot"><span><b>${cc.error}</b> errors</span><span><b>${cc.warn}</b> warnings</span><span><b>${cc.info}</b> info</span></div></button>`;
     }
     h += `</div>`;

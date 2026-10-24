@@ -58,6 +58,7 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .cat-card .cl-card-foot span { display: inline-flex; align-items: center; gap: 5px; }
 .bar .b-warn { background: var(--warn); }
 .bar .b-info { background: var(--na); opacity: 0.45; }
+.bar .b-done { background: #3fc1cf; }
 .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: none; background: var(--na); }
 .dot.error { background: var(--issue); }
 .dot.warn { background: var(--warn); }
