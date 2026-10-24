@@ -78,7 +78,7 @@
       const text = `Fabcheck: ${first.title.replace(/^…/, '')}${n > 1 ? ` (+${n - 1} more)` : ''}`;
       const lines = g.list.slice(0, 25).map(f => `• ${f.title}${where(f)}`);
       if (n > 25) lines.push(`• … ${n - 25} more`);
-      const hint = `${n} ${g.severity === 'error' ? 'error' : 'warning'}${n === 1 ? '' : 's'} from Fabcheck check "${g.check}" on ${source.label}${source.sha ? ' (SHA-256 ' + source.sha.slice(0, 12) + '…)' : ''}.\n${first.detail || ''}\n\n${lines.join('\n')}`;
+      const hint = `${n} ${g.severity === 'error' ? 'error' : 'warning'}${n === 1 ? '' : 's'} from Fabcheck check "${g.check}" on ${source.label}${source.sha ? ' (SHA-256 ' + source.sha.slice(0, 12) + '…)' : ''}${source.profileName ? ', fab profile "' + source.profileName + '"' : ''}.\n${first.detail || ''}\n\n${lines.join('\n')}`;
       const refs = [...new Set(g.list.flatMap(f => f.refs || []))].slice(0, 40).join(', ');
       const severity = g.severity === 'error' ? 'major' : 'minor';
       const existing = p.custom[id];

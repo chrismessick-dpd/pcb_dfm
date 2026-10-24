@@ -18,7 +18,7 @@
 
   const VIEWS = [
     ['overview', 'Overview'], ['findings', 'Findings'], ['board', 'Board'], ['assembly', 'Assembly'],
-    ['bom', 'BOM'], ['files', 'Files'], ['revisions', 'Revisions'], ['archive', 'Archive'],
+    ['bom', 'BOM'], ['files', 'Files'], ['revisions', 'Revisions'], ['archive', 'Archive'], ['rules', 'Fab rules'],
   ];
   const CATS = [
     ['Package', 'Package', 'Files, layer sets, units, drill report and outline'],
@@ -66,7 +66,24 @@
   }
   const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
   const tick = () => new Promise(r => { let done = false; requestAnimationFrame(() => { done = true; r(); }); setTimeout(() => { if (!done) r(); }, 40); });
-  const profile = () => Object.assign({}, Fab.profiles[state.profile], { thickness: state.thickness });
+  // Rules for a run: a run being reopened or reproduced uses its own saved copy (entry.pinned); otherwise
+  // the selected profile, with the board thickness set for the run.
+  const profile = entry => {
+    if (entry && entry.pinned) return Object.assign({}, entry.pinned.rules, { thickness: entry.pinned.thickness || entry.pinned.rules.thickness });
+    const r = Fab.rules.resolve(state.profile) || Fab.rules.resolve('standard');
+    return Object.assign({}, r.values, { thickness: state.thickness });
+  };
+  const profileName = entry => entry && entry.pinned ? entry.pinned.name : (Fab.rules.resolve(state.profile) || Fab.rules.resolve('standard')).name;
+  const runProfileName = settings => settings.profileName || (Fab.profiles[settings.profile] || {}).label || settings.profile;
+  // Pin a run's saved rules; note when the profile it came from has been edited since.
+  function pinRun(entry, settings) {
+    const rules = Fab.rules.rulesOfRun(settings);
+    entry.pinned = { id: settings.profile, name: runProfileName(settings), rules, thickness: settings.thickness };
+    const cur = Fab.rules.resolve(settings.profile);
+    entry.pinned.editedSince = !!(settings.rules && cur && Fab.rules.RULES.some(r => r.key !== 'thickness' && cur.values[r.key] !== rules[r.key]));
+    entry.pinned.missing = !cur;
+    state.thickness = settings.thickness || rules.thickness;
+  }
   const baseName = s => String(s).replace(/\.(zip|tgz)$/i, '');
 
   // ── Console ──
@@ -148,7 +165,15 @@
       if (opts.stored) restoreRun(entry, opts.stored);
       else {
         const settings = opts.expect && opts.expect.run.settings;
-        if (settings) { state.profile = settings.profile || state.profile; state.thickness = settings.thickness || state.thickness; log(entry, 'dim', `Using the run's settings: ${Fab.profiles[state.profile].label}, ${state.thickness} mm`); }
+        if (settings) {
+          pinRun(entry, settings);
+          log(entry, 'dim', `Using the run's own rules: ${entry.pinned.name}, ${entry.pinned.thickness} mm${settings.rules ? '' : ' (run made before rules were saved; using the built-in profile)'}`);
+        } else {
+          // Default to the profile last used for this package or this Signoff project.
+          const pid = opts.link && opts.link.project;
+          const sug = Fab.rules.suggest({ projectId: pid, pkgName: entry.label });
+          if (sug && sug !== state.profile) { state.profile = sug; state.thickness = Fab.rules.resolve(sug).values.thickness; log(entry, 'dim', `Using ${Fab.rules.resolve(sug).name}, the profile last used for ${pid ? 'this project' : 'this package'}`); }
+        }
         await runChecks(entry);
       }
       if (entry.link) applyLink(entry, entry.link);
@@ -162,7 +187,7 @@
 
   async function runChecks(entry, reason) {
     const pkg = entry.pkg;
-    const prof = profile();
+    const prof = profile(entry);
     entry.status = 'running';
     entry.findings = [];
     if (reason) log(entry, 'step', reason);
@@ -173,7 +198,7 @@
       ['Build consistency', C.build.steps, [pkg]],
       ['Pins (IPC-356)', C.pins.steps, [pkg]],
       ['BOM audit', C.bom.steps, [pkg]],
-      [`Fabrication DFM (${Fab.profiles[state.profile].label}, ${prof.thickness} mm)`, C.dfm.steps, [pkg, prof]],
+      [`Fabrication DFM (${profileName(entry)}${entry.pinned ? ", run's saved rules" : ''}, ${prof.thickness} mm)`, C.dfm.steps, [pkg, prof]],
     ];
     const totalSteps = 31 + 2 * pkg.layers.copper.length; // fixed steps + raster steps per copper layer
     let done = 0;
@@ -217,7 +242,10 @@
     try {
       if (!entry.pkgRec) entry.pkgRec = await Fab.store.packageRecord(entry.files, entry.files.source, entry.label);
       const pkgRec = entry.pkgRec;
-      const settings = { profile: state.profile, thickness: state.thickness, variant: null };
+      const prof = profile(entry);
+      const settings = entry.pinned
+        ? { profile: entry.pinned.id, profileName: entry.pinned.name, rules: Object.assign({}, entry.pinned.rules), thickness: prof.thickness, variant: null }
+        : { profile: state.profile, profileName: profileName(entry), rules: Object.assign({}, prof), thickness: prof.thickness, variant: null };
       let run = Fab.store.runRecord(entry, pkgRec, settings);
       const extra = { sentTo: entry.sentTo || null };
       const exp = entry.expect;
@@ -256,12 +284,13 @@
   function restoreRun(entry, stored) {
     const run = stored.run;
     entry.run = run; entry.sentTo = stored.sentTo || null;
-    state.profile = (run.settings && run.settings.profile) || state.profile;
-    state.thickness = (run.settings && run.settings.thickness) || state.thickness;
-    try { C.assembly(entry.pkg, profile()); C.pins(entry.pkg); } catch (e) { console.error(e); }
+    pinRun(entry, run.settings || {});
+    try { C.assembly(entry.pkg, profile(entry)); C.pins(entry.pkg); } catch (e) { console.error(e); }
     entry.findings = stored.findings.map(f => Object.assign({}, f));
     const c = run.summary || {};
-    log(entry, 'ok', `Opened run ${run.id} from ${stored.where || 'this browser'}: ${new Date(run.at).toLocaleString()}${run.by ? ' by ' + run.by : ''}, ${Fab.profiles[run.settings.profile] ? Fab.profiles[run.settings.profile].label : run.settings.profile}, ${run.settings.thickness} mm`);
+    log(entry, 'ok', `Opened run ${run.id} from ${stored.where || 'this browser'}: ${new Date(run.at).toLocaleString()}${run.by ? ' by ' + run.by : ''}, ${entry.pinned.name}, ${run.settings.thickness} mm`);
+    if (entry.pinned.editedSince) log(entry, 'warn', `Profile "${entry.pinned.name}" has been edited since this run; the run keeps the rules it was made with.`);
+    else if (entry.pinned.missing) log(entry, 'dim', `         Profile "${entry.pinned.name}" isn't on this computer; the run's saved rules are used.`);
     log(entry, 'dim', `         ${c.error} errors, ${c.warn} warnings, ${c.info} info as stored with the run. "Run checks again" re-checks with this Fabcheck (${(window.FABCHECK_VERSION || {}).hash || 'dev'}; run made with ${(run.tool || {}).version}).`);
     if (stored.rerun && stored.rerun.differs) log(entry, 'warn', `A re-run on ${new Date(stored.rerun.at).toLocaleDateString()} with Fabcheck ${stored.rerun.version} found different results.`);
     entry.status = 'ready';
@@ -384,6 +413,8 @@
     const boardOn = !!e && e.status !== 'loading' && !!e.pkg && state.view === 'board';
     $('#board-view').hidden = !boardOn;
     $('#page').hidden = boardOn;
+    $('#rules-link').classList.toggle('active', state.view === 'rules');
+    if (state.view === 'rules') { $('#page').innerHTML = rulesHtml(); return; }
     if (!e) { $('#page').innerHTML = emptyHtml(); loadRecent(); return; }
     if (e.status === 'needs') { $('#page').innerHTML = needsHtml(e); return; }
     if (boardOn) { renderBoard(e); return; }
@@ -450,7 +481,7 @@
         const run = r.run, c = run.summary || {};
         return `<tr data-act="open-run" data-id="${run.id}"><td><b style="font-weight:500">${esc(baseName(run.package.name))}</b><div class="muted mono">${run.package.sha256.slice(0, 12)}… · ${(run.package.size / 1048576).toFixed(1)} MB</div></td>` +
           `<td>${esc(new Date(run.at).toLocaleString())}<div class="muted">${esc(run.by || '')}${run.stored ? ' · stored in ' + esc(run.stored.repo) : ' · this browser only'}</div></td>` +
-          `<td>${esc((Fab.profiles[run.settings.profile] || {}).label || run.settings.profile)}<div class="muted">${run.settings.thickness} mm</div></td>` +
+          `<td>${esc(runProfileName(run.settings))}<div class="muted">${run.settings.thickness} mm</div></td>` +
           `<td>${pill(c.error, 'error')}${pill(c.warn, 'warn')}${pill(c.info, '')}${r.rerun && r.rerun.differs ? '<div class="muted">re-run differed</div>' : ''}</td>` +
           `<td>${r.sentTo ? esc(r.sentTo.name || r.sentTo.projectId) : '<span class="muted">not sent</span>'}</td>` +
           `<td><button class="btn btn-plain" data-act="delete-run" data-id="${run.id}">Delete</button></td></tr>`;
@@ -474,7 +505,7 @@
     h += `<div class="drop" style="margin-top:0"><div class="empty-art">${ICON.upload}</div>`;
     if (run) {
       h += `<h2>Drop the package that made this run</h2><p>This run isn't stored in this browser${run.stored ? ' and could not be read from ' + esc(run.stored.repo) : ''}. Drop <b>${esc(run.package.name)}</b> (${(run.package.size / 1048576).toFixed(2)} MB) and Fabcheck checks its fingerprint and re-runs it with the run's settings.</p>
-        <dl class="kv" style="text-align:left;max-width:520px;margin:0 auto 18px"><dt>SHA-256</dt><dd class="hash">${esc(run.package.sha256)}</dd><dt>Settings</dt><dd>${esc((Fab.profiles[run.settings.profile] || {}).label || run.settings.profile)}, ${run.settings.thickness} mm</dd><dt>Fabcheck</dt><dd>${esc((run.tool || {}).version || '?')} (this one: ${esc((window.FABCHECK_VERSION || {}).hash || 'dev')})</dd><dt>Findings then</dt><dd>${run.summary.error} errors, ${run.summary.warn} warnings, ${run.summary.info} info</dd></dl>`;
+        <dl class="kv" style="text-align:left;max-width:520px;margin:0 auto 18px"><dt>SHA-256</dt><dd class="hash">${esc(run.package.sha256)}</dd><dt>Settings</dt><dd>${esc(runProfileName(run.settings))}, ${run.settings.thickness} mm${run.settings.rules ? ' (rules saved with the run)' : ''}</dd><dt>Fabcheck</dt><dd>${esc((run.tool || {}).version || '?')} (this one: ${esc((window.FABCHECK_VERSION || {}).hash || 'dev')})</dd><dt>Findings then</dt><dd>${run.summary.error} errors, ${run.summary.warn} warnings, ${run.summary.info} info</dd></dl>`;
     } else {
       h += `<h2>Run ${esc(e.need.runId)} isn't available</h2><p>It isn't stored in this browser, and no Signoff EE issue in this browser names it. Open the issue's project in Signoff EE here first, or drop the package to check it afresh.</p>`;
     }
@@ -501,15 +532,15 @@
       chips.push(v ? 'Variant ' + v.variant : (pkg.variants || []).length ? 'No variant' : null);
       if (pkg.odb) chips.push('ODB++');
     }
-    const sub = `<div class="chips">${chips.filter(Boolean).map(t => `<span class="chip">${esc(t)}</span>`).join('')}<span class="chip accent">${esc(Fab.profiles[state.profile].label)}</span></div>`;
+    const sub = `<div class="chips">${chips.filter(Boolean).map(t => `<span class="chip">${esc(t)}</span>`).join('')}<span class="chip accent">${esc(profileName(e))}</span>${e.pinned ? `<span class="chip">${e.pinned.editedSince ? 'Profile edited since this run' : "Run's saved rules"}</span>` : ''}</div>`;
     const back = signoffProject(e) ? `<button class="btn" data-act="back-signoff">Back to Signoff EE</button>` : '';
     const actions = back + `<button class="btn" data-act="rerun"${busy || !pkg ? ' disabled' : ''}>Run checks again</button><button class="btn btn-primary" data-act="view" data-view="board"${!pkg ? ' disabled' : ''}>Open board</button>`;
     let h = `<div class="page wide">` + pageHead(e, 'Fab package', e.label, sub, actions);
     const stat = (cls, n, label, sev) => `<button class="card stat ${cls}" style="border:none;text-align:left" data-act="sev" data-sev="${sev}"><div class="stat-num">${busy ? '–' : n}</div><div class="stat-label">${label}</div></button>`;
     h += `<div class="grid grid-4">${stat('issue', c.error, 'Errors', 'error')}${stat('warn', c.warn, 'Warnings', 'warn')}${stat('info', c.info, 'Info', 'info')}<div class="card stat"><div class="stat-num">${pkg ? pkg.files.length : '–'}</div><div class="stat-label">Files in package</div></div></div>`;
     h += `<div class="section-title">Checks<span class="chips">` +
-      `<label class="tb-field">Fab profile <select data-act="profile">${Object.entries(Fab.profiles).map(([k, p]) => `<option value="${k}"${k === state.profile ? ' selected' : ''}>${esc(p.label)}</option>`).join('')}</select></label>` +
-      `<label class="tb-field">Board thickness <input data-act="thickness" type="number" step="0.1" min="0.2" max="6" value="${state.thickness}"> mm</label></span></div><div class="grid grid-3">`;
+      profileSelect(e) + `<button class="btn btn-plain" data-view="rules">Edit rules</button>` +
+      `<label class="tb-field">Board thickness <input data-act="thickness" type="number" step="0.1" min="0.2" max="6" value="${e.pinned ? e.pinned.thickness : state.thickness}"> mm</label></span></div><div class="grid grid-3">`;
     for (const [cat, title, desc] of CATS) {
       const fs = e.findings.filter(f => f.category === cat), cc = counts(fs), tot = fs.length || 1;
       h += `<button class="card cl-card cat-card" data-act="cat" data-cat="${cat}"><div class="cl-card-top"><div><div class="cl-card-title">${title}</div><div class="cl-card-desc">${desc}</div></div>` +
@@ -534,6 +565,104 @@
   // The Signoff EE project this run belongs to: sent there, or opened from one of its issues.
   function signoffProject(e) {
     return (e.sentTo && e.sentTo.projectId) || (e.link && e.link.project) || (e.need && e.need.link && e.need.link.project) || null;
+  }
+
+  // ── Fab rules ──
+  function profileSelect(e) {
+    const cur = e && e.pinned ? e.pinned.id : state.profile;
+    const ps = Fab.rules.list();
+    const opt = p => `<option value="${esc(p.id)}"${p.id === cur ? ' selected' : ''}>${esc(p.name)}</option>`;
+    let h = `<label class="tb-field">Fab profile <select data-act="profile">`;
+    if (e && e.pinned && !Fab.rules.resolve(cur)) h += `<option value="" selected>${esc(e.pinned.name)} (run's saved rules)</option>`;
+    h += `<optgroup label="Industry defaults">${ps.filter(p => p.builtin).map(opt).join('')}</optgroup>`;
+    const mine = ps.filter(p => !p.builtin);
+    if (mine.length) h += `<optgroup label="Custom">${mine.map(opt).join('')}</optgroup>`;
+    return h + '</select></label>';
+  }
+
+  // Make a profile the active one and re-check the open package with it.
+  function useProfile(id) {
+    const r = Fab.rules.resolve(id);
+    if (!r) return;
+    const e = active();
+    state.profile = id;
+    state.thickness = r.values.thickness;
+    if (e && e.pkg) {
+      e.pinned = null;
+      Fab.rules.remember(id, { pkgName: e.label, projectId: signoffProject(e) });
+      if (e.status === 'ready') runChecks(e, `Profile changed to ${r.name}`);
+    }
+    renderAll();
+  }
+
+  let rerunTimer = 0, syncTimer = 0;
+  // After a rule edit: re-check the open package if it uses this profile, and share with the team.
+  function rulesEdited(id, what) {
+    const e = active();
+    clearTimeout(rerunTimer);
+    if (what && e && e.status === 'ready' && !e.pinned && state.profile === id) {
+      state.thickness = Fab.rules.resolve(id).values.thickness;
+      rerunTimer = setTimeout(() => runChecks(e, what), 700);
+    }
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(syncProfiles, 2000);
+  }
+  async function syncProfiles() {
+    if (!Fab.repoRuns) return;
+    state.profileSync = { state: 'busy', text: "Checking the team's profiles…" };
+    if (state.view === 'rules') renderAll();
+    state.profileSync = await Fab.repoRuns.syncProfiles();
+    if (state.view === 'rules') renderAll();
+  }
+
+  function rulesHtml() {
+    const ps = Fab.rules.list();
+    if (!state.rulesSel || !Fab.rules.resolve(state.rulesSel)) state.rulesSel = state.profile;
+    const sel = Fab.rules.resolve(state.rulesSel) || ps[0];
+    const e = active();
+    const usedBy = e && e.pkg ? (e.pinned ? e.pinned.id : state.profile) : null;
+    const item = p => `<button class="proj${p.id === sel.id ? ' active' : ''}" data-act="rules-sel" data-id="${esc(p.id)}"><span class="proj-body"><span class="proj-name">${esc(p.name)}</span><span class="proj-sub">${p.builtin ? 'Typical values, read-only' : `From ${esc(p.baseName)} · ${Object.keys(p.edited).length} changed`}${p.id === usedBy ? ' · in use' : ''}</span></span></button>`;
+    const sync = state.profileSync;
+    let h = `<div class="page wide">` + pageHead(null, 'Fab rules', 'Fab capability profiles', "The limits the DFM checks use. Start from an industry default, then duplicate it and enter a fab house's capability numbers.");
+    h += `<div class="rules-layout"><div><div class="card" style="padding:8px">
+      <div class="side-head"><span class="side-label">Industry defaults</span></div>${ps.filter(p => p.builtin).map(item).join('')}
+      <div class="side-head" style="margin-top:8px"><span class="side-label">Custom</span><button class="btn btn-plain" style="padding:2px 6px;font-size:12px" data-act="profile-import">Import…</button></div>
+      ${ps.filter(p => !p.builtin).map(item).join('') || '<div class="side-empty">None yet. Duplicate a profile to make one.</div>'}</div>
+      <p class="note">${sync ? `<span class="dot ${sync.state === 'shared' ? 'ok' : sync.state === 'error' ? 'warn' : sync.state === 'busy' ? 'info' : ''}" style="margin-right:6px"></span>${esc(sync.text)}` : 'Custom profiles are kept in this browser.'}</p></div>`;
+    h += `<div><div class="card" style="padding:18px 20px;margin-bottom:14px">`;
+    if (sel.builtin) {
+      h += `<div class="eyebrow">Industry default · typical values</div><h2 style="font:600 20px var(--display);margin:2px 0 6px">${esc(sel.name)}</h2>` +
+        `<p style="margin:0 0 12px;color:var(--text-2)">${esc(sel.desc || '')} These are typical values, not any particular fab house's. To match a fab house, duplicate this profile and enter the numbers from its capability sheet.</p>`;
+    } else {
+      const n = sel.notes || {};
+      h += `<div class="eyebrow">Custom profile · from ${esc(sel.baseName)}</div>
+        <input class="input" data-act="profile-name" value="${esc(sel.name)}" style="font:600 18px var(--display);margin:4px 0 12px">
+        <div class="row2"><div class="field"><label>Fab house / source</label><input class="input" data-act="profile-note" data-key="source" value="${esc(n.source || '')}" placeholder="e.g. the fab house's capability page"></div>
+        <div class="field"><label>Capability doc or URL</label><input class="input" data-act="profile-note" data-key="url" value="${esc(n.url || '')}" placeholder="https://… or document number"></div></div>
+        <div class="row2"><div class="field"><label>Date of the numbers</label><input class="input" data-act="profile-note" data-key="date" value="${esc(n.date || '')}" placeholder="e.g. 2026-10"></div>
+        <div class="field"><label>Notes</label><input class="input" data-act="profile-note" data-key="text" value="${esc(n.text || '')}" placeholder="2-layer, 1 oz, HASL…"></div></div>`;
+    }
+    h += `<div class="chips">${e && e.pkg ? (sel.id === usedBy ? `<span class="chip accent">In use for ${esc(e.label)}</span>` : `<button class="btn btn-primary" data-act="profile-use" data-id="${esc(sel.id)}">Use for ${esc(e.label)}</button>`) : ''}
+      <button class="btn" data-act="profile-dup" data-id="${esc(sel.id)}">${sel.builtin ? 'Duplicate and edit' : 'Duplicate'}</button>
+      <button class="btn" data-act="profile-export" data-id="${esc(sel.id)}">Export JSON</button>
+      ${sel.builtin ? '' : `<button class="btn" data-act="profile-reset-all" data-id="${esc(sel.id)}"${Object.keys(sel.edited).length ? '' : ' disabled'}>Reset all to ${esc(sel.baseName)}</button><button class="btn btn-danger" data-act="profile-delete" data-id="${esc(sel.id)}">Delete</button>`}</div></div>`;
+    const base = Fab.rules.resolve(sel.base);
+    for (const g of Fab.rules.GROUPS) {
+      h += `<div class="card sec"><div class="sec-head" style="cursor:default"><div class="sec-title">${esc(g)}</div></div><div class="sec-body">`;
+      for (const r of Fab.rules.RULES.filter(x => x.group === g)) {
+        const v = sel.values[r.key], bv = base.values[r.key], edited = !sel.builtin && v !== bv;
+        const issues = Fab.rules.validate(r.key, v, sel.values);
+        const unit = { mm: 'mm', mm2: 'mm²', ratio: ': 1', count: '' }[r.unit];
+        h += `<div class="item rule-row" style="cursor:default"><div class="rule-name"><b>${esc(r.name)}</b><div class="muted">${esc(r.desc)}</div>
+          <div class="item-sub">${r.checks.length ? 'Used by ' + r.checks.map(c => `<span class="tag">${esc(c)}</span>`).join('') : '<span class="muted">Not checked yet</span>'}</div></div>
+          <div class="rule-val"><div><input class="input" type="number" step="${r.unit === 'count' ? 1 : r.unit === 'ratio' ? 0.5 : 0.001}" data-act="rule" data-key="${r.key}" value="${v}"${sel.builtin ? ' disabled' : ''}><span class="unit">${unit}</span></div>
+            ${r.unit === 'mm' ? `<div class="muted">${(v / 0.0254).toFixed(1)} mil</div>` : ''}
+            ${edited ? `<div class="muted rule-base">${esc(sel.baseName)}: ${esc(Fab.rules.fmtVal(r, bv))} <button class="btn btn-plain" style="padding:0 4px;font-size:12px" data-act="rule-reset" data-key="${r.key}">Reset</button></div>` : ''}
+            ${issues.map(i => `<div class="rule-${i.level}">${esc(i.text)}</div>`).join('')}</div></div>`;
+      }
+      h += '</div></div>';
+    }
+    return h + '</div></div></div>';
   }
 
   // ── Send to Signoff ──
@@ -963,7 +1092,8 @@
       case 'signoff-send': {
         try {
           const run = e.run ? Object.assign({}, e.run) : null;
-          const r = Fab.signoff.send(e.signoffSlug, Fab.signoff.plan(e.findings), { label: e.label, sha: run ? run.package.sha256 : null, run });
+          const r = Fab.signoff.send(e.signoffSlug, Fab.signoff.plan(e.findings), { label: e.label, sha: run ? run.package.sha256 : null, run, profileName: run ? run.settings.profileName : profileName(e) });
+          if (run) Fab.rules.remember(run.settings.profile, { projectId: r.projectId });
           const name = r.name;
           e.sentTo = { projectId: r.projectId, name };
           if (run) Fab.store.updateRun(run.id, { sentTo: e.sentTo });
@@ -984,6 +1114,44 @@
       case 'delete-run':
         if (confirm('Delete this run and, if no other run uses it, its stored package from this browser?')) Fab.store.deleteRun(t.dataset.id).then(() => renderAll());
         break;
+      case 'rules-sel': state.rulesSel = t.dataset.id; renderAll(); break;
+      case 'profile-use': useProfile(t.dataset.id); break;
+      case 'profile-dup': {
+        const src = Fab.rules.resolve(t.dataset.id);
+        const name = prompt('Name the new profile (for example the fab house and stackup):', src.builtin ? src.name.replace(/\s*\(.*\)$/, '') + ' – custom' : src.name + ' (copy)');
+        if (!name) break;
+        state.rulesSel = Fab.rules.create(t.dataset.id, name.trim());
+        rulesEdited(state.rulesSel, `New profile ${name.trim()}`);
+        renderAll();
+        break;
+      }
+      case 'profile-export': {
+        const r = Fab.rules.resolve(t.dataset.id);
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([Fab.rules.exportJson(r.id)], { type: 'application/json' }));
+        a.download = r.name.replace(/[^\w.-]+/g, '_') + '.fabcheck-profile.json';
+        a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+        break;
+      }
+      case 'profile-import': $('#file-profile').click(); break;
+      case 'profile-reset-all':
+        if (confirm("Reset every rule to the base profile's value?")) { Fab.rules.resetAll(t.dataset.id); rulesEdited(t.dataset.id, 'Profile reset to its base'); renderAll(); }
+        break;
+      case 'profile-delete': {
+        const r = Fab.rules.resolve(t.dataset.id);
+        if (!confirm(`Delete profile "${r.name}"? Runs made with it keep their own copy of its rules.`)) break;
+        Fab.rules.remove(r.id);
+        if (state.profile === r.id) useProfile(r.base);
+        state.rulesSel = r.base;
+        rulesEdited(r.id, ''); renderAll();
+        break;
+      }
+      case 'rule-reset': {
+        const r = Fab.rules.RULES.find(x => x.key === t.dataset.key);
+        Fab.rules.resetRule(state.rulesSel, r.key);
+        rulesEdited(state.rulesSel, `${r.name} reset`); renderAll();
+        break;
+      }
       case 'clear-focus': state.focusCheck = null; renderRail(e); viewer.draw(); break;
       case 'home': state.active = null; history.pushState(null, '', location.pathname + location.search + '#/overview'); route(); break;
       case 'compare-copy': {
@@ -1005,12 +1173,22 @@
     document.addEventListener('click', onClick);
     document.addEventListener('change', ev => {
       const e = active();
-      if (ev.target.matches('[data-act="profile"]')) {
-        state.profile = ev.target.value;
-        if (e && e.status === 'ready') runChecks(e, `Profile changed to ${Fab.profiles[state.profile].label}`);
+      if (ev.target.matches('[data-act="profile"]')) useProfile(ev.target.value);
+      if (ev.target.matches('[data-act="rule"]')) {
+        const r = Fab.rules.RULES.find(x => x.key === ev.target.dataset.key);
+        const prof = Fab.rules.resolve(state.rulesSel);
+        const v = parseFloat(ev.target.value);
+        const errs = Fab.rules.validate(r.key, v, prof.values).filter(i => i.level === 'error');
+        if (errs.length) { toast(`${r.name}: ${errs[0].text}`); renderAll(); return; }
+        if (v === Fab.rules.resolve(prof.base).values[r.key]) Fab.rules.resetRule(prof.id, r.key); else Fab.rules.setRule(prof.id, r.key, v);
+        rulesEdited(prof.id, `${r.name} set to ${Fab.rules.fmtVal(r, v)} in ${prof.name}`);
+        renderAll();
       }
+      if (ev.target.matches('[data-act="profile-name"]') && ev.target.value.trim()) { Fab.rules.rename(state.rulesSel, ev.target.value.trim()); rulesEdited(state.rulesSel, ''); renderAll(); }
+      if (ev.target.matches('[data-act="profile-note"]')) { Fab.rules.setNotes(state.rulesSel, { [ev.target.dataset.key]: ev.target.value.trim() }); rulesEdited(state.rulesSel, ''); }
       if (ev.target.matches('[data-act="thickness"]')) {
         state.thickness = parseFloat(ev.target.value) || 1.6;
+        if (e && e.pinned) e.pinned.thickness = state.thickness;
         if (e && e.status === 'ready') runChecks(e, `Board thickness set to ${state.thickness} mm`);
       }
       if (ev.target.matches('[data-act="signoff-project"]')) { e.signoffSlug = ev.target.value; e.signoffResult = null; renderAll(); }
@@ -1054,6 +1232,13 @@
       if (ev.key === 'Escape') closeInspector();
       if (ev.key === 'o' && !ev.ctrlKey && !ev.metaKey) $('#file-zip').click();
     });
+    $('#file-profile').addEventListener('change', async ev => {
+      const f = ev.target.files[0]; ev.target.value = '';
+      if (!f) return;
+      try { state.rulesSel = Fab.rules.importJson(await f.text()); rulesEdited(state.rulesSel, ''); toast('Profile imported'); renderAll(); }
+      catch (err) { toast('Could not import: ' + err.message); }
+    });
+    syncProfiles();
     window.addEventListener('hashchange', route);
     window.addEventListener('popstate', route);
     route();

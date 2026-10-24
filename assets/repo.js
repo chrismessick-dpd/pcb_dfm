@@ -114,5 +114,50 @@
     return { stored: { run: doc.run, findings: doc.findings, where: q.repo, sentTo: { projectId: q.project } }, pkgRec };
   }
 
-  Fab.repoRuns = { home, upload, fetchRun, markStored, setFetch: f => { fetchImpl = f; } };
+  // Key-sorted JSON, so the same profile always serializes to the same bytes (no needless commits).
+  const canon = o => JSON.stringify(o, (k, v) => v && typeof v === 'object' && !Array.isArray(v) ? Object.keys(v).sort().reduce((a, x) => (a[x] = v[x], a), {}) : v, 1);
+
+  // ---- team fab profiles: <dataPath>fabcheck/profiles/<id>.json in the FTE data repo ----
+  function dataRepo() {
+    const s = load('settings', {}) || {};
+    const owner = s.owner || ((window.SIGNOFF_CONFIG || {}).repos || {}).owner || 'chrismessick-dpd';
+    const repo = owner + '/' + (s.dataRepo || 'ee_design_review_data');
+    const dataPath = s.dataPath ? s.dataPath.replace(/\/+$/, '') + '/' : '';
+    return { repo, dir: dataPath + 'fabcheck/profiles/', branch: s.branch || 'main' };
+  }
+
+  // Pull the team's profiles, merge them per rule into this browser's, and push what is newer here.
+  // Resolves { state: 'shared' | 'local' | 'error', text }.
+  let syncing = null;
+  function syncProfiles() {
+    if (syncing) return syncing;
+    syncing = (async () => {
+      if (!window.Signoff || !window.Signoff.GitHubStore) return { state: 'local', text: 'Kept in this browser only: the GitHub engine did not load.' };
+      if (!token()) return { state: 'local', text: 'Kept in this browser only: no GitHub token in Signoff EE, so profiles are not shared with the team.' };
+      if (!(window.crypto && crypto.subtle)) return { state: 'local', text: 'Kept in this browser only: sharing needs a page served over http://localhost or https.' };
+      const d = dataRepo();
+      try {
+        const store = storeFor(d.repo, d.branch);
+        const entries = (await store.listTree(d.dir)).filter(e => /\.json$/.test(e.path));
+        const td = new TextDecoder(), remote = {};
+        for (const e of entries) {
+          try { const p = JSON.parse(td.decode(await store.blobBytes(e.sha))); if (p && p.id) remote[p.id] = p; } catch (err) { /* skip unreadable */ }
+        }
+        Fab.rules.mergeIn(Object.values(remote));
+        const mine = Fab.rules.all();
+        const files = Object.values(mine).filter(p => !remote[p.id] || canon(p) !== canon(remote[p.id]))
+          .map(p => ({ path: d.dir + p.id + '.json', text: canon(p) }));
+        let pushed = 0;
+        if (files.length) pushed = (await store.putFiles(files, { message: `Fabcheck: update ${files.length} fab profile(s)` })).pushed;
+        const n = Object.values(mine).filter(p => !(p.deleted && p.deleted.v)).length;
+        return { state: 'shared', text: `Shared with the team in ${d.repo}: ${n} custom profile(s)${pushed ? `, ${pushed} updated just now` : ''}.` };
+      } catch (err) {
+        const why = err.status === 404 || err.status === 403 ? `this token can't write to ${d.repo}` : (err.message || String(err));
+        return { state: 'error', text: `Kept in this browser only: ${why}.` };
+      }
+    })().finally(() => { syncing = null; });
+    return syncing;
+  }
+
+  Fab.repoRuns = { home, upload, fetchRun, markStored, dataRepo, syncProfiles, setFetch: f => { fetchImpl = f; } };
 })(window.Fab);

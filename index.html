@@ -31,6 +31,10 @@
       </button>
     </div>
     <nav class="side-list" id="pkg-list"></nav>
+    <button class="side-link" id="rules-link" data-view="rules" title="Fab capability profiles: the limits the checks use">
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 5h12M4 10h12M4 15h12"/><circle cx="8" cy="5" r="1.6" fill="currentColor"/><circle cx="13" cy="10" r="1.6" fill="currentColor"/><circle cx="7" cy="15" r="1.6" fill="currentColor"/></svg>
+      Fab rules
+    </button>
     <div class="side-tools">
       <div class="side-head"><span class="side-label">Dovetail Signoff</span></div>
       <a class="side-link" id="link-signoff" href="../ee_design_review/index.html" title="Open Signoff EE, the electrical design review">
@@ -83,6 +87,7 @@
 <div class="toasts" id="toasts"></div>
 <input type="file" id="file-zip" accept=".zip,.gbr,.txt,.csv,.xlsx,.xls,.drl,.pdf,.ipc,*" multiple hidden>
 <input type="file" id="file-dir" webkitdirectory multiple hidden>
+<input type="file" id="file-profile" accept=".json,application/json" hidden>
 
 <script src="assets/version.js"></script>
 <script src="assets/util.js"></script>

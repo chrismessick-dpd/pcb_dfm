@@ -244,27 +244,71 @@ Cost is about 0.4 s per copper layer on a 43 × 67 mm board, and about 2 s per l
 100 × 100 mm board, on the main thread with the console updating per layer. A Blob-URL Web Worker is
 the next step if boards get bigger.
 
-### Capability profiles
+### Fab rules and capability profiles (`assets/profiles.js`, Fab rules page)
 
-Profiles are plain data in `profiles.js` (mm). The "standard" numbers follow typical Chinese/US
-quick-turn limits; "advanced" is a typical HDI-lite shop. Users can edit numbers in the UI (slice 2:
-save as JSON).
+**The rules.** 18 rules in six groups:
 
-| Parameter | Standard | Advanced |
-|---|---|---|
-| Min trace | 0.127 | 0.075 |
-| Min space | 0.127 | 0.075 |
-| Min drill (mech) | 0.20 | 0.15 |
-| Max aspect ratio | 10 | 12 |
-| Annular ring PTH / via | 0.15 / 0.10 | 0.10 / 0.075 |
-| Copper to edge (routed) | 0.30 | 0.20 |
-| NPTH to copper | 0.25 | 0.20 |
-| Min mask expansion | 0.0 (≥0) | 0.0 |
-| Min mask dam | 0.10 | 0.075 |
-| Min silk line | 0.15 | 0.10 |
-| Min silk text height | 0.80 | 0.60 |
-| Min thermal spoke | 0.20 | 0.15 |
-| Board thickness default | 1.6 | 1.6 |
+| Group | Rules |
+|---|---|
+| Copper | trace, space, copper to edge, smallest isolated copper reported |
+| Drill & vias | minimum drill, aspect ratio, PTH ring, via ring, largest via drill, slot, NPTH to copper |
+| Solder mask | expansion, dam |
+| Silkscreen | line, text height (kept, not checked yet) |
+| Thermals | spoke width, spoke count |
+| Board | default thickness |
+
+Each rule has a plain-English name, a unit (mm first, with mil alongside), a one-line description,
+the checks that use it, and a plausible range.
+
+**Built-in profiles.** These are read-only industry defaults: typical values, not any vendor's
+numbers.
+
+| | Prototype (relaxed, 6/6 mil) | Standard (quick-turn) | Advanced (HDI-lite) |
+|---|---|---|---|
+| Trace / space | 0.152 mm | 0.127 mm | 0.075 mm |
+| Minimum drill | 0.30 | 0.20 | 0.15 |
+| Max aspect ratio | 8 | 10 | 12 |
+| Ring PTH / via | 0.20 / 0.15 | 0.15 / 0.10 | 0.10 / 0.075 |
+| Copper to edge | 0.40 | 0.30 | 0.20 |
+| NPTH to copper | 0.30 | 0.25 | 0.20 |
+| Mask dam | 0.12 | 0.10 | 0.075 |
+| Silk line / text | 0.15 / 1.0 | 0.15 / 0.80 | 0.10 / 0.60 |
+| Spoke width | 0.25 | 0.20 | 0.15 |
+| Slot | 0.60 | 0.50 | 0.45 |
+| Largest via drill | 0.45 | 0.40 | 0.30 |
+| Thickness | 1.6 | 1.6 | 1.6 |
+
+There is no full microvia HDI profile. Fabcheck has no microvia checks yet, so its limits would
+mislead.
+
+**Custom profiles.** "Duplicate and edit" works from any profile.
+- A custom profile keeps a base built-in and per-rule overrides, each stamped `{v, at, by}` like
+  Signoff's records. It also has a name and a source/notes field (fab house, capability doc or URL,
+  date). Fabcheck never supplies vendor numbers.
+- Edited rules show the base value with a Reset button; "Reset all" resets the whole profile.
+- Profiles can be renamed, deleted, and exported or imported as JSON.
+- **Validation:** a value must be positive (mask expansion may be zero) and a count a whole number.
+  Fabcheck warns when a value is outside the plausible range, when space is below trace, when the via
+  ring exceeds the PTH ring, or when the largest via drill is below the minimum drill.
+- **Re-checking:** changing the active profile, or editing one of its rules, re-runs the checks on the
+  open package.
+- **Memory:** the last profile used is remembered per package name and per Signoff project, and picked
+  for the next run.
+
+**Team sharing** uses `fabcheck/profiles/<id>.json` in the FTE data repo, which is found as in
+`repo.js`, through the vendored `listTree` / `blobBytes` / `putFiles`.
+- On open and after edits, Fabcheck pulls the team's profiles, merges them per rule (the newer
+  `at` wins, ties broken by `by`), and pushes what is newer locally.
+- Files are written as key-sorted JSON, so an unchanged profile never commits.
+- With no token or no write access, profiles stay in the browser and the page says so.
+
+**Reproducibility.** `run.settings` carries `profile`, `profileName` and `rules`, a full copy of every
+value used (contract: docs/fabcheck-link.md).
+- Reopening or reproducing a run pins those rules, never the profile as it is now.
+- The page says "Profile edited since this run" when they differ, or that the profile isn't on this
+  computer.
+- Runs without `rules` fall back to the built-in profile they name.
+- The Signoff issue text names the profile.
 
 ## UI
 
