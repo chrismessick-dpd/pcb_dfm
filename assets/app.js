@@ -80,9 +80,17 @@
     const rules = Fab.rules.rulesOfRun(settings);
     entry.pinned = { id: settings.profile, name: runProfileName(settings), rules, thickness: settings.thickness };
     const cur = Fab.rules.resolve(settings.profile);
-    entry.pinned.editedSince = !!(settings.rules && cur && Fab.rules.RULES.some(r => r.key !== 'thickness' && cur.values[r.key] !== rules[r.key]));
+    entry.pinned.editedSince = !!(settings.rules && cur && Fab.rules.RULES.some(r => r.key !== 'thickness' && r.key in settings.rules && cur.values[r.key] !== rules[r.key]));
     entry.pinned.missing = !cur;
+    entry.pinned.added = Fab.rules.newSince(settings);
     state.thickness = settings.thickness || rules.thickness;
+  }
+  // Rules added to Fabcheck after the run was made: their checks didn't exist then.
+  function logAdded(entry) {
+    const a = entry.pinned && entry.pinned.added;
+    if (!a || !a.length) return;
+    const base = (Fab.rules.BUILTIN[entry.pinned.id] || Fab.rules.BUILTIN.standard).label;
+    log(entry, 'dim', `         ${a.length} rule(s) were added to Fabcheck after this run (${a.map(r => r.name.toLowerCase()).join(', ')}). Their checks didn't exist then; a re-run uses the ${base} defaults for them.`);
   }
   const baseName = s => String(s).replace(/\.(zip|tgz)$/i, '');
 
@@ -168,6 +176,7 @@
         if (settings) {
           pinRun(entry, settings);
           log(entry, 'dim', `Using the run's own rules: ${entry.pinned.name}, ${entry.pinned.thickness} mm${settings.rules ? '' : ' (run made before rules were saved; using the built-in profile)'}`);
+          logAdded(entry);
         } else {
           // Default to the profile last used for this package or this Signoff project.
           const pid = opts.link && opts.link.project;
@@ -291,6 +300,7 @@
     log(entry, 'ok', `Opened run ${run.id} from ${stored.where || 'this browser'}: ${new Date(run.at).toLocaleString()}${run.by ? ' by ' + run.by : ''}, ${entry.pinned.name}, ${run.settings.thickness} mm`);
     if (entry.pinned.editedSince) log(entry, 'warn', `Profile "${entry.pinned.name}" has been edited since this run; the run keeps the rules it was made with.`);
     else if (entry.pinned.missing) log(entry, 'dim', `         Profile "${entry.pinned.name}" isn't on this computer; the run's saved rules are used.`);
+    logAdded(entry);
     log(entry, 'dim', `         ${c.error} errors, ${c.warn} warnings, ${c.info} info as stored with the run. "Run checks again" re-checks with this Fabcheck (${(window.FABCHECK_VERSION || {}).hash || 'dev'}; run made with ${(run.tool || {}).version}).`);
     if (stored.rerun && stored.rerun.differs) log(entry, 'warn', `A re-run on ${new Date(stored.rerun.at).toLocaleDateString()} with Fabcheck ${stored.rerun.version} found different results.`);
     entry.status = 'ready';
@@ -698,7 +708,7 @@
       for (const r of Fab.rules.RULES.filter(x => x.group === g)) {
         const v = sel.values[r.key], bv = base.values[r.key], edited = !sel.builtin && v !== bv;
         const issues = Fab.rules.validate(r.key, v, sel.values);
-        const unit = { mm: 'mm', mm2: 'mm²', ratio: ': 1', count: '' }[r.unit];
+        const unit = { mm: 'mm', mm2: 'mm²', ratio: ': 1', count: '', pct: '% points' }[r.unit];
         h += `<div class="item rule-row" style="cursor:default"><div class="rule-name"><b>${esc(r.name)}</b><div class="muted">${esc(r.desc)}</div>
           <div class="item-sub">${r.checks.length ? 'Used by ' + r.checks.map(c => `<span class="tag">${esc(c)}</span>`).join('') : '<span class="muted">Not checked yet</span>'}</div></div>
           <div class="rule-val"><div><input class="input" type="number" step="${r.unit === 'count' ? 1 : r.unit === 'ratio' ? 0.5 : 0.001}" data-act="rule" data-key="${r.key}" value="${v}"${sel.builtin ? ' disabled' : ''}><span class="unit">${unit}</span></div>

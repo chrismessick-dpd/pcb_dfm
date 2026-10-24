@@ -54,7 +54,7 @@
     }
     for (const s of pkg.slots) {
       const len = Math.hypot(s.x2 - s.x1, s.y2 - s.y1) + s.dia;
-      if (s.dia < prof.minSlot - 1e-6) add('slot', 'warn', `Slot width ${fmt(s.dia)} below ${fmt(prof.minSlot)}`, `Slot length ${len.toFixed(3)} mm. Narrow slots need a small router bit; check with the fab.`, { bbox: [Math.min(s.x1, s.x2) - s.dia / 2, Math.min(s.y1, s.y2) - s.dia / 2, Math.max(s.x1, s.x2) + s.dia / 2, Math.max(s.y1, s.y2) + s.dia / 2], value: s.dia, limit: prof.minSlot });
+      if (s.plated && s.dia < prof.minSlot - 1e-6) add('slot', 'warn', `Plated slot width ${fmt(s.dia)} below ${fmt(prof.minSlot)}`, `Slot length ${len.toFixed(3)} mm. Narrow slots need a small router bit; check with the fab.`, { bbox: [Math.min(s.x1, s.x2) - s.dia / 2, Math.min(s.y1, s.y2) - s.dia / 2, Math.max(s.x1, s.x2) + s.dia / 2, Math.max(s.y1, s.y2) + s.dia / 2], value: s.dia, limit: prof.minSlot });
       if (len / s.dia < 2) add('slot', 'warn', `Slot length/width ${(len / s.dia).toFixed(2)} is under 2`, 'Short slots tend to drift; many fabs require length ≥ 2× width.', { at: { x: (s.x1 + s.x2) / 2, y: (s.y1 + s.y2) / 2 } });
     }
 
@@ -201,6 +201,10 @@
     // ---- NPTH to copper ----
     yield 'NPTH to copper';
     const npth = pkg.hits.filter(h => !h.plated);
+    for (const s of pkg.slots) if (!s.plated) {
+      const n = Math.max(1, Math.ceil(Math.hypot(s.x2 - s.x1, s.y2 - s.y1) / 0.25));
+      for (let k = 0; k <= n; k++) npth.push({ x: s.x1 + (s.x2 - s.x1) * k / n, y: s.y1 + (s.y2 - s.y1) * k / n, dia: s.dia, plated: false, slot: true });
+    }
     const drilledAway = [];
     for (const lay of outer) {
       const idx = C.index(lay);
@@ -309,22 +313,143 @@
       const opens = mask.prims.filter(q => q.dark && (q.k === 'F' || q.k === 'R'));
       const og = new G.Grid(1.0);
       opens.forEach(q => og.insert(q, q.bbox));
-      const hitOpen = new Map();
+      const hitOpen = new Map(), nearOpen = new Map();
+      const clr = prof.silkToPad || 0;
       for (const p of silk.prims) {
         if (!p.dark) continue;
-        const cand = og.query(p.bbox);
+        const cand = og.query(Fab.bbox.grow(p.bbox, clr));
         if (!cand.size) continue;
         for (const q of cand) {
           if (hitOpen.has(q)) continue;
-          if (!Fab.bbox.overlaps(p.bbox, q.bbox)) continue;
-          let touch = false;
-          for (const a of C.shapes(p)) { for (const b of C.shapes(q)) if (C.shapeDist(a, b) <= 0) { touch = true; break; } if (touch) break; }
-          if (touch) hitOpen.set(q, p);
+          if (!Fab.bbox.overlaps(Fab.bbox.grow(p.bbox, clr), q.bbox)) continue;
+          let d = Infinity;
+          for (const a of C.shapes(p)) { for (const b of C.shapes(q)) { d = Math.min(d, C.shapeDist(a, b)); if (d <= 0) break; } if (d <= 0) break; }
+          if (d <= 0) { hitOpen.set(q, p); nearOpen.delete(q); }
+          else if (d < clr - 1e-4 && (!nearOpen.has(q) || d < nearOpen.get(q).d)) nearOpen.set(q, { d });
         }
       }
       const list = [...hitOpen.keys()];
       for (const q of list.slice(0, MAX)) add('silk-pad', 'warn', `Silkscreen over exposed pad on ${side}`, `${silk.file.name} prints into a mask opening. The fab will clip it, or ink ends up on the pad.`, { bbox: q.bbox, layer: silk.file.name });
       if (list.length > MAX) add('silk-pad', 'warn', `…${list.length - MAX} more pads with silkscreen on ${side}`, '');
+      // Closer than the clearance but not touching: fabs clip the ink, so this is a heads-up, not a defect.
+      if (nearOpen.size) {
+        const near = [...nearOpen.entries()].sort((a, b) => a[1].d - b[1].d);
+        add('silk-pad', 'info', `${near.length} pad(s) with silkscreen closer than ${fmt(clr)} on ${side}`,
+          `Closest ${fmt(near[0][1].d)}. Fabs clip legend ink back to their pad clearance, so parts of these marks may be trimmed.`, { bbox: near[0][0].bbox, layer: silk.file.name, value: near[0][1].d, limit: clr });
+      }
+    }
+
+    // ---- holes: spacing, board edge, castellations, slot widths ----
+    yield 'Holes: spacing, board edge, castellations';
+    {
+      const holes = pkg.hits.map(h => ({ kind: 'hit', x1: h.x, y1: h.y, x2: h.x, y2: h.y, r: (h.dia || 0) / 2, plated: h.plated, via: h.plated && h.dia <= prof.viaMaxDrill, src: h }))
+        .concat(pkg.slots.map(s => ({ kind: 'slot', x1: s.x1, y1: s.y1, x2: s.x2, y2: s.y2, r: (s.dia || 0) / 2, plated: s.plated, via: false, src: s })));
+      const bbOf = h => [Math.min(h.x1, h.x2) - h.r, Math.min(h.y1, h.y2) - h.r, Math.max(h.x1, h.x2) + h.r, Math.max(h.y1, h.y2) + h.r];
+      const mid = h => ({ x: (h.x1 + h.x2) / 2, y: (h.y1 + h.y2) / 2 });
+      const grid = new G.Grid(2.0);
+      holes.forEach((h, i) => { h.i = i; grid.insert(h, bbOf(h)); });
+      const reach = Math.max(prof.holeGap, prof.viaHoleGap);
+      const close = [], dup = [];
+      for (const a of holes) for (const b of grid.query(Fab.bbox.grow(bbOf(a), reach))) {
+        if (b.i <= a.i) continue;
+        const centers = a.kind === 'hit' && b.kind === 'hit' ? Math.hypot(a.x1 - b.x1, a.y1 - b.y1) : G.segSeg([a.x1, a.y1], [a.x2, a.y2], [b.x1, b.y1], [b.x2, b.y2]);
+        const gap = centers - a.r - b.r;
+        const lim = a.via && b.via ? prof.viaHoleGap : prof.holeGap;
+        if (centers < 0.005 && a.kind === 'hit' && b.kind === 'hit') dup.push({ a, b });
+        else if (gap < lim - 1e-4) close.push({ a, b, gap, lim, vias: a.via && b.via });
+      }
+      for (const d of dup.slice(0, MAX)) add('hole-gap', 'error', `Two holes drilled at the same spot (⌀${d.a.src.dia} and ⌀${d.b.src.dia} mm)`, 'Stacked drill hits break the bit or leave a ragged hole; remove the duplicate.', { at: { x: d.a.x1, y: d.a.y1 } });
+      close.sort((p, q) => p.gap - q.gap);
+      for (const c of close.slice(0, MAX)) {
+        const m1 = mid(c.a), m2 = mid(c.b);
+        add('hole-gap', c.gap < 0 ? 'error' : 'warn', c.gap < 0 ? 'Holes overlap' : `Hole to hole ${fmt(c.gap)}${c.vias ? ' (vias)' : ''}`,
+          `Drill wall to drill wall between ⌀${c.a.src.dia} and ⌀${c.b.src.dia} mm ${c.a.kind === 'slot' || c.b.kind === 'slot' ? 'slot/hole' : 'holes'}. Required ${fmt(c.lim)}; closer holes crack the web between them or wander into each other.`,
+          { bbox: Fab.bbox.grow([Math.min(m1.x, m2.x), Math.min(m1.y, m2.y), Math.max(m1.x, m2.x), Math.max(m1.y, m2.y)], 0.3), value: c.gap, limit: c.lim });
+      }
+      if (close.length > MAX) add('hole-gap', 'warn', `…${close.length - MAX} more hole-to-hole findings`, '');
+      if (!close.length && !dup.length && holes.length) add('hole-gap', 'info', 'Hole spacing passes', `${holes.length} holes and slots checked: vias ${fmt(prof.viaHoleGap)}, others ${fmt(prof.holeGap)} wall to wall.`);
+
+      const o = L.outline;
+      if (o && !o.board.synthetic) {
+        const { grid: og } = C.outlineSegs(o);
+        const castell = [], nearEdge = [];
+        for (const h of holes) {
+          let d = Infinity;
+          for (const s of og.query(Fab.bbox.grow(bbOf(h), prof.holeToEdge + 0.5))) d = Math.min(d, G.segSeg([h.x1, h.y1], [h.x2, h.y2], s.a, s.b));
+          if (!isFinite(d)) continue;
+          if (d < h.r - 0.01) { if (h.plated) castell.push({ h, d }); continue; } // cut by the edge: a castellation (plated) or an edge notch
+          const wall = d - h.r;
+          if (wall < prof.holeToEdge - 1e-4) nearEdge.push({ h, wall });
+        }
+        nearEdge.sort((p, q) => p.wall - q.wall);
+        for (const n of nearEdge.slice(0, MAX)) add('hole-edge', n.wall < prof.holeToEdge / 2 ? 'error' : 'warn', `${n.h.plated ? 'Plated' : 'Non-plated'} hole ${fmt(n.wall)} from the board edge`,
+          `⌀${n.h.src.dia} mm ${n.h.kind}. Required ${fmt(prof.holeToEdge)} from drill wall to the outline or a cutout; closer holes can break out when the board is routed.`, { at: mid(n.h), value: n.wall, limit: prof.holeToEdge });
+        if (nearEdge.length > MAX) add('hole-edge', 'warn', `…${nearEdge.length - MAX} more holes near the edge`, '');
+        if (castell.length) {
+          const small = castell.filter(c => c.h.r * 2 < prof.minCastellation - 1e-4);
+          add('castellation', 'info', `${castell.length} castellated (half) hole(s) on the board edge`, `Plated holes cut by the outline. Order the castellated / plated half-hole option and call it out on the fab drawing.`, { at: mid(castell[0].h) });
+          for (const c of small.slice(0, MAX)) add('castellation', 'error', `Castellated hole ⌀${c.h.src.dia} mm is below ${fmt(prof.minCastellation)}`, 'Small half-holes tear their plating when the edge is routed.', { at: mid(c.h), value: c.h.src.dia, limit: prof.minCastellation });
+        }
+      }
+      for (const s of pkg.slots) if (!s.plated && s.dia < prof.minNpthSlot - 1e-6) add('slot', 'warn', `Non-plated slot ${fmt(s.dia)} wide, below ${fmt(prof.minNpthSlot)}`, 'Unplated slots are routed; most fabs need a wider router bit than for plated slots.', { bbox: [Math.min(s.x1, s.x2) - s.dia / 2, Math.min(s.y1, s.y2) - s.dia / 2, Math.max(s.x1, s.x2) + s.dia / 2, Math.max(s.y1, s.y2) + s.dia / 2], value: s.dia, limit: prof.minNpthSlot });
+    }
+
+    // ---- outline inside corners ----
+    yield 'Outline inside corners';
+    if (L.outline && !L.outline.board.synthetic && prof.minInsideRadius > 0) {
+      const o = L.outline, found = [];
+      // Sharp vertices only: arcs are flattened into many short segments with small turns.
+      const scan = (pts, insideIsLeft) => {
+        const n = pts.length / 2;
+        for (let i = 0; i < n; i++) {
+          const a = (i + n - 1) % n, b = (i + 1) % n;
+          const ax = pts[2 * i] - pts[2 * a], ay = pts[2 * i + 1] - pts[2 * a + 1], bx = pts[2 * b] - pts[2 * i], by = pts[2 * b + 1] - pts[2 * i + 1];
+          const la = Math.hypot(ax, ay), lb = Math.hypot(bx, by);
+          if (la < 0.15 || lb < 0.15) continue;
+          const cross = ax * by - ay * bx, turn = Math.abs(Math.atan2(cross, ax * bx + ay * by)) * 180 / Math.PI;
+          if (turn < 30) continue;
+          if ((cross < 0) === insideIsLeft) found.push({ x: pts[2 * i], y: pts[2 * i + 1], turn });
+        }
+      };
+      const ccw = pts => G.area(pts) > 0;
+      scan(o.board.pts, ccw(o.board.pts));          // concave corners of the board
+      for (const c of o.cutouts) scan(c.pts, !ccw(c.pts)); // every corner of a cutout is an inside corner for the router
+      for (const f of found.slice(0, MAX)) add('outline-corner', 'info', 'Sharp inside corner in the outline',
+        `The router leaves a radius of about ${fmt(prof.minInsideRadius)} here. Draw that radius in the outline if a part must fit into the corner.`, { at: { x: f.x, y: f.y }, value: 0, limit: prof.minInsideRadius });
+      if (found.length > MAX) add('outline-corner', 'info', `…${found.length - MAX} more sharp inside corners`, '');
+    }
+
+    // ---- pads: BGA size, vias in pads ----
+    yield 'BGA pads and vias in pads';
+    for (const lay of outer) {
+      const small = new Map();
+      for (const p of lay.prims) if (p.k === 'F' && p.dark && /BGAPad/i.test(p.ap.fn || '')) {
+        const sz = Math.min(p.ap.w, p.ap.h);
+        if (sz < prof.minBgaPad - 1e-4) { const k = sz.toFixed(3); if (!small.has(k)) small.set(k, []); small.get(k).push(p); }
+      }
+      for (const [k, ps] of small) add('bga-pad', 'warn', `BGA pads ${k} mm, below ${fmt(prof.minBgaPad)}`, `${lay.file.name}: ${ps.length} pad(s). Small BGA lands need ENIG and tighter registration; check with the fab.`, { at: { x: ps[0].x, y: ps[0].y }, layer: lay.file.name, value: +k, limit: prof.minBgaPad });
+      // Only pads that get paste are solder joints; an unpasted pad (a test point) with a via is fine.
+      const paste = L.paste && L.paste[lay.side], pg = new G.Grid(2.0);
+      if (paste) for (const q of paste.prims) if (q.dark) pg.insert(q, q.bbox);
+      const pasted = p => { if (!paste) return true; for (const q of pg.query(p.bbox)) if (Fab.bbox.overlaps(q.bbox, p.bbox)) return true; return false; };
+      const inPad = [];
+      let bare = 0;
+      for (const h of pkg.hits) {
+        if (!h.plated || h.dia > prof.viaMaxDrill) continue;
+        // An SMD or BGA pad that contains the via but is not the via's own pad.
+        const host = C.primsAt(lay, h.x, h.y, p => p.k === 'F' && (/SMDPad|BGAPad/i.test(p.ap.fn || '') || (!p.ap.fn && Math.hypot(p.x - h.x, p.y - h.y) > 0.01)));
+        if (!host.length) continue;
+        if (pasted(host[0])) inPad.push({ h, p: host[0] }); else bare++;
+      }
+      if (bare) add('via-in-pad', 'info', `${bare} via(s) in pads without paste on ${lay.side}`, 'Test points and other unpasted pads: no solder joint, so an open via does no harm.', { layer: lay.file.name });
+      if (!inPad.length) continue;
+      // One finding per pad: a thermal pad with an array of vias is one decision, not twenty.
+      const byPad = new Map();
+      for (const v of inPad) { if (!byPad.has(v.p)) byPad.set(v.p, []); byPad.get(v.p).push(v.h); }
+      if (prof.viaInPad) add('via-in-pad', 'info', `${inPad.length} via(s) in ${byPad.size} SMD/BGA pad(s) on ${lay.side}`, 'Allowed by this profile: order them filled and capped (plated over, POFV) and say so on the fab drawing.', { at: inPad[0].h, layer: lay.file.name });
+      else for (const [p, hs] of [...byPad].slice(0, MAX)) add('via-in-pad', 'warn', hs.length > 1 ? `${hs.length} vias in one pad on ${lay.side}` : `Via in pad on ${lay.side}`,
+        `⌀${hs[0].dia} mm via${hs.length > 1 ? 's' : ''} inside a ${p.ap.w.toFixed(2)} × ${p.ap.h.toFixed(2)} mm pad. Open vias wick solder away from the joint; fill and cap them (an advanced process), tent them from the far side for a thermal pad, or move them off the pad.`, { at: hs[0], bbox: Fab.bbox.grow(p.bbox, 0.2), layer: lay.file.name });
+      if (!prof.viaInPad && byPad.size > MAX) add('via-in-pad', 'warn', `…${byPad.size - MAX} more pads with vias on ${lay.side}`, '');
     }
 
     // ---- raster engine: spacing, slivers, isolated copper, region mask dams ----
@@ -334,9 +459,23 @@
         const r = Fab.raster.copperSpacing(pkg, lay, prof, add, MAX);
         if (!r.gaps && !r.slivers) add('spacing', 'info', `${lay.file.name}: no spacing or sliver problems`, `Checked on a ${Math.round(r.res * 1000)} µm raster against ${prof.minSpace} mm spacing and ${prof.minTrace} mm width.`, { layer: lay.file.name });
       }
+      const cover = [];
       for (const lay of L.copper) {
         yield `Isolated copper · ${lay.file.name}`;
-        Fab.raster.islands(pkg, lay, prof, add, MAX);
+        cover.push(Fab.raster.islands(pkg, lay, prof, add, MAX).copperArea);
+      }
+      // Copper balance: layers mirrored about the stackup center (top/bottom, L2/Ln-1, ...).
+      const o = L.outline;
+      if (o && !o.board.synthetic && L.copper.length >= 2) {
+        const area = o.board.area - o.cutouts.reduce((t, c) => t + c.area, 0);
+        const pct = cover.map(a => Math.min(100, 100 * a / area));
+        add('copper-balance', 'info', 'Copper coverage by layer', L.copper.map((l, i) => `${l.file.name} ${pct[i].toFixed(0)}%`).join(' · ') + '. Approximate: includes pads, traces and pours inside the outline.');
+        const n = L.copper.length;
+        for (let i = 0; i < Math.floor(n / 2); i++) {
+          const j = n - 1 - i, d = Math.abs(pct[i] - pct[j]);
+          if (d > prof.maxCopperImbalance) add('copper-balance', 'warn', `Copper imbalance ${d.toFixed(0)} points between ${L.copper[i].file.name} and ${L.copper[j].file.name}`,
+            `${pct[i].toFixed(0)}% vs ${pct[j].toFixed(0)}% coverage on layers that mirror each other in the stackup. Uneven copper bows and twists the board in reflow; add copper thieving or pour on the lighter layer. Limit ${prof.maxCopperImbalance} points.`, { layer: L.copper[pct[i] < pct[j] ? i : j].file.name, value: d, limit: prof.maxCopperImbalance });
+        }
       }
       for (const side of ['top', 'bottom']) {
         const mask = L.mask[side];

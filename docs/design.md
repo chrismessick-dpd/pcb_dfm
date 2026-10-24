@@ -50,7 +50,7 @@ assets/
     build.js           variant, ODB++ components vs BOM/PnP, paste per pin
     pins.js            IPC-356 pin-1 orientation and pad center vs placement
     dfm.js             geometric DFM checks
-  profiles.js          fab capability profiles (standard / advanced)
+  profiles.js          fab rules catalog and built-in profiles (prototype / standard / advanced)
 docs/design.md
 tools/serve.py         dev server (serves the tool and an optional sample folder)
 ```
@@ -190,7 +190,8 @@ data.
 |---|---|---|
 | Minimum trace width (Conductor apertures / D01 draws) | vector | 1 |
 | Minimum drill, maximum drill, aspect ratio (thickness ÷ drill) | vector | 1 |
-| Minimum slot width | vector | 1 |
+| Minimum slot width, plated and non-plated | vector | 1 |
+| Hole to hole (vias and other holes), duplicate hits, hole to board edge, castellated holes | vector | audit 2026-10 |
 | Annular ring on outer layers (PTH and via) | vector: flash at hit | 1 |
 | Starved thermals (spoke width, spoke count) from relief macros | vector | 1 |
 | Copper to board edge, positive layers | vector: primitive ↔ profile polyline | 1 |
@@ -199,14 +200,16 @@ data.
 | Solder mask expansion per pad (mask flash vs copper flash), tented vias, pads with no opening | vector | 1 |
 | Solder mask dam between *flashed* openings | vector shape distance | 1 |
 | Silkscreen line width minimum | vector | 1 |
-| Silkscreen over exposed pads (flash and region openings) | vector | 1 |
+| Silkscreen over exposed pads (flash and region openings), and closer than the silk-to-pad clearance | vector | 1 |
+| Sharp inside corners of the outline and cutouts (router radius) | vector | audit 2026-10 |
+| BGA pad size (X2 BGAPad) | vector | audit 2026-10 |
 | Solder mask dam involving region openings | raster gap between openings | 2 (shipped) |
 | Copper-to-copper spacing (separate copper areas) | raster feature transform, sub-pixel measurement | 2 (shipped) |
 | Copper necks, wedges and sub-pixel hairlines in pours, pads and planes | raster ridge analysis | 2 (shipped) |
 | Acid traps (acute internal angle < 90° at copper junctions) | vector on track graph | 2 |
-| Via in pad (via hit inside an SMD pad; check against fill/cap spec) | vector | 2 |
+| Via in pad (via hit inside a pasted SMD/BGA pad; checked against the profile's fill/cap setting) | vector | audit 2026-10 |
 | Isolated / unconnected copper (islands without drill or pad) | raster connected components | 2 (shipped) |
-| Copper balance per layer and symmetry across the stack | raster area | 2 |
+| Copper balance per layer and symmetry across the stack | raster area | audit 2026-10 |
 | Minimum silk text height | vector (stroke clustering) | 3 |
 | Drill to copper on inner layers (other nets) | raster | 3 |
 | Panelization / fiducials / tooling holes | vector | 3 |
@@ -246,37 +249,23 @@ the next step if boards get bigger.
 
 ### Fab rules and capability profiles (`assets/profiles.js`, Fab rules page)
 
-**The rules.** 18 rules in six groups:
+**The rules.** 28 rules in six groups:
 
 | Group | Rules |
 |---|---|
-| Copper | trace, space, copper to edge, smallest isolated copper reported |
-| Drill & vias | minimum drill, aspect ratio, PTH ring, via ring, largest via drill, slot, NPTH to copper |
+| Copper | trace, space, copper to edge, smallest isolated copper reported, BGA pad |
+| Drill & vias | minimum drill, aspect ratio, PTH ring, via ring, largest via drill, plated slot, non-plated slot, via-to-via and hole-to-hole spacing, hole to edge, castellated hole, via in pad allowed, NPTH to copper |
 | Solder mask | expansion, dam |
-| Silkscreen | line, text height (kept, not checked yet) |
+| Silkscreen | line, silk to pad, text height (kept, not checked yet) |
 | Thermals | spoke width, spoke count |
-| Board | default thickness |
+| Board | inside-corner radius, copper balance, default thickness |
 
 Each rule has a plain-English name, a unit (mm first, with mil alongside), a one-line description,
 the checks that use it, and a plausible range.
 
 **Built-in profiles.** These are read-only industry defaults: typical values, not any vendor's
-numbers.
-
-| | Prototype (relaxed, 6/6 mil) | Standard (quick-turn) | Advanced (HDI-lite) |
-|---|---|---|---|
-| Trace / space | 0.152 mm | 0.127 mm | 0.075 mm |
-| Minimum drill | 0.30 | 0.20 | 0.15 |
-| Max aspect ratio | 8 | 10 | 12 |
-| Ring PTH / via | 0.20 / 0.15 | 0.15 / 0.10 | 0.10 / 0.075 |
-| Copper to edge | 0.40 | 0.30 | 0.20 |
-| NPTH to copper | 0.30 | 0.25 | 0.20 |
-| Mask dam | 0.12 | 0.10 | 0.075 |
-| Silk line / text | 0.15 / 1.0 | 0.15 / 0.80 | 0.10 / 0.60 |
-| Spoke width | 0.25 | 0.20 | 0.15 |
-| Slot | 0.60 | 0.50 | 0.45 |
-| Largest via drill | 0.45 | 0.40 | 0.30 |
-| Thickness | 1.6 | 1.6 | 1.6 |
+numbers. Every value, its source and the date it was checked are in [fab-rules.md](fab-rules.md)
+(audit of 2026-10-24); values no source states are marked there as rules of thumb.
 
 There is no full microvia HDI profile. Fabcheck has no microvia checks yet, so its limits would
 mislead.
@@ -308,6 +297,8 @@ value used (contract: docs/fabcheck-link.md).
 - The page says "Profile edited since this run" when they differ, or that the profile isn't on this
   computer.
 - Runs without `rules` fall back to the built-in profile they name.
+- Rules added after a run was made fall back to the built-in profile the run named (or Standard), and the
+  console lists them: their checks did not exist when the run was made.
 - The Signoff issue text names the profile.
 
 ## UI

@@ -313,7 +313,9 @@
         { at: { x: c.x, y: c.y }, bbox: Fab.bbox.grow(f.b, 0.2), layer: name, value: f.a });
     }
     if (found.length > MAX) add('isolated', 'warn', `…${found.length - MAX} more isolated copper areas on ${name}`, '');
-    return { res, count: found.length };
+    let cu = 0;
+    for (let i = 0; i < R.mask.length; i++) if (R.mask[i]) cu++;
+    return { res, count: found.length, copperArea: cu * res * res };
   }
 
   Fab.raster = { rasterize, featureTransform, label, gaps, slivers, copperSpacing, maskDams, islands, edt1d };

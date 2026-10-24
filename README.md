@@ -4,6 +4,7 @@ A browser tool that opens an Altium fabrication/assembly package (`.zip` or fold
 way a fab and an assembler would. All processing happens in the browser tab, so no files are uploaded.
 
 - Design, check catalog and phasing: [docs/design.md](docs/design.md)
+- Fab rule defaults, their sources and the 2026-10 audit: [docs/fab-rules.md](docs/fab-rules.md)
 - To use it, open `index.html` (or host the folder) and drop a package onto the page.
 - For development, run the local server below. It serves the tool, plus a read-only sample folder, so
   `?pkg=` can load a package without drag and drop:
