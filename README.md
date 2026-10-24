@@ -17,6 +17,11 @@ baseline and a candidate together for the Revisions tab. The server serves the w
 so Signoff EE is at `/ee_design_review/` and the Signoff hub at `/signoff/` on the same origin. The tools link to each other from
 their sidebars and share the light/dark setting (Signoff's `signoff.v1.settings` key).
 
+## Versions
+
+Run records carry a hash of the tool files (`assets/version.js`). After changing `index.html` or
+anything in `assets/`, run `python tools/stamp_version.py` (`--check` in CI or pre-commit).
+
 ## Look and feel
 
 Fabcheck uses Signoff's stylesheet verbatim (`assets/suite.css`) with Fabcheck-only rules in

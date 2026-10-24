@@ -100,9 +100,14 @@
   }
 
   // ── Pipeline: read → parse (per file) → checks (per step) ──
-  async function openPackage(getFiles, label) {
+  // opts.stored: a kept run ({run, findings}) whose package files getFiles returns; its findings are shown
+  //   as stored (the fast assembly step re-runs only to place parts).
+  // opts.expect: a run record this upload should reproduce (fingerprint check, run's settings).
+  // opts.link: deep-link parameters to apply when the package is ready.
+  async function openPackage(getFiles, label, opts) {
+    opts = opts || {};
     label = baseName(label);
-    const entry = { id: 'p' + (++seq), label, status: 'loading', pkg: null, findings: [], log: [], t0: performance.now(), progress: 0 };
+    const entry = { id: 'p' + (++seq), label, status: 'loading', pkg: null, findings: [], log: [], t0: performance.now(), progress: 0, expect: opts.expect || null, link: opts.link || null };
     state.pkgs.push(entry);
     const prev = active();
     state.active = entry.id;
@@ -132,13 +137,21 @@
       const pkg = r.value;
       pkg.source = files.source;
       entry.pkg = pkg;
+      entry.files = files;
+      if (opts.pkgRec) entry.pkgRec = opts.pkgRec;
       if (skipped.size) log(entry, 'dim', `         + ${[...skipped].map(([t, n]) => `${n} ${t}`).join(', ')}`);
       const bb = pkg.boardBBox;
       log(entry, 'ok', `Using ${pkg.set.x2 ? 'Gerber X2' : 'RS-274X'} set "${pkg.set.dir}": ${pkg.layers.copper.length} copper layers` +
         (bb ? `, board ${(bb[2] - bb[0]).toFixed(2)} × ${(bb[3] - bb[1]).toFixed(2)} mm` : '') +
         (pkg.odb ? `, ODB++ components ${pkg.odb.comps.length}` : ''));
       renderSidebar();
-      await runChecks(entry);
+      if (opts.stored) restoreRun(entry, opts.stored);
+      else {
+        const settings = opts.expect && opts.expect.run.settings;
+        if (settings) { state.profile = settings.profile || state.profile; state.thickness = settings.thickness || state.thickness; log(entry, 'dim', `Using the run's settings: ${Fab.profiles[state.profile].label}, ${state.thickness} mm`); }
+        await runChecks(entry);
+      }
+      if (entry.link) applyLink(entry, entry.link);
     } catch (err) {
       console.error(err);
       entry.status = 'error'; entry.error = String(err && err.message || err);
@@ -196,6 +209,63 @@
     entry.status = 'ready';
     entry.revCache = null;
     renderAll();
+    await saveRun(entry);
+  }
+
+  // Keep the run in this browser (IndexedDB): run record, compact findings, slimmed package.
+  async function saveRun(entry) {
+    try {
+      if (!entry.pkgRec) entry.pkgRec = await Fab.store.packageRecord(entry.files, entry.files.source, entry.label);
+      const pkgRec = entry.pkgRec;
+      const settings = { profile: state.profile, thickness: state.thickness, variant: null };
+      let run = Fab.store.runRecord(entry, pkgRec, settings);
+      const extra = { sentTo: entry.sentTo || null };
+      const exp = entry.expect;
+      if (exp) {
+        if (pkgRec.sha256 !== exp.run.package.sha256) {
+          log(entry, 'warn', `This is not the package that made run ${exp.run.id}: its SHA-256 is ${pkgRec.sha256.slice(0, 12)}…, the run's is ${exp.run.package.sha256.slice(0, 12)}…. Saved as a new run instead.`);
+        } else {
+          const was = exp.run.summary || {}, now = run.summary;
+          const same = was.error === now.error && was.warn === now.warn && was.info === now.info;
+          const nowVersion = run.tool.version, vChanged = (exp.run.tool || {}).version !== nowVersion;
+          // Keep the original id and record, so links from Signoff keep working.
+          extra.rerun = { at: run.at, version: run.tool.version, summary: now, differs: !same };
+          run = Object.assign({}, exp.run);
+          log(entry, same ? 'ok' : 'warn', `Package matches run ${run.id} (SHA-256 ${pkgRec.sha256.slice(0, 12)}…). ` +
+            (same ? 'Same findings as the original run.' : `Findings differ from the original run (${was.error}/${was.warn}/${was.info} then, ${now.error}/${now.warn}/${now.info} now, errors/warnings/info)` +
+              (vChanged ? `: Fabcheck changed since (${(exp.run.tool || {}).version} → ${nowVersion}).` : '.')));
+          entry.rerunDiffers = !same;
+          if (exp.project) extra.sentTo = extra.sentTo || { projectId: exp.project.id, name: (exp.project.meta || {}).name };
+          entry.sentTo = extra.sentTo;
+        }
+        entry.expect = null;
+      }
+      await Fab.store.saveRun(run, entry.findings, pkgRec, extra);
+      entry.run = run;
+      const kept = pkgRec.files.reduce((n, f) => n + f.bytes.length, 0);
+      const left = pkgRec.manifest.files.filter(f => !f.stored).length;
+      log(entry, 'ok', `Saved run ${run.id} in this browser: ${pkgRec.files.length} of ${pkgRec.manifest.files.length} files kept (${(kept / 1048576).toFixed(2)} MB of ${(pkgRec.size / 1048576).toFixed(2)} MB)` + (left ? `, ${left} listed only (drawings, nested archives, unused ODB++ data)` : ''));
+      renderAll();
+    } catch (err) {
+      console.error(err);
+      log(entry, 'warn', 'Could not keep this run in the browser: ' + (err && err.message || err));
+    }
+  }
+
+  // Show a kept run: its stored findings, with the board parsed and parts placed.
+  function restoreRun(entry, stored) {
+    const run = stored.run;
+    entry.run = run; entry.sentTo = stored.sentTo || null;
+    state.profile = (run.settings && run.settings.profile) || state.profile;
+    state.thickness = (run.settings && run.settings.thickness) || state.thickness;
+    try { C.assembly(entry.pkg, profile()); C.pins(entry.pkg); } catch (e) { console.error(e); }
+    entry.findings = stored.findings.map(f => Object.assign({}, f));
+    const c = run.summary || {};
+    log(entry, 'ok', `Opened run ${run.id} from ${stored.where || 'this browser'}: ${new Date(run.at).toLocaleString()}${run.by ? ' by ' + run.by : ''}, ${Fab.profiles[run.settings.profile] ? Fab.profiles[run.settings.profile].label : run.settings.profile}, ${run.settings.thickness} mm`);
+    log(entry, 'dim', `         ${c.error} errors, ${c.warn} warnings, ${c.info} info as stored with the run. "Run checks again" re-checks with this Fabcheck (${(window.FABCHECK_VERSION || {}).hash || 'dev'}; run made with ${(run.tool || {}).version}).`);
+    if (stored.rerun && stored.rerun.differs) log(entry, 'warn', `A re-run on ${new Date(stored.rerun.at).toLocaleDateString()} with Fabcheck ${stored.rerun.version} found different results.`);
+    entry.status = 'ready';
+    renderAll();
   }
 
   function reportStep(entry, label, fresh, ms) {
@@ -229,6 +299,61 @@
     state.view = VIEWS.some(x => x[0] === v) ? v : 'overview';
     closeInspector();
     renderAll();
+    const q = hashParams();
+    if (q.run) openRunLink(q);
+  }
+
+  // Deep link (contract: ee_design_review/docs/fabcheck-link.md):
+  //   #/board?run=<runId>&project=<projectId>&repo=<owner/repo>&check=<check>&x=<mm>&y=<mm>&layer=<layer>
+  function hashParams() {
+    const m = /^#\/\w+\?(.*)$/.exec(location.hash);
+    return m ? Object.fromEntries(new URLSearchParams(m[1])) : {};
+  }
+
+  // Resolve a run: this browser first, then (stage 2) the project's repo, else ask for the package.
+  async function openRunLink(q) {
+    const have = state.pkgs.find(e => e.run && e.run.id === q.run && e.status === 'ready');
+    if (have) { state.active = have.id; applyLink(have, q); return; }
+    if (state.resolving === q.run) return;
+    state.resolving = q.run;
+    try {
+      const stored = await Fab.store.getRun(q.run);
+      const pkgRec = stored && await Fab.store.getPackage(stored.run.package.key);
+      if (stored && pkgRec) {
+        await openPackage(async () => Fab.store.restoreFiles(pkgRec), stored.run.package.name, { stored, pkgRec, link: q });
+        return;
+      }
+      if (Fab.repoRuns && q.repo && q.project) {
+        const got = await Fab.repoRuns.fetchRun(q, (cls, t) => toast(t)).catch(() => null);
+        if (got) { await openPackage(async () => Fab.store.restoreFiles(got.pkgRec), got.stored.run.package.name, { stored: got.stored, pkgRec: got.pkgRec, link: q }); return; }
+      }
+      const known = stored ? { run: stored.run, project: null } : Fab.store.runFromSignoff(q.run);
+      const entry = { id: 'p' + (++seq), label: known ? baseName(known.run.package.name) : 'Run ' + q.run, status: 'needs', pkg: null, findings: [], log: [], t0: performance.now(), progress: 0, need: { runId: q.run, known, link: q } };
+      state.pkgs.push(entry);
+      state.active = entry.id;
+      history.replaceState(null, '', location.pathname + location.search + '#/overview');
+      state.view = 'overview';
+      renderAll();
+    } finally { state.resolving = null; }
+  }
+
+  // Board zoomed to the link's location, with the linked check's findings picked out.
+  function applyLink(entry, q) {
+    state.active = entry.id;
+    state.focusCheck = q.check || null;
+    state.filter = { error: true, warn: true, info: true };
+    state.q = '';
+    go('board');
+    const layer = q.layer && viewer && (viewer.layers.find(l => l.layer && (l.layer.file.name === q.layer || l.label === q.layer)) || {}).layer;
+    if (q.x != null && q.y != null && isFinite(+q.x) && isFinite(+q.y)) {
+      const near = entry.findings.filter(f => (!q.check || f.check === q.check) && (f.at || f.bbox))
+        .map(f => { const c = f.at || Fab.bbox.center(f.bbox); return { f, d: Math.hypot(c.x - q.x, c.y - q.y) }; }).sort((a, b) => a.d - b.d)[0];
+      if (near && near.d < 0.5) focusFinding(near.f);
+      else focusFinding({ id: 'link', at: { x: +q.x, y: +q.y }, layer: layer ? layer.file.name : null });
+    } else if (q.check) {
+      const f = entry.findings.find(x => x.check === q.check && (x.at || x.bbox));
+      if (f) focusFinding(f);
+    }
   }
 
   // ── Rendering ──
@@ -239,7 +364,8 @@
     const boardOn = !!e && e.status !== 'loading' && !!e.pkg && state.view === 'board';
     $('#board-view').hidden = !boardOn;
     $('#page').hidden = boardOn;
-    if (!e) { $('#page').innerHTML = emptyHtml(); return; }
+    if (!e) { $('#page').innerHTML = emptyHtml(); loadRecent(); return; }
+    if (e.status === 'needs') { $('#page').innerHTML = needsHtml(e); return; }
     if (boardOn) { renderBoard(e); return; }
     const page = {
       overview: overviewHtml, findings: findingsHtml, assembly: assemblyHtml, bom: bomHtml, files: filesHtml,
@@ -255,7 +381,7 @@
     $('#pkg-list').innerHTML = state.pkgs.map(e => {
       const n = s => e.findings.filter(f => f.severity === s).length;
       const busy = e.status === 'loading' || e.status === 'running';
-      const sub = e.status === 'error' ? 'Could not read' : !e.pkg ? 'Reading…' : busy ? 'Checking…' :
+      const sub = e.status === 'needs' ? 'Waiting for its package' : e.status === 'error' ? 'Could not read' : !e.pkg ? 'Reading…' : busy ? 'Checking…' :
         [e.pkg.layers.copper.length && e.pkg.layers.copper.length + ' layers', e.pkg.pnp && e.pkg.pnp.parts.length + ' parts', e.pkg.bom && e.pkg.bom.lines.length + ' BOM lines'].filter(Boolean).join(' · ') || 'No board data';
       const right = busy ? '<span class="pkg-spin"></span>' : `<span class="pkg-sev">${n('error') ? `<span class="e">${n('error')}</span>` : ''}${n('warn') ? `<span class="w">${n('warn')}</span>` : ''}</span>`;
       return `<button class="proj${e.id === state.active ? ' active' : ''}" data-act="select" data-id="${e.id}" title="${esc(e.label)}">
@@ -287,8 +413,53 @@
         <div><b>BOM</b>Part numbers decoded against descriptions</div>
         <div><b>DFM</b>Traces, drills, rings, edge, mask, silk</div>
       </div>
-      <div class="foot">${ICON.lock} Files are read in this browser tab and never uploaded.</div>
-    </div></div>`;
+      <div class="foot">${ICON.lock} Files are read in this browser tab. Runs are kept in this browser; only "Send to Signoff EE" stores a package, in that project's private repository.</div>
+    </div><div id="recent"></div></div>`;
+  }
+
+  // Recent runs kept in this browser (IndexedDB), on the home page.
+  async function loadRecent() {
+    let runs = [];
+    try { runs = await Fab.store.recentRuns(); } catch (e) { return; }
+    const el = $('#recent');
+    if (!el || !runs.length) return;
+    const pill = (n, cls) => n ? `<span class="pill ${cls}">${n}</span>` : '';
+    el.innerHTML = `<div class="section-title">Recent runs <span class="chips"><span class="chip">${plural(runs.length, 'run')} in this browser</span></span></div>
+      <div class="card table-wrap"><table class="table compact"><thead><tr><th>Package</th><th>Run</th><th>Settings</th><th>Findings</th><th>Signoff EE</th><th></th></tr></thead><tbody>` +
+      runs.map(r => {
+        const run = r.run, c = run.summary || {};
+        return `<tr data-act="open-run" data-id="${run.id}"><td><b style="font-weight:500">${esc(baseName(run.package.name))}</b><div class="muted mono">${run.package.sha256.slice(0, 12)}… · ${(run.package.size / 1048576).toFixed(1)} MB</div></td>` +
+          `<td>${esc(new Date(run.at).toLocaleString())}<div class="muted">${esc(run.by || '')}${run.stored ? ' · stored in ' + esc(run.stored.repo) : ' · this browser only'}</div></td>` +
+          `<td>${esc((Fab.profiles[run.settings.profile] || {}).label || run.settings.profile)}<div class="muted">${run.settings.thickness} mm</div></td>` +
+          `<td>${pill(c.error, 'error')}${pill(c.warn, 'warn')}${pill(c.info, '')}${r.rerun && r.rerun.differs ? '<div class="muted">re-run differed</div>' : ''}</td>` +
+          `<td>${r.sentTo ? esc(r.sentTo.name || r.sentTo.projectId) : '<span class="muted">not sent</span>'}</td>` +
+          `<td><button class="btn btn-plain" data-act="delete-run" data-id="${run.id}">Delete</button></td></tr>`;
+      }).join('') + '</tbody></table></div>';
+  }
+
+  async function openStoredRun(id) {
+    const stored = await Fab.store.getRun(id);
+    const pkgRec = stored && await Fab.store.getPackage(stored.run.package.key);
+    if (!stored || !pkgRec) { toast('That run is no longer in this browser'); return; }
+    const have = state.pkgs.find(e => e.run && e.run.id === id);
+    if (have) { state.active = have.id; go('overview'); return; }
+    await openPackage(async () => Fab.store.restoreFiles(pkgRec), stored.run.package.name, { stored, pkgRec });
+  }
+
+  // A deep link to a run this browser doesn't have: say which package made it and take a drop.
+  function needsHtml(e) {
+    const k = e.need.known, run = k && k.run;
+    let h = `<div class="page">` + pageHead(e, 'Fabcheck run', run ? baseName(run.package.name) : 'Run ' + e.need.runId, run ? `Run ${esc(run.id)}<span class="sep">·</span>${esc(new Date(run.at).toLocaleString())}${run.by ? '<span class="sep">·</span>' + esc(run.by) : ''}` : '');
+    if (signoffProject(e)) h += `<p style="margin:-14px 0 18px"><button class="btn" data-act="back-signoff">Back to Signoff EE</button></p>`;
+    h += `<div class="drop" style="margin-top:0"><div class="empty-art">${ICON.upload}</div>`;
+    if (run) {
+      h += `<h2>Drop the package that made this run</h2><p>This run isn't stored in this browser${run.stored ? ' and could not be read from ' + esc(run.stored.repo) : ''}. Drop <b>${esc(run.package.name)}</b> (${(run.package.size / 1048576).toFixed(2)} MB) and Fabcheck checks its fingerprint and re-runs it with the run's settings.</p>
+        <dl class="kv" style="text-align:left;max-width:520px;margin:0 auto 18px"><dt>SHA-256</dt><dd class="hash">${esc(run.package.sha256)}</dd><dt>Settings</dt><dd>${esc((Fab.profiles[run.settings.profile] || {}).label || run.settings.profile)}, ${run.settings.thickness} mm</dd><dt>Fabcheck</dt><dd>${esc((run.tool || {}).version || '?')} (this one: ${esc((window.FABCHECK_VERSION || {}).hash || 'dev')})</dd><dt>Findings then</dt><dd>${run.summary.error} errors, ${run.summary.warn} warnings, ${run.summary.info} info</dd></dl>`;
+    } else {
+      h += `<h2>Run ${esc(e.need.runId)} isn't available</h2><p>It isn't stored in this browser, and no Signoff EE issue in this browser names it. Open the issue's project in Signoff EE here first, or drop the package to check it afresh.</p>`;
+    }
+    h += `<div class="actions"><button class="btn btn-primary" data-act="open">Choose .zip…</button><button class="btn" data-act="open-dir">Choose folder…</button></div></div>`;
+    return h + '</div>';
   }
 
   function counts(fs) { const c = { error: 0, warn: 0, info: 0 }; for (const f of fs) c[f.severity]++; return c; }
@@ -311,7 +482,8 @@
       if (pkg.odb) chips.push('ODB++');
     }
     const sub = `<div class="chips">${chips.filter(Boolean).map(t => `<span class="chip">${esc(t)}</span>`).join('')}<span class="chip accent">${esc(Fab.profiles[state.profile].label)}</span></div>`;
-    const actions = `<button class="btn" data-act="rerun"${busy || !pkg ? ' disabled' : ''}>Run checks again</button><button class="btn btn-primary" data-act="view" data-view="board"${!pkg ? ' disabled' : ''}>Open board</button>`;
+    const back = signoffProject(e) ? `<button class="btn" data-act="back-signoff">Back to Signoff EE</button>` : '';
+    const actions = back + `<button class="btn" data-act="rerun"${busy || !pkg ? ' disabled' : ''}>Run checks again</button><button class="btn btn-primary" data-act="view" data-view="board"${!pkg ? ' disabled' : ''}>Open board</button>`;
     let h = `<div class="page wide">` + pageHead(e, 'Fab package', e.label, sub, actions);
     const stat = (cls, n, label, sev) => `<button class="card stat ${cls}" style="border:none;text-align:left" data-act="sev" data-sev="${sev}"><div class="stat-num">${busy ? '–' : n}</div><div class="stat-label">${label}</div></button>`;
     h += `<div class="grid grid-4">${stat('issue', c.error, 'Errors', 'error')}${stat('warn', c.warn, 'Warnings', 'warn')}${stat('info', c.info, 'Info', 'info')}<div class="card stat"><div class="stat-num">${pkg ? pkg.files.length : '–'}</div><div class="stat-label">Files in package</div></div></div>`;
@@ -337,6 +509,11 @@
     return `<div class="console${tall ? ' tall' : ''}"><div class="console-head"><b>fabcheck</b><span>${esc(e.label)}</span><span class="spacer"></span><button data-act="copy-log">Copy</button></div>` +
       `<div class="console-progress"><i id="console-progress" style="width:${Math.round(e.progress * 100)}%"></i></div>` +
       `<div class="console-body" id="console-body">${e.log.map(lineHtml).join('')}${e.status === 'ready' || e.status === 'error' ? '' : '<div class="ln"><span class="t"></span><span class="cursor"></span></div>'}</div></div>`;
+  }
+
+  // The Signoff EE project this run belongs to: sent there, or opened from one of its issues.
+  function signoffProject(e) {
+    return (e.sentTo && e.sentTo.projectId) || (e.link && e.link.project) || (e.need && e.need.link && e.need.link.project) || null;
   }
 
   // ── Send to Signoff ──
@@ -466,9 +643,12 @@
   function renderRail(e) {
     const c = counts(e.findings);
     const chips = ['error', 'warn', 'info'].map(s => `<button class="${state.filter[s] ? 'on' : ''}" data-act="sev-toggle" data-sev="${s}"><span class="dot ${s}"></span>${c[s]}</button>`).join('');
-    let h = `<div class="rail-head"><div class="seg sev-seg">${chips}</div><div class="search" style="max-width:none">${ICON.search}<input id="rail-search" type="search" placeholder="Filter" value="${esc(state.q)}"></div></div><div class="rail-list">`;
+    const fc = state.focusCheck;
+    let h = `<div class="rail-head">${signoffProject(e) ? '<button class="btn btn-plain" style="align-self:flex-start;padding:2px 6px" data-act="back-signoff">← Back to Signoff EE</button>' : ''}` +
+      (fc ? `<div class="chips"><span class="chip accent">Linked check: ${esc(fc)}</span><button class="btn btn-plain" style="padding:2px 6px;font-size:12px" data-act="clear-focus">Show all</button></div>` : '') +
+      `<div class="seg sev-seg">${chips}</div><div class="search" style="max-width:none">${ICON.search}<input id="rail-search" type="search" placeholder="Filter" value="${esc(state.q)}"></div></div><div class="rail-list">`;
     const order = { error: 0, warn: 1, info: 2 };
-    const fs = visibleFindings(e).filter(f => f.at || f.bbox);
+    const fs = visibleFindings(e).filter(f => (f.at || f.bbox) && (!fc || f.check === fc));
     for (const [cat, title] of CATS) {
       const list = fs.filter(f => f.category === cat).sort((a, b) => order[a.severity] - order[b.severity]);
       if (!list.length) continue;
@@ -552,8 +732,11 @@
       const c = f.at || Fab.bbox.center(f.bbox);
       const [x, y] = v.toScreen(c.x, c.y);
       if (x < -10 || y < -10 || x > v.W + 10 || y > v.H + 10) continue;
+      const hot = state.focusCheck && f.check === state.focusCheck;
       ctx.strokeStyle = color[f.severity];
-      ctx.beginPath(); ctx.arc(x, y, 6, 0, 2 * Math.PI); ctx.stroke();
+      ctx.globalAlpha = state.focusCheck && !hot ? 0.35 : 1;
+      ctx.lineWidth = hot ? 3 : 2;
+      ctx.beginPath(); ctx.arc(x, y, hot ? 9 : 6, 0, 2 * Math.PI); ctx.stroke();
     }
     ctx.restore();
   }
@@ -759,15 +942,30 @@
       case 'copy': copyText(t.dataset.text); break;
       case 'signoff-send': {
         try {
-          const r = Fab.signoff.send(e.signoffSlug, Fab.signoff.plan(e.findings), { label: e.label, sha: e.archive && e.archive.fingerprint && e.archive.fingerprint.sha256 });
-          const name = (Fab.signoff.projects().find(p => p.slug === e.signoffSlug) || { meta: {} }).meta.name;
+          const run = e.run ? Object.assign({}, e.run) : null;
+          const r = Fab.signoff.send(e.signoffSlug, Fab.signoff.plan(e.findings), { label: e.label, sha: run ? run.package.sha256 : null, run });
+          const name = r.name;
+          e.sentTo = { projectId: r.projectId, name };
+          if (run) Fab.store.updateRun(run.id, { sentTo: e.sentTo });
           e.signoffResult = `Sent to "${name}": ${r.created} new, ${r.updated} updated${r.resolvedNotes ? `, ${r.resolvedNotes} earlier issue(s) noted as no longer found` : ''}. Sync in Signoff EE to push them.`;
           log(e, 'ok', e.signoffResult);
           toast('Sent to Signoff EE');
+          if (Fab.repoRuns && run) Fab.repoRuns.upload(e, r.projectId, (cls, t) => log(e, cls, t)).then(() => renderAll());
         } catch (err) { toast('Could not send: ' + err.message); }
         renderAll();
         break;
       }
+      case 'back-signoff': {
+        const pid = (e.sentTo && e.sentTo.projectId) || (e.link && e.link.project) || (e.need && e.need.link && e.need.link.project);
+        if (!Fab.signoff.openFindings(pid)) toast('That project is not in Signoff EE in this browser');
+        break;
+      }
+      case 'open-run': if (!ev.target.closest('[data-act="delete-run"]')) openStoredRun(t.dataset.id); break;
+      case 'delete-run':
+        if (confirm('Delete this run and, if no other run uses it, its stored package from this browser?')) Fab.store.deleteRun(t.dataset.id).then(() => renderAll());
+        break;
+      case 'clear-focus': state.focusCheck = null; renderRail(e); viewer.draw(); break;
+      case 'home': state.active = null; history.pushState(null, '', location.pathname + location.search + '#/overview'); route(); break;
       case 'compare-copy': {
         const other = state.pkgs.find(p => p.id === ($('[data-act="copy-with"]') || {}).value);
         if (!other) break;
@@ -781,6 +979,8 @@
   function copyText(s) { navigator.clipboard.writeText(s).then(() => toast('Copied'), () => toast('Copy failed')); }
 
   function init() {
+    // Signoff EE opens Fabcheck in this named window, so following links reuses one tab.
+    if (!window.name) window.name = 'dovetail-fabcheck';
     applyTheme(readTheme());
     document.addEventListener('click', onClick);
     document.addEventListener('change', ev => {
@@ -807,8 +1007,15 @@
     });
     $('#side-seg').addEventListener('click', ev => { const b = ev.target.closest('button'); if (b) setSide(b.dataset.side); });
     // Copy the FileList before clearing the input (clearing it empties the list).
-    $('#file-zip').addEventListener('change', ev => { const fl = Array.from(ev.target.files); ev.target.value = ''; if (fl.length) openPackage(() => Fab.loader.fromFileList(fl), fl.length === 1 ? fl[0].name : plural(fl.length, 'file')); });
-    $('#file-dir').addEventListener('change', ev => { const fl = Array.from(ev.target.files); ev.target.value = ''; if (fl.length) openPackage(() => Fab.loader.fromFileList(fl), (fl[0].webkitRelativePath || '').split('/')[0] || 'Folder'); });
+    // A run waiting for its package takes the next upload as that package.
+    const waiting = () => {
+      const a = active();
+      if (!a || a.status !== 'needs') return {};
+      state.pkgs = state.pkgs.filter(x => x !== a);
+      return a.need.known ? { expect: a.need.known, link: a.need.link } : { link: a.need.link };
+    };
+    $('#file-zip').addEventListener('change', ev => { const fl = Array.from(ev.target.files); ev.target.value = ''; if (fl.length) openPackage(() => Fab.loader.fromFileList(fl), fl.length === 1 ? fl[0].name : plural(fl.length, 'file'), waiting()); });
+    $('#file-dir').addEventListener('change', ev => { const fl = Array.from(ev.target.files); ev.target.value = ''; if (fl.length) openPackage(() => Fab.loader.fromFileList(fl), (fl[0].webkitRelativePath || '').split('/')[0] || 'Folder', waiting()); });
     let dragDepth = 0;
     document.addEventListener('dragenter', ev => { ev.preventDefault(); dragDepth++; document.body.classList.add('dragging'); });
     document.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; document.body.classList.remove('dragging'); } });
@@ -820,7 +1027,7 @@
       const n = drop.entries.length || drop.files.length;
       if (!n) return;
       const first = drop.entries[0] || drop.files[0];
-      openPackage(() => Fab.loader.fromDrop(drop), n === 1 ? first.name : plural(n, 'item'));
+      openPackage(() => Fab.loader.fromDrop(drop), n === 1 ? first.name : plural(n, 'item'), waiting());
     });
     document.addEventListener('keydown', ev => {
       if (ev.target.matches('input, select, textarea')) return;

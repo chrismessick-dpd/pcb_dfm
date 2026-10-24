@@ -15,7 +15,7 @@
 <body>
 <div class="app" id="app">
   <aside class="sidebar" id="sidebar">
-    <div class="brand">
+    <div class="brand" data-act="home" style="cursor:pointer" title="Home: recent runs">
       <div class="brand-mark" aria-hidden="true">
         <svg class="board" viewBox="0 0 18 18" fill="none" stroke="#fff" stroke-width="1.6"><rect x="1.5" y="1.5" width="15" height="15" rx="2.5"/><circle cx="6" cy="6" r="1.4" fill="#fff" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="#fff" stroke="none"/><path d="M7.2 6H10a2 2 0 0 1 2 2v2.8" stroke-linecap="round"/></svg>
       </div>
@@ -84,6 +84,7 @@
 <input type="file" id="file-zip" accept=".zip,.gbr,.txt,.csv,.xlsx,.xls,.drl,.pdf,.ipc,*" multiple hidden>
 <input type="file" id="file-dir" webkitdirectory multiple hidden>
 
+<script src="assets/version.js"></script>
 <script src="assets/util.js"></script>
 <script src="assets/gerber.js"></script>
 <script src="assets/excellon.js"></script>
@@ -97,6 +98,7 @@
 <script src="assets/render.js"></script>
 <script src="assets/raster.js"></script>
 <script src="assets/signoff.js"></script>
+<script src="assets/store.js"></script>
 <script src="assets/archive.js"></script>
 <script src="assets/revisions.js"></script>
 <script src="assets/checks/common.js"></script>

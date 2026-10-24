@@ -82,7 +82,11 @@
       const refs = [...new Set(g.list.flatMap(f => f.refs || []))].slice(0, 40).join(', ');
       const severity = g.severity === 'error' ? 'major' : 'minor';
       const existing = p.custom[id];
-      p.custom[id] = stamp(Object.assign({}, existing || { id, createdAt: t }, { id, checklist: 'fab', section: sectionFor(first), text, hint, severity, deleted: false, source: { tool: 'fabcheck', check: g.check, gone: false } }), who);
+      p.custom[id] = stamp(Object.assign({}, existing || { id, createdAt: t }, { id, checklist: 'fab', section: sectionFor(first), text, hint, severity, deleted: false, source: {
+        tool: 'fabcheck', check: g.check, gone: false, run: source.run || null,
+        // Up to 50 clickable locations per check (contract: docs/fabcheck-link.md); the rest stay in the hint.
+        locations: g.list.filter(f => f.at || f.bbox).slice(0, 50).map(f => { const c = f.at || Fab.bbox.center(f.bbox); return { x: +c.x.toFixed(4), y: +c.y.toFixed(4), layer: f.layer || null, label: f.title }; }),
+      } }), who);
       const prev = p.items[id] || {};
       if (!existing || existing.deleted) {
         p.items[id] = stamp(Object.assign({}, prev, { status: 'issue', severity, resolution: '', ref: refs, text, checklist: 'fab' }), who);
@@ -112,8 +116,19 @@
     // Open the project's Findings page next time Signoff loads.
     const ui = load('ui', {}) || {};
     save('ui', Object.assign(ui, { slug, view: 'findings' }));
-    return { created, updated, resolvedNotes };
+    return { created, updated, resolvedNotes, projectId: p.id, slug, name: (p.meta || {}).name };
   }
 
-  Fab.signoff = { projects, plan, send, sectionFor, stableId };
+  // Show a project's Findings in Signoff EE, reusing its named window (an open Signoff tab also
+  // follows signoff.v1.ui through its storage listener).
+  function openFindings(projectId) {
+    const all = load('projects', {});
+    const slug = Object.keys(all).find(k => all[k].id === projectId);
+    if (slug) save('ui', Object.assign(load('ui', {}) || {}, { slug, view: 'findings' }));
+    window.open('../ee_design_review/index.html', 'dovetail-signoff-ee');
+    return !!slug;
+  }
+  function projectById(id) { const all = load('projects', {}); const slug = Object.keys(all).find(k => all[k].id === id); return slug ? Object.assign({ slug }, all[slug]) : null; }
+
+  Fab.signoff = { projects, plan, send, sectionFor, stableId, openFindings, projectById };
 })(window.Fab);

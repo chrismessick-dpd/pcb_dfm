@@ -313,6 +313,39 @@ when both are served from the tools folder.
   (storage event, `mergeProjects`), and follows `signoff.v1.ui` view requests. An open Signoff tab
   picks up sent issues without a reload.
 
+### Kept runs and links with Signoff EE (`assets/store.js`)
+
+The contract shared with Signoff EE is `ee_design_review/docs/fabcheck-link.md`. Fabcheck follows it:
+
+- **Kept runs.** Every finished run is saved in IndexedDB (database `fabcheck`), and the home page
+  lists Recent runs. Each run has:
+  - a run record (id, time, by, Fabcheck version from `assets/version.js`, package key/sha256/name/size,
+    settings, summary, `stored`);
+  - compact findings;
+  - the slimmed package, kept once per package key.
+- **Slimming.** Fabcheck keeps every file it parses by content. Files whose type comes only from their
+  name or path are listed in the manifest only: PDFs, nested archives, ODB++ files other than
+  `comp_+_top/bot/components`, and images or CAD files. A re-run restores them as empty placeholders, so
+  classification and findings are identical.
+  - Verified on two sample packages: sample A gives 81 = 81 findings, and sample B 310 = 310.
+  - Sample A keeps 25 of 80 files: 0.91 MB of a 1.71 MB zip.
+  - Sample B keeps 30 of 68 files: 5.26 MB of a 9.05 MB zip.
+- **Deep links.** `#/board?run=…&project=…&repo=…&check=…&x=…&y=…&layer=…` resolves the run in order:
+  1. IndexedDB, which opens the stored findings without re-running and re-parses only to place parts;
+  2. the project's repo (stage 2);
+  3. otherwise the run record on the Signoff issue (`source.run` in `signoff.v1.projects`). Fabcheck
+     then asks for that package by name and sha256.
+
+  A dropped package is fingerprint-checked and re-run with the run's settings. A match keeps the
+  original run id and notes whether the findings differ, and whether the Fabcheck version changed. A
+  mismatch is saved as a new run.
+- **Opening the link.** The Board view zooms to x, y, turns on the layer, selects the nearest finding of
+  that check, and marks the check's findings ("Linked check").
+- **Windows.** Fabcheck names its window `dovetail-fabcheck`. "Back to Signoff EE" writes
+  `signoff.v1.ui` and opens `dovetail-signoff-ee`.
+- **Send to Signoff.** It puts `source.run` (`stored: null` until stage 2 uploads it) and up to 50
+  `source.locations` on each issue.
+
 ## Phasing
 
 1. **Slice 1 (this session).** Load (zip, files, dev `?pkg=` URL), classify, parse Gerber, Excellon,
