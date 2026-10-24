@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light dark">
+<title>Fabcheck · PCB package DFM</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23004952'/%3E%3Crect x='8' y='8' width='16' height='16' rx='2.5' fill='none' stroke='%23fff' stroke-width='2'/%3E%3Ccircle cx='13' cy='13' r='1.8' fill='%23fff'/%3E%3Ccircle cx='19' cy='19' r='1.8' fill='%23fff'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/suite.css">
+<link rel="stylesheet" href="assets/styles.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js"></script>
+</head>
+<body>
+<div class="app" id="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <svg class="board" viewBox="0 0 18 18" fill="none" stroke="#fff" stroke-width="1.6"><rect x="1.5" y="1.5" width="15" height="15" rx="2.5"/><circle cx="6" cy="6" r="1.4" fill="#fff" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="#fff" stroke="none"/><path d="M7.2 6H10a2 2 0 0 1 2 2v2.8" stroke-linecap="round"/></svg>
+      </div>
+      <div class="brand-text">
+        <div class="brand-name">Fabcheck</div>
+        <div class="brand-sub">Dovetail Fab Package DFM</div>
+      </div>
+    </div>
+    <div class="side-head">
+      <span class="side-label">Packages</span>
+      <button class="icon-btn" data-act="open" title="Open a package (O)" aria-label="Open a package">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 3v10M3 8h10"/></svg>
+      </button>
+    </div>
+    <nav class="side-list" id="pkg-list"></nav>
+    <div class="side-tools">
+      <div class="side-head"><span class="side-label">Dovetail Signoff</span></div>
+      <a class="side-link" id="link-signoff" href="../ee_design_review/index.html" title="Open Signoff EE, the electrical design review">
+        <span class="tool-mark"><svg viewBox="0 0 16 18"><path d="M0 0h6v7.6L0 8.4zM0 9.6l6 .8V18H0z" fill="#fff"/><path d="M7 0l9 3v12l-9 3v-7.4l5-.9V8.3l-5-.9z" fill="#fff"/></svg></span>
+        <span>Signoff EE<small>Electrical design review</small></span>
+      </a>
+      <a class="side-link" href="../signoff/index.html" title="Back to Dovetail Signoff, all tools">
+        <span class="tool-mark"><svg viewBox="0 0 18 18" fill="#fff"><rect x="2" y="2" width="6" height="6" rx="1.5"/><rect x="10" y="2" width="6" height="6" rx="1.5"/><rect x="2" y="10" width="6" height="6" rx="1.5"/><rect x="10" y="10" width="6" height="6" rx="1.5"/></svg></span>
+        <span>All tools<small>Dovetail Signoff home</small></span>
+      </a>
+    </div>
+    <div class="side-foot">
+      <div class="privacy" title="Packages are read and checked inside this browser tab. Nothing is uploaded.">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+        <span>Files stay in this browser</span>
+      </div>
+      <button class="icon-btn" data-act="theme" id="theme-btn" title="Dark mode" aria-label="Toggle dark mode"></button>
+    </div>
+  </aside>
+
+  <main class="main" id="main">
+    <header class="toolbar" id="toolbar">
+      <button class="icon-btn menu-toggle" data-act="nav" aria-label="Packages">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 6h14M3 10h14M3 14h14"/></svg>
+      </button>
+      <div class="toolbar-center"><div class="seg" id="view-seg" role="tablist"></div></div>
+      <div class="toolbar-actions" id="toolbar-actions">
+        <button class="btn btn-primary" data-act="open"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 10.5V2.5M4.5 6 8 2.5 11.5 6M2.5 10v2.5a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V10"/></svg><span class="btn-label">Open</span></button>
+      </div>
+    </header>
+    <div id="page"></div>
+    <section class="board-view" id="board-view" hidden>
+      <div class="layers-pane" id="layers-pane"></div>
+      <div class="board" id="board-wrap">
+        <canvas id="canvas"></canvas>
+        <div class="board-hud">
+          <div class="seg" id="side-seg"><button data-side="top" class="on">Top</button><button data-side="bottom">Bottom</button></div>
+          <div class="seg"><button data-act="fit">Fit</button></div>
+          <div class="seg"><button id="pnp-btn" class="on" data-act="pnp">Placements</button></div>
+        </div>
+        <div class="tip" id="tip"></div>
+        <div class="coords" id="coords">–</div>
+      </div>
+      <aside class="rail" id="rail"></aside>
+    </section>
+  </main>
+</div>
+
+<aside class="inspector" id="inspector" aria-label="Finding detail"></aside>
+<div class="toasts" id="toasts"></div>
+<input type="file" id="file-zip" accept=".zip,.gbr,.txt,.csv,.xlsx,.xls,.drl,.pdf,.ipc,*" multiple hidden>
+<input type="file" id="file-dir" webkitdirectory multiple hidden>
+
+<script src="assets/util.js"></script>
+<script src="assets/gerber.js"></script>
+<script src="assets/excellon.js"></script>
+<script src="assets/assembly.js"></script>
+<script src="assets/odb.js"></script>
+<script src="assets/parts.js"></script>
+<script src="assets/ipc356.js"></script>
+<script src="assets/loader.js"></script>
+<script src="assets/classify.js"></script>
+<script src="assets/profiles.js"></script>
+<script src="assets/render.js"></script>
+<script src="assets/raster.js"></script>
+<script src="assets/signoff.js"></script>
+<script src="assets/archive.js"></script>
+<script src="assets/revisions.js"></script>
+<script src="assets/checks/common.js"></script>
+<script src="assets/checks/package.js"></script>
+<script src="assets/checks/assembly.js"></script>
+<script src="assets/checks/build.js"></script>
+<script src="assets/checks/pins.js"></script>
+<script src="assets/checks/dfm.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

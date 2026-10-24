@@ -1,0 +1,10 @@
+# Local only
+.claude/
+__pycache__/
+*.pyc
+# Never commit credentials or customer fab packages
+*token*.txt
+*access*.txt
+samples/
+*.zip
+*.tgz

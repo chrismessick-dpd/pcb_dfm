@@ -1,0 +1,352 @@
+# PCB DFM — design
+
+Working name: **Fabcheck**. A browser tool that opens an Altium fabrication/assembly package and
+reports what a fab and assembly house would push back on. It is meant to replace the ad-hoc package
+reviews we have been doing by hand, and to be good enough to show customers later, in the same way PCB
+vendors give away their DFM viewers.
+
+## Goals and constraints
+
+- **Client-side only.** Files are read with `FileReader` / `JSZip` in the page and are never uploaded.
+  This is the main selling point if customers use it.
+- **Static files, no build step.** The tool is `index.html` plus plain JS/CSS. It can be opened from disk
+  (`file://`) or hosted on any static host.
+  - Because of `file://`, Chrome and Edge block local ES-module imports and `new Worker('x.js')`.
+    Our own code therefore uses classic `<script>` tags that share one `window.Fab` namespace.
+    Heavy work runs on the main thread in slice 1. If it needs a worker later, the worker is created
+    from a Blob URL.
+- **CDN libraries pinned to exact versions** (cdnjs):
+  - `jszip@3.10.1` reads zip packages.
+  - `xlsx@0.18.5` (SheetJS) reads BOMs in `.xlsx`/`.xls`/`.csv`.
+  - Later phases: `pako@2.1.0` for ODB++ `.tgz` and `pdf.js` for previewing the fab drawing.
+- **Metric first.** Everything is converted to mm on parse. Mil is shown only as a secondary readout.
+- **Style** matches the Signoff design-review tool: system font, `#f5f5f7` canvas, white rounded cards,
+  translucent sidebar, Dovetail teal `#004952` accent, and dark mode via `prefers-color-scheme`.
+
+## Architecture
+
+```
+index.html
+assets/
+  styles.css           tokens + layout (Apple-like, light/dark)
+  app.js               UI shell: load, tabs, findings list, wiring
+  util.js              Fab namespace, text decoding, geometry helpers
+  loader.js            zip/folder/file ingestion -> {path, bytes, text()}
+  classify.js          file classification + package inventory/missing-item checks
+  gerber.js            RS-274X/X2 parser -> Layer {primitives, apertures, attrs, bbox}
+  excellon.js          NC drill parser -> {tools, hits, slots}
+  assembly.js          pick-and-place + BOM parsers
+  odb.js               ODB++ component layers (part names, .no_pop, pin positions)
+  parts.js             offline passive part-number decoder + description parser
+  ipc356.js            IPC-D-356 netlist parser with unit calibration
+  raster.js            raster geometry engine (spacing, slivers, islands, mask dams)
+  archive.js           package SHA-256, nested ODB++ archives, copy compare
+  revisions.js         baseline vs current diff (BOM, placements, Gerber, drill)
+  signoff.js           Send to Signoff EE (writes Signoff's localStorage format)
+  render.js            canvas renderer (Path2D per layer, pan/zoom, markers)
+  checks/
+    package.js         inventory, units/format, coordinate GUIDs, drill report agreement
+    assembly.js        PnP <-> BOM <-> Gerber cross-checks, BOM audit
+    build.js           variant, ODB++ components vs BOM/PnP, paste per pin
+    pins.js            IPC-356 pin-1 orientation and pad center vs placement
+    dfm.js             geometric DFM checks
+  profiles.js          fab capability profiles (standard / advanced)
+docs/design.md
+tools/serve.py         dev server (serves the tool and an optional sample folder)
+```
+
+The data flow is a pipeline of pure functions over one `Package` object:
+
+`ingest → classify → parse (gerber/excellon/pnp/bom) → align → checks → findings[] → UI`.
+
+Every finding has the same shape, so the UI only has to know one format:
+
+```js
+{ id, check, category, severity: 'error'|'warn'|'info', title, detail,
+  layer?, at?: {x, y}, bbox?: [x0, y0, x1, y1], value?, limit?, refs?: ['R12'] }
+```
+
+Clicking a finding with `at` or `bbox` zooms the render there, turns on its layer and drops a marker.
+
+### Gerber parsing: custom, not tracespace
+
+We considered `@tracespace/parser` + `@tracespace/plotter`. We are writing our own parser for these
+reasons:
+- DFM needs a geometry model we control: primitives in mm, with the aperture function, polarity and
+  macro parameters attached. tracespace's plot tree is aimed at SVG output, so we would still need to
+  re-derive that geometry.
+- Altium only emits a small subset: `FS`, `MO`, `AD` (C/R/O/P), `AM` (primitives 1, 4, 5, 7, 20, 21),
+  `G01/02/03`, `G75`, `G36/37`, `LP`, `D01/02/03` and `SR`. It also writes X2 attributes either as
+  `%TF…%` or, in 274X files, as `G04 #@! TF…` comments. Covering that is a few hundred lines.
+- We avoid a dependency on an alpha-version ESM package.
+
+tracespace stays an option as a second opinion renderer for files from other CAD tools.
+
+Primitive model (all in mm):
+
+| kind     | fields                                   | from                     |
+|----------|------------------------------------------|--------------------------|
+| `flash`  | x, y, aperture → shape polygons / circle | D03                      |
+| `line`   | x1, y1, x2, y2, aperture                 | D01 in G01               |
+| `arc`    | x1, y1, x2, y2, cx, cy, cw, aperture     | D01 in G02/G03           |
+| `region` | contours (arcs flattened)                | G36/G37                  |
+
+Each primitive also carries `dark` (LP), `fn` (X2 AperFunction) and its source line number.
+Negative files (`FilePolarity,Negative`, used for Altium plane layers) are flagged on the layer. The
+renderer fills the board profile and then clears the features.
+
+### Excellon
+
+Excellon files come in several flavours, so the parser does not assume one:
+- Header: `METRIC|INCH`, `LZ|TZ`, `;FILE_FORMAT=i:d`, tool table `TnnC<dia>`, and Altium's
+  `;TYPE=PLATED|NON_PLATED` comment, which marks plating per tool.
+- Body: coordinates may carry a decimal point or have zeros suppressed (leading or trailing, per the
+  `LZ`/`TZ` flag). Slots come either from `G85` or from rout blocks (`G00 … M15 G01 … M16`).
+- The result is cross-checked against the Altium `.DRR` drill report (count per tool).
+
+### Coordinate alignment
+
+Gerber, drill, PnP and IPC-356 data can each use a different origin. For PnP we try a short list of
+candidate offsets: zero, the profile's bottom-left corner, and the drill-file origin. We keep the one that
+puts the most SMD placements next to copper pads on their stated side. If that offset is not zero, we
+report it as a finding.
+
+## Check catalog
+
+Severity reflects what a fab or assembler would do: **error** means it will be rejected or built wrong,
+**warn** means a query or yield risk, and **info** is context. The slice column is when a check is built;
+"1" is this session.
+
+### A. Package (inventory and consistency)
+
+| Check | Slice |
+|---|---|
+| Classify every file: layer type, side, copper index, units, format, generator, X2 function | 1 |
+| Missing essentials: top/bottom copper, mask, silk, outline, PTH drill, PnP, BOM | 1 |
+| Missing recommended items: paste, fab drawing, IPC-356 netlist, drill report, ODB++/IPC-2581 | 1 |
+| Two Gerber sets present (274X and X2); pick X2 and report it | 1 |
+| `TF.SameCoordinates` GUID differs within a set (files from mixed output runs) | 1 |
+| Copper layer count agrees across Gerber, drill report, IPC-356 stackup and ODB matrix | 1 (Gerber vs drill vs IPC-356) |
+| Drill file per-tool hit counts match `.DRR` | 1 |
+| Units and format declared and consistent; mixed inch/mm noted | 1 |
+| Board outline is closed; drill and copper extents fit inside it | 1 |
+| Gerber 274X set vs X2 set are geometrically the same (XOR) | 3 |
+
+### B. Assembly cross-check (PnP ↔ BOM ↔ Gerber)
+
+| Check | Slice |
+|---|---|
+| Each placed designator is in the BOM, and each BOM designator is placed | 1 |
+| BOM line quantity equals its designator count | 1 |
+| DNP: in PnP but not BOM (or flagged DNP/Not Fitted) is reported as DNP, not as an error | 1 |
+| PnP comment vs BOM Name/MPN, and footprint consistent per BOM line | 1 |
+| Placement inside the board outline | 1 |
+| SMD pads (copper/paste flashes) near the placement on its stated side, and not only on the other side | 1 |
+| Rotation sanity for 2-terminal parts: pad axis vs rotation, compared within the footprint's population | 1 |
+| Pin 1 / polarity: IPC-356 pin 1 direction (in the footprint frame, from the PnP rotation) consistent across every part with the same footprint; outliers, typically 180°, flagged | 2 (shipped) |
+| Pin 1 vs silkscreen polarity marker | 3 |
+| Placement center vs IPC-356 pad center (pad bounding box); connectors listed separately | 2 (shipped) |
+
+### B2. Build consistency (variant, ODB++ components, stencil)
+
+These checks were taken from a manual release audit done earlier on the same kind of packages. That
+audit found real problems which only show up when the BOM, the PnP, the ODB++ component data and the
+paste layer are read together. Examples: outputs generated without the build variant, which left
+paste on unfitted Tag-Connect pads, and BOM part-number substitutions that did not match the board
+data.
+
+| Check | Slice |
+|---|---|
+| Variant named in each status report and in the PnP header; mixed variants, or "no variant" while the BOM leaves parts off | 1 |
+| ODB++ `comp_+_top/bot`: `.no_pop` agrees with the BOM; placed in ODB++ but not on the BOM; on the BOM but missing from ODB++ | 1 |
+| ODB++ part name vs BOM MPN (substitutions), ignoring generic library names | 1 |
+| PnP vs ODB++ position and side (side error; centroid-vs-origin offsets listed as info) | 1 |
+| Paste per pin (from ODB++ toeprints): fitted SMD pins have paste (windowed thermal pads recognized); unfitted parts have none; paste not on any pin | 1 |
+| ODB++ `.tgz`/`.zip` archives match the extracted `odb/` tree; package SHA-256; compare with another copy | 1 |
+| Revision compare: two packages, or the package BOM vs a previously used BOM. Lists added/removed designators, changed MPN/footprint/description, and Gerber geometry diffs per layer | 1 (first cut) |
+
+### C. BOM audit (offline)
+
+| Check | Slice |
+|---|---|
+| Missing MPN or manufacturer | 1 |
+| Duplicate designators across lines | 1 |
+| Same MPN on several lines with different values or footprints | 1 |
+| Name/Comment looks like an MPN but differs from MPN 1 | 1 |
+| Lifecycle / revision status: Obsolete, EOL, NRND, Last Time Buy, Deleted | 1 |
+| Single-source summary: no Manufacturer 2 column, or it is empty | 1 |
+| Size code mismatch: 0402/0603/0805… in footprint vs description/MPN | 1 |
+| Part number decoded offline vs description: value, voltage, dielectric, tolerance (Cal-Chip, Yageo, Murata, Samsung, KEMET, AVX, TDK, Vishay, Panasonic, Stackpole passives) | 1 |
+| Manufacturer column vs part-number prefix (e.g. a KEMET number listed as Yageo) | 1 |
+| Value column vs part type (pF on a diode, kΩ on an LED) | 1 |
+| BOM has no Manufacturer / MPN column | 1 |
+| Missing description parameters for alternate sourcing (dielectric, tolerance, current rating) | 2 |
+| "No substitution without approval" candidates (soft-termination, high-voltage, automotive, crystals) | 2 |
+| Online lifecycle/stock (Octopart/DigiKey). Opt-in only, because it sends MPNs off the machine | 4 |
+
+### D. Fabrication DFM
+
+| Check | Method | Slice |
+|---|---|---|
+| Minimum trace width (Conductor apertures / D01 draws) | vector | 1 |
+| Minimum drill, maximum drill, aspect ratio (thickness ÷ drill) | vector | 1 |
+| Minimum slot width | vector | 1 |
+| Annular ring on outer layers (PTH and via) | vector: flash at hit | 1 |
+| Starved thermals (spoke width, spoke count) from relief macros | vector | 1 |
+| Copper to board edge, positive layers | vector: primitive ↔ profile polyline | 1 |
+| Copper to board edge, layers with clear-polarity cut-outs or negative planes | sampled: polarity-aware copper probe along outline normals (0.05 mm × 0.02 mm) | 1 |
+| NPTH to copper (pads that fit inside the hole are noted, not flagged) | vector | 1 |
+| Solder mask expansion per pad (mask flash vs copper flash), tented vias, pads with no opening | vector | 1 |
+| Solder mask dam between *flashed* openings | vector shape distance | 1 |
+| Silkscreen line width minimum | vector | 1 |
+| Silkscreen over exposed pads (flash and region openings) | vector | 1 |
+| Solder mask dam involving region openings | raster gap between openings | 2 (shipped) |
+| Copper-to-copper spacing (separate copper areas) | raster feature transform, sub-pixel measurement | 2 (shipped) |
+| Copper necks, wedges and sub-pixel hairlines in pours, pads and planes | raster ridge analysis | 2 (shipped) |
+| Acid traps (acute internal angle < 90° at copper junctions) | vector on track graph | 2 |
+| Via in pad (via hit inside an SMD pad; check against fill/cap spec) | vector | 2 |
+| Isolated / unconnected copper (islands without drill or pad) | raster connected components | 2 (shipped) |
+| Copper balance per layer and symmetry across the stack | raster area | 2 |
+| Minimum silk text height | vector (stroke clustering) | 3 |
+| Drill to copper on inner layers (other nets) | raster | 3 |
+| Panelization / fiducials / tooling holes | vector | 3 |
+
+#### Raster geometry engine (`assets/raster.js`)
+
+Spacing-type checks need geometry on the union of shapes, so they run on a raster:
+- **Painting.** Each layer is painted with the same canvas painter as the board view
+  (`Fab.render.paintLayer`), so clear polarity, negative planes and macro apertures match what the
+  user sees. Tiles are 2048 px, at 25 µm/px (or minimum space ÷ 5 if that is finer), with a margin
+  wider than the limit, so a gap is measured in only one tile.
+- **Spacing.** Label copper with 8-connected components, then run an exact Euclidean feature
+  transform (Felzenszwalb–Huttenlocher, with argmin), which gives each background pixel its nearest
+  copper pixel. Neighboring background pixels whose nearest pixels belong to different components lie
+  on the medial line of a gap.
+  - The gap is measured **sub-pixel**: integrate the uncovered fraction (1 − alpha) along the line
+    between the two copper points.
+  - Calibrated on synthetic Gerbers it is within about ±3 µm at 25 µm/px. Findings within 5 µm of
+    the limit count as passing.
+- **Hairlines.** Copper thinner than a pixel (for example, where an edge pull-back and a via clearance
+  almost meet on a plane) splits one area in two on the raster. The coverage profile across the
+  "gap" gives it away: it never drops to background, or it shows a bump. These are reported as
+  hairline slivers, not spacing.
+- **Slivers.** Ridge pixels of the inside distance transform, with background on both sides of the
+  ridge, narrower than the minimum trace.
+  - **Necks:** narrowest point wider than 2 px. Reported one by one.
+  - **Wedges:** copper tapering to a point. Summarized per layer.
+  - Narrow *drawn traces* are left to the exact vector check.
+- **Isolated copper.** A whole-board raster at ≥ 25 µm/px. Components with no plated hole, no flashed
+  pad and no pad region are islands; those over 0.05 mm² are reported.
+- **Mask dams.** The spacing method on the mask layer (openings as features). Dams between two flashed
+  openings stay with the exact vector check.
+
+Cost is about 0.4 s per copper layer on a 43 × 67 mm board, and about 2 s per layer on a
+100 × 100 mm board, on the main thread with the console updating per layer. A Blob-URL Web Worker is
+the next step if boards get bigger.
+
+### Capability profiles
+
+Profiles are plain data in `profiles.js` (mm). The "standard" numbers follow typical Chinese/US
+quick-turn limits; "advanced" is a typical HDI-lite shop. Users can edit numbers in the UI (slice 2:
+save as JSON).
+
+| Parameter | Standard | Advanced |
+|---|---|---|
+| Min trace | 0.127 | 0.075 |
+| Min space | 0.127 | 0.075 |
+| Min drill (mech) | 0.20 | 0.15 |
+| Max aspect ratio | 10 | 12 |
+| Annular ring PTH / via | 0.15 / 0.10 | 0.10 / 0.075 |
+| Copper to edge (routed) | 0.30 | 0.20 |
+| NPTH to copper | 0.25 | 0.20 |
+| Min mask expansion | 0.0 (≥0) | 0.0 |
+| Min mask dam | 0.10 | 0.075 |
+| Min silk line | 0.15 | 0.10 |
+| Min silk text height | 0.80 | 0.60 |
+| Min thermal spoke | 0.20 | 0.15 |
+| Board thickness default | 1.6 | 1.6 |
+
+## UI
+
+Fabcheck shares Signoff's design system. `assets/suite.css` is Signoff's stylesheet copied verbatim
+(`tools/sync_suite_css.py`), and `assets/styles.css` adds only Fabcheck's own parts. Each tool's
+sidebar links to the other under "Dovetail tools", and the two share the light/dark setting.
+
+- **Sidebar.** Open packages, listed like Signoff's projects, with error/warning badges and a spinner
+  while checks run. Several packages can be open at once, which is what the Revisions and Archive
+  tabs compare.
+- **Overview.** Stats, one card per check category, the fab profile and thickness controls, and a
+  **live run log**. The package build and every check module are generators that yield a label
+  before each step. The pipeline runs one step, prints its result (errors and warnings, plus the first
+  few hits) with timings, and repaints before the next.
+- **Findings.** Signoff-style sections with severity and category filters. Clicking a finding opens the
+  inspector, and "Show on board" zooms to it.
+- **Board.** Layer list, the canvas (pan/zoom, top/bottom, placements), and a findings rail. This is
+  where the interactive DFM work (spacing engine, measure tools) lands next.
+- **Assembly / BOM / Files.** Tables, including ODB++ placement status.
+- **Revisions.** Compare against a baseline package (or a lone BOM): BOM designators
+  added/removed/changed (grouped by identical change), placements moved/rotated/re-footprinted,
+  Gerber geometry per layer (primitive signatures rounded to 1 µm, so re-ordered files compare equal),
+  and drill hits.
+- **Archive.** SHA-256 of the package archive (WebCrypto, with a JS fallback for `file://`), nested
+  ODB++ `.zip`/`.tgz` vs the extracted `odb/` tree, and a byte-for-byte comparison with another copy.
+
+Routing is `#/<view>`, so links and the back button work.
+
+### Send to Signoff EE (`assets/signoff.js`)
+
+Fabcheck writes errors and warnings into a board's Signoff EE review. It writes into Signoff's working
+copy in `localStorage` (`signoff.v1.projects`, `signoff.v1.dirty`), in Signoff's own format, so
+Signoff's normal Sync pushes them. Both tools must be served from the same origin, which is the case
+when both are served from the tools folder.
+
+- **One issue per check and severity.** Each becomes a project custom check on the Fabrication &
+  Release checklist, with every location in its hint. It is mapped to a section: Fab Package & Gerber
+  Files, Drill/Vias & Plating, Solder Mask & Silkscreen, Final DRC & DFM, or Release & Version Control.
+  Errors become Major, warnings Minor.
+- **Stable ids** per project and check (`xfc…`). Sending again updates the same issue (the reviewer's
+  status and resolution are kept) and adds a comment with the new count. Issues that a later run no
+  longer finds get one "no longer found" comment.
+- **Records are stamped** (`updatedAt`/`updatedBy` = Signoff's user name) and the project is marked
+  dirty. Signoff is set to open the project's Findings page next.
+- **Open Signoff tabs:** Signoff EE merges `signoff.v1.projects` and `dirty` written by another tab
+  (storage event, `mergeProjects`), and follows `signoff.v1.ui` view requests. An open Signoff tab
+  picks up sent issues without a reload.
+
+## Phasing
+
+1. **Slice 1 (this session).** Load (zip, files, dev `?pkg=` URL), classify, parse Gerber, Excellon,
+   PnP and BOM, render, PnP/BOM/Gerber cross-check, BOM audit, and the vector DFM checks marked 1 above.
+2. **Slice 2 (in progress).** Shipped:
+   - the raster engine (spacing, slivers, hairlines, isolated copper, region mask dams), with board
+     overlay rings;
+   - the IPC-356 pin-1 and pad-center checks;
+   - Send to Signoff EE (below).
+
+   Still to come: editable profiles, findings export (CSV/JSON), and a Web Worker for big boards.
+3. **Slice 3.** ODB++ (`.tgz`/folder) and IPC-2581 ingest as alternative sources, plus a 274X vs X2 XOR
+   diff, panel checks, silk text height, and an embedded fab-drawing PDF preview with notes extraction.
+4. **Slice 4.** Optional online part data (opt-in, clearly labeled as leaving the machine), a hosted
+   demo build, and a branded report PDF.
+
+## Test data
+
+Slice 1 was checked against five real Altium packages. Three of them had already been audited by
+hand: an early package, a release candidate, and a final release, each from a different revision.
+Fabcheck reproduced that audit's verdicts. Two of the packages are described in more detail:
+- One has 274X and X2 sets, split round and slot drill files, an xlsx BOM, ODB++ and IPC-356, with
+  4 layers and negative planes.
+- The other is 274X only, 6 layers, with a csv BOM, and inner pours that use clear-polarity cut-outs.
+
+Both are client data. They are **not** copied into this folder, and they are not named in anything
+that ships. `tools/serve.py` serves a sample directory read-only, so the page can be pointed at it
+with `?pkg=`.
+
+Ground truth used:
+- `.DRR` per-tool hole counts against the Excellon parse.
+- `TF.SameCoordinates` agreement within a set.
+- Visual alignment of drills, outline and placements.
+- Individual findings cross-checked against the 274X set and the ODB++ `features`.
+
+**Not yet verified:** opening `index.html` straight from disk (`file://`). The code avoids the known
+blockers (classic scripts only, no ES modules, no workers).
