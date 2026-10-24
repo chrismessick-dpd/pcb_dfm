@@ -343,8 +343,36 @@ The contract shared with Signoff EE is `ee_design_review/docs/fabcheck-link.md`.
   that check, and marks the check's findings ("Linked check").
 - **Windows.** Fabcheck names its window `dovetail-fabcheck`. "Back to Signoff EE" writes
   `signoff.v1.ui` and opens `dovetail-signoff-ee`.
-- **Send to Signoff.** It puts `source.run` (`stored: null` until stage 2 uploads it) and up to 50
-  `source.locations` on each issue.
+- **Send to Signoff.** It puts `source.run` and up to 50 `source.locations` on each issue.
+
+**Stage 2: storing runs in the project's repo (`assets/repo.js`).** After Send to Signoff, the run is
+also stored in the project's home repository, found the way Signoff EE finds it: the shared repo from
+`signoff.v1.roster`, else `signoff.v1.homes`, else `settings.owner/dataRepo` under `dataPath`. Layout:
+
+```
+fabcheck/<projectId>/packages/<key>/manifest.json
+fabcheck/<projectId>/packages/<key>/files/<path inside the package>
+fabcheck/<projectId>/runs/<runId>.json
+```
+
+- **Writing** uses the Signoff engine's `GitHubStore.putFiles`. `assets/vendor/github.js` and
+  `model.js` are vendored by `tools/sync_vendor.py`, with `--check`; that script also copies `suite.css`.
+  - Files already in the repo are skipped.
+  - The console shows progress and the commit link.
+  - Once stored, `stored: {repo, dir}` is set on the kept run and on every Signoff issue that carries it.
+    Those issues are stamped and marked dirty, so Signoff's Sync shares the location.
+- **When the run can't be stored** (no token, no write access, or a page opened from disk without
+  WebCrypto), it stays in this browser and the console says why. The issues are always sent.
+- **Deep links** with `repo` and `project` read the run and its package from the repo when this
+  browser doesn't have them, then cache both in IndexedDB.
+- **Measured** with the fake GitHub in `tests/fake-github.js`:
+
+  | | Sample A | Sample B |
+  |---|---|---|
+  | First upload | 27 files, 0.92 MB | 32 files, 5.28 MB |
+  | Stored by git (zlib estimate) | ≈0.28 MB | ≈1.57 MB |
+  | Same package again | 0 bytes, no commit | 0 bytes, no commit |
+  | New run of a stored package | its run file only (31 KB for sample A) | its run file only |
 
 ## Phasing
 

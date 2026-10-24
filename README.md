@@ -24,8 +24,10 @@ anything in `assets/`, run `python tools/stamp_version.py` (`--check` in CI or p
 
 ## Look and feel
 
-Fabcheck uses Signoff's stylesheet verbatim (`assets/suite.css`) with Fabcheck-only rules in
-`assets/styles.css`. After changing Signoff's styles, run `python tools/sync_suite_css.py`.
+Fabcheck uses Signoff EE's stylesheet verbatim (`assets/suite.css`) with Fabcheck-only rules in
+`assets/styles.css`. It also vendors the Signoff engine's `github.js` and `model.js` (`assets/vendor/`)
+to store runs in a project's repo. After Signoff changes them, run `python tools/sync_vendor.py`
+(`--check` verifies the copies).
 
 Libraries come from cdnjs, pinned to exact versions: JSZip 3.10.1 and SheetJS 0.18.5. The Gerber,
 Excellon, PnP and BOM parsing is written for this tool (`assets/`).
