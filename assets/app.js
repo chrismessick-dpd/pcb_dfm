@@ -323,11 +323,14 @@
         await openPackage(async () => Fab.store.restoreFiles(pkgRec), stored.run.package.name, { stored, pkgRec, link: q });
         return;
       }
-      if (Fab.repoRuns && q.repo && q.project) {
-        const got = await Fab.repoRuns.fetchRun(q, (cls, t) => toast(t)).catch(() => null);
+      const known = stored ? { run: stored.run, project: null } : Fab.store.runFromSignoff(q.run);
+      // The link's repo is the project's home now; where the run was first stored is the fallback.
+      const repos = [q.repo, known && known.run.stored && known.run.stored.repo].filter((r, i, a) => r && a.indexOf(r) === i);
+      const project = q.project || (known && known.project && known.project.id);
+      for (const repo of Fab.repoRuns && project ? repos : []) {
+        const got = await Fab.repoRuns.fetchRun(Object.assign({}, q, { repo, project }), (cls, t) => toast(t)).catch(err => { console.warn('Run not readable from ' + repo, err); return null; });
         if (got) { await openPackage(async () => Fab.store.restoreFiles(got.pkgRec), got.stored.run.package.name, { stored: got.stored, pkgRec: got.pkgRec, link: q }); return; }
       }
-      const known = stored ? { run: stored.run, project: null } : Fab.store.runFromSignoff(q.run);
       const entry = { id: 'p' + (++seq), label: known ? baseName(known.run.package.name) : 'Run ' + q.run, status: 'needs', pkg: null, findings: [], log: [], t0: performance.now(), progress: 0, need: { runId: q.run, known, link: q } };
       state.pkgs.push(entry);
       state.active = entry.id;
@@ -337,6 +340,23 @@
     } finally { state.resolving = null; }
   }
 
+  // A layer named in a link: its file name, Fabcheck's label ("L1 Top copper"), or a plain name such as
+  // "Top copper", "Bottom mask", "L2" or "Inner copper 2".
+  function matchLayer(name) {
+    const n = String(name).trim().toLowerCase();
+    const gl = viewer.layers.filter(l => l.layer);
+    const hit = gl.find(l => l.layer.file.name.toLowerCase() === n) || gl.find(l => l.label.toLowerCase() === n) ||
+      gl.find(l => l.label.toLowerCase().endsWith(' ' + n));
+    if (hit) return hit.layer;
+    const fn = /copper|signal|plane/.test(n) ? 'copper' : /mask/.test(n) ? 'mask' : /silk|legend|overlay/.test(n) ? 'silk' : /paste/.test(n) ? 'paste' : null;
+    const side = /\btop\b/.test(n) ? 'top' : /\b(bot|bottom)\b/.test(n) ? 'bottom' : /\b(inner|int)\b/.test(n) ? 'inner' : null;
+    const num = /(?:^l|\b)(\d+)\b/.exec(n);
+    const byNum = num && gl.find(l => l.layer.fn === 'copper' && l.layer.cuOrder === +num[1]);
+    if (byNum && (!fn || fn === 'copper')) return byNum.layer;
+    const cand = gl.find(l => (!fn || l.layer.fn === fn) && (!side || l.layer.side === side) && (fn || side));
+    return cand ? cand.layer : null;
+  }
+
   // Board zoomed to the link's location, with the linked check's findings picked out.
   function applyLink(entry, q) {
     state.active = entry.id;
@@ -344,7 +364,7 @@
     state.filter = { error: true, warn: true, info: true };
     state.q = '';
     go('board');
-    const layer = q.layer && viewer && (viewer.layers.find(l => l.layer && (l.layer.file.name === q.layer || l.label === q.layer)) || {}).layer;
+    const layer = q.layer && viewer && matchLayer(q.layer);
     if (q.x != null && q.y != null && isFinite(+q.x) && isFinite(+q.y)) {
       const near = entry.findings.filter(f => (!q.check || f.check === q.check) && (f.at || f.bbox))
         .map(f => { const c = f.at || Fab.bbox.center(f.bbox); return { f, d: Math.hypot(c.x - q.x, c.y - q.y) }; }).sort((a, b) => a.d - b.d)[0];
