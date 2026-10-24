@@ -103,5 +103,5 @@
   const fmtCap = v => v >= 1e-6 ? +(v / 1e-6).toPrecision(3) + ' µF' : v >= 1e-9 ? +(v / 1e-9).toPrecision(3) + ' nF' : +(v / 1e-12).toPrecision(3) + ' pF';
   const fmtRes = v => v >= 1e6 ? +(v / 1e6).toPrecision(3) + ' MΩ' : v >= 1e3 ? +(v / 1e3).toPrecision(3) + ' kΩ' : +v.toPrecision(3) + ' Ω';
 
-  Fab.parts = { decode, parseDesc, expectedMfr, fmtCap, fmtRes };
+  Fab.parts = { decode, parseDesc, expectedMfr, fmtCap, fmtRes, PREFIX_MFR };
 })(window.Fab);

@@ -284,6 +284,18 @@ mislead.
 - **Memory:** the last profile used is remembered per package name and per Signoff project, and picked
   for the next run.
 
+**BOM & assembly checks** (second tab of the Fab rules page) list the package, assembly and BOM
+checks read-only: they are logic, not numbers.
+- Each check module declares its checks with `C.define(category, source, [...])` next to the code
+  that raises them: name, what it looks for, the severities and when each is raised, the package
+  data it uses, an example finding, and `rules()`.
+- `rules()` builds its text from the same constants the code uses (thresholds in a `T` object,
+  named patterns such as `C.PAD_ONLY`, the lifecycle patterns and `Fab.parts.PREFIX_MFR`), so the list
+  can't drift from the code.
+- `C.audit` warns in the console when a finding's check or severity isn't declared.
+- A finding's check name links to its entry, and an entry links back to that check's findings in the
+  open package.
+
 **Team sharing** uses `fabcheck/profiles/<id>.json` in the FTE data repo, which is found as in
 `repo.js`, through the vendored `listTree` / `blobBytes` / `putFiles`.
 - On open and after edits, Fabcheck pulls the team's profiles, merges them per rule (the newer

@@ -8,9 +8,33 @@
   // runner() wraps one so callers get a plain function returning the findings; `.steps` keeps the
   // generator for the live console, which runs the steps one at a time and repaints between them.
   C.runner = function (gen) {
-    const fn = function () { const out = []; const g = gen(...arguments, out); while (!g.next().done); return out; };
+    const fn = function () { const out = []; const g = gen(...arguments, out); while (!g.next().done); C.audit(out); return out; };
     fn.steps = gen;
     return fn;
+  };
+
+  // Catalog of the logic checks (package, assembly, BOM). Each module declares its checks next to the
+  // code that raises them; the Fab rules page lists them read-only. `rules` is a function so the
+  // thresholds it shows are read from the same constants the code uses.
+  C.catalog = [];
+  // Test points, fiducials and mounting holes: placed, but usually no BOM line and no paste on purpose.
+  C.PAD_ONLY = /^(TP|FID|FD|MH|H|MTG)\d+$/i;
+  C.CATALOGED = ['Package', 'Assembly', 'BOM'];
+  C.define = function (category, source, defs) {
+    for (const d of defs) C.catalog.push(Object.assign({ category, source, key: category + '/' + d.check }, d));
+  };
+  // A pattern as the catalog shows it: # is a digit, {n} repeats, | separates alternatives, a leading ^ dropped.
+  C.pattern = r => r.source.replace(/\^/g, '').replace(/\\d/g, '#').replace(/\|\\s|\\s\|?/g, '').replace(/\$/g, '');
+  C.describe = (category, check) => C.catalog.find(d => d.category === category && d.check === check) || null;
+  // A finding the catalog does not declare (or with a severity it does not list) means the list drifted.
+  const warned = new Set();
+  C.audit = function (findings) {
+    for (const f of findings) {
+      if (!C.CATALOGED.includes(f.category) || f.check === 'internal') continue;
+      const d = C.describe(f.category, f.check);
+      const k = f.category + '/' + f.check + '/' + f.severity;
+      if ((!d || !d.sev[f.severity]) && !warned.has(k)) { warned.add(k); console.warn('Check catalog: undeclared ' + k); }
+    }
   };
 
   // Spatial index of a layer's primitives (cached on the layer).

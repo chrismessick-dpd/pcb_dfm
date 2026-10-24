@@ -6,7 +6,25 @@
   const F = Fab.finding;
   const norm360 = a => ((a % 360) + 360) % 360;
   const angDiff = (a, b) => { const d = Math.abs(norm360(a) - norm360(b)); return Math.min(d, 360 - d); };
-  const connectorLike = des => /^(J|P|CN|CON|X|SW|BT|TP|FID|FD|MH|H|LS|BZ)\d/i.test(des);
+  const CONNECTOR = /^(J|P|CN|CON|X|SW|BT|TP|FID|FD|MH|H|LS|BZ)\d/i;
+  const connectorLike = des => CONNECTOR.test(des);
+  const PIN1 = /^(1|A1|A)$/i;
+  const T = { centroidMin: 0.25, centroidSpan: 0.1, group: 3, agree: 10, majority: 0.6, reversed: 15, shown: 30, calibrated: 0.5 };
+
+  C.define('Assembly', 'checks/pins.js', [
+    { check: 'ipc356', name: 'IPC-356 netlist', looks: 'Whether the netlist is present, lines up with the Gerbers, and covers every placed part.',
+      sev: { warn: 'it does not line up, has no pads, or misses placed parts', info: 'not present (pin checks skipped), or its counts' }, uses: ['IPC-D-356 netlist', 'Copper layers', 'Pick-and-place'],
+      rules: () => [`Units are calibrated by sampling pads; at least ${T.calibrated * 100}% must land on copper.`, 'Fiducials need no netlist pads.'],
+      example: 'Could not line the IPC-356 netlist up with the Gerbers' },
+    { check: 'centroid', name: 'Placement vs pad center', looks: "The pick-and-place point against the center of the part's pads.",
+      sev: { warn: 'a part is off center', info: 'connectors and mechanical parts that are off center (usual)' }, uses: ['Pick-and-place X/Y', 'IPC-356 pad positions'],
+      rules: () => [`Off center when the distance is over ${T.centroidMin} mm or ${T.centroidSpan * 100}% of the pad span, whichever is larger.`, `Connector-like designators (${C.pattern(CONNECTOR)}) are info only.`],
+      example: 'U3: placement is 0.62 mm from its pad center' },
+    { check: 'pin1', name: 'Pin 1 orientation', looks: 'Pin 1 direction against the placement rotation, compared across all parts that share a footprint and side.',
+      sev: { error: 'a part is about 180° off (reversed polarity)', warn: 'a part is off by another angle', info: 'how many parts were checked' }, uses: ['IPC-356 pin numbers and positions', 'Pick-and-place rotation, footprint'],
+      rules: () => [`Pin 1 is the pad named ${C.pattern(PIN1).replace(/[()]/g, '').split('|').join(', ')}.`, `Groups of at least ${T.group} parts; the majority angle needs ${T.majority * 100}% of the group within ${T.agree}°.`, `180° ± ${T.reversed}° is an error. The bottom-side rotation convention that gives fewer outliers is used.`],
+      example: 'D4: pin 1 is 180° off from the other 11 SOD-123 parts' },
+  ]);
 
   function* run(pkg, out) {
     const add = (check, severity, title, detail, extra) => out.push(F(Object.assign({ category: 'Assembly', check, severity, title, detail }, extra || {})));
@@ -16,7 +34,7 @@
     const pins = net.recs.filter(r => r.des && r.des !== 'VIA');
     if (!pins.length) { add('ipc356', 'warn', 'IPC-356 file has no pad records', pkg.ipc356.path); return; }
     const cal = Fab.ipc356.calibrate(net, pkg);
-    if (!cal || cal.hit < cal.of * 0.5) {
+    if (!cal || cal.hit < cal.of * T.calibrated) {
       add('ipc356', 'warn', 'Could not line the IPC-356 netlist up with the Gerbers', `Best unit guess ${cal ? cal.label : '?'} put ${cal ? cal.hit : 0} of ${cal ? cal.of : 0} sampled pads on copper. The netlist may come from a different revision or origin.`);
       return;
     }
@@ -32,7 +50,7 @@
     yield 'Pad centers vs placements';
     const parts = pkg.pnp.parts.filter(p => p.gx != null && byDes.has(p.des));
     const missing = pkg.pnp.parts.filter(p => !byDes.has(p.des) && !/^(FID|FD)\d/i.test(p.des)).map(p => p.des);
-    if (missing.length) add('ipc356', 'warn', `${missing.length} placed part(s) have no pads in the IPC-356 netlist`, missing.slice(0, 30).join(', ') + '. The netlist may be from another revision.', { refs: missing });
+    if (missing.length) add('ipc356', 'warn', `${missing.length} placed part(s) have no pads in the IPC-356 netlist`, missing.slice(0, T.shown).join(', ') + '. The netlist may be from another revision.', { refs: missing });
     const off = [];
     for (const p of parts) {
       const ps = byDes.get(p.des);
@@ -43,10 +61,10 @@
       p.padCenter = c;
       const d = Math.hypot(c.x - p.gx, c.y - p.gy);
       const span = Math.max(b[2] - b[0], b[3] - b[1]);
-      if (d > Math.max(0.25, 0.1 * span)) off.push({ p, d, c });
+      if (d > Math.max(T.centroidMin, T.centroidSpan * span)) off.push({ p, d, c });
     }
     const real = off.filter(o => !connectorLike(o.p.des)).sort((a, b) => b.d - a.d);
-    for (const o of real.slice(0, 30)) add('centroid', 'warn', `${o.p.des}: placement is ${o.d.toFixed(2)} mm from its pad center`,
+    for (const o of real.slice(0, T.shown)) add('centroid', 'warn', `${o.p.des}: placement is ${o.d.toFixed(2)} mm from its pad center`,
       `PnP ${o.p.gx.toFixed(3)}, ${o.p.gy.toFixed(3)} mm vs pads centered at ${o.c.x.toFixed(3)}, ${o.c.y.toFixed(3)} mm (${o.p.footprint}). Pick-and-place machines center the part on this point; check the footprint origin.`,
       { at: { x: o.c.x, y: o.c.y }, refs: [o.p.des], side: o.p.side });
     const conn = off.filter(o => connectorLike(o.p.des));
@@ -59,7 +77,7 @@
     const local = { top: [], bottom: [] };
     for (const p of parts) {
       const ps = byDes.get(p.des);
-      const p1 = ps.find(r => /^(1|A1|A)$/i.test(r.pin));
+      const p1 = ps.find(r => PIN1.test(r.pin));
       if (!p1 || !p.padCenter || ps.length < 2) continue;
       const vx = p1.x - p.padCenter.x, vy = p1.y - p.padCenter.y;
       if (Math.hypot(vx, vy) < 0.1) continue;
@@ -81,21 +99,21 @@
         const outliers = [];
         let n = 0;
         for (const [fp, g] of groups) {
-          if (g.length < 3) continue;
+          if (g.length < T.group) continue;
           n += g.length;
           // Majority angle: the member with the most others within 10°.
           let ref = null, refN = -1;
-          for (const x of g) { const c = g.filter(y => angDiff(x.a, y.a) <= 10).length; if (c > refN) { refN = c; ref = x.a; } }
-          if (refN < g.length * 0.6) continue;
-          for (const x of g) if (angDiff(x.a, ref) > 10) outliers.push({ o: x.o, fp, off: angDiff(x.a, ref), n: g.length });
+          for (const x of g) { const c = g.filter(y => angDiff(x.a, y.a) <= T.agree).length; if (c > refN) { refN = c; ref = x.a; } }
+          if (refN < g.length * T.majority) continue;
+          for (const x of g) if (angDiff(x.a, ref) > T.agree) outliers.push({ o: x.o, fp, off: angDiff(x.a, ref), n: g.length });
         }
         if (!bestRes || outliers.length < bestRes.outliers.length) bestRes = { outliers, n };
       }
       checked += bestRes.n;
-      for (const x of bestRes.outliers.slice(0, 30)) {
+      for (const x of bestRes.outliers.slice(0, T.shown)) {
         const p = x.o.p;
-        add('pin1', Math.abs(x.off - 180) < 15 ? 'error' : 'warn', `${p.des}: pin 1 is ${Math.round(x.off)}° off from the other ${x.n - 1} ${p.footprint} parts`,
-          `With the pick-and-place rotation of ${p.rot}°, pin 1 of ${p.des} points a different way than on every other ${p.footprint} on the ${side}. ${Math.abs(x.off - 180) < 15 ? 'A 180° error reverses polarity.' : 'Check the rotation.'}`,
+        add('pin1', Math.abs(x.off - 180) < T.reversed ? 'error' : 'warn', `${p.des}: pin 1 is ${Math.round(x.off)}° off from the other ${x.n - 1} ${p.footprint} parts`,
+          `With the pick-and-place rotation of ${p.rot}°, pin 1 of ${p.des} points a different way than on every other ${p.footprint} on the ${side}. ${Math.abs(x.off - 180) < T.reversed ? 'A 180° error reverses polarity.' : 'Check the rotation.'}`,
           { at: { x: p.padCenter.x, y: p.padCenter.y }, refs: [p.des], side });
       }
     }

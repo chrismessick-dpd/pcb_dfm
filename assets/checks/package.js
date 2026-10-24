@@ -4,6 +4,61 @@
   const C = Fab.checks;
   const F = Fab.finding;
 
+  // [what, severity, present?]
+  const REQUIRED = [
+    ['Top copper', 'error', (pkg, L) => L.top], ['Bottom copper', 'error', (pkg, L) => L.bottom],
+    ['Top solder mask', 'error', (pkg, L) => L.mask.top], ['Bottom solder mask', 'error', (pkg, L) => L.mask.bottom],
+    ['Top silkscreen', 'warn', (pkg, L) => L.silk.top],
+    ['Board outline (closed profile)', 'error', (pkg, L) => L.outline && !L.outline.board.synthetic],
+    ['NC drill (Excellon)', 'error', pkg => pkg.drills.length],
+    ['Pick-and-place', 'warn', pkg => pkg.pnp], ['BOM', 'warn', pkg => pkg.bom],
+  ];
+  const has = (pkg, t) => pkg.files.some(f => f.cls.type === t);
+  const RECOMMENDED = [
+    ['Paste layer', (pkg, L) => L.paste.top || L.paste.bottom], ['Fabrication drawing (PDF)', pkg => has(pkg, 'fab-pdf')],
+    ['Assembly drawing (PDF)', pkg => has(pkg, 'assy-pdf')], ['IPC-D-356 netlist (needed for electrical test)', pkg => pkg.ipc356],
+    ['Drill report', pkg => pkg.drr], ['ODB++ or IPC-2581', pkg => has(pkg, 'odb') || has(pkg, 'odb-archive') || has(pkg, 'ipc2581')],
+  ];
+  const T = { drrDia: 0.0015, alignError: 0.6, alignWarn: 0.95, extentsTol: 0.01, shown: 20 };
+
+  C.define('Package', 'checks/package.js', [
+    { check: 'missing', name: 'Missing files', looks: 'Whether the package has each file a fab and assembler need, and the ones that are recommended.',
+      sev: { error: 'a required fab file is missing', warn: 'top silkscreen, pick-and-place or BOM is missing', info: 'a recommended file is not included' },
+      uses: ['File classification (names, Gerber X2 file functions)'],
+      rules: () => ['Required: ' + REQUIRED.map(r => `${r[0]} (${r[1]})`).join(', ') + '.', 'Recommended: ' + RECOMMENDED.map(r => r[0]).join(', ') + '.'],
+      example: 'Missing: Bottom solder mask' },
+    { check: 'sets', name: 'Gerber sets', looks: 'More than one set of Gerbers in the package, and whether the sets agree on the copper layer count.',
+      sev: { error: 'the sets have different copper layer counts', info: 'more than one set was found' },
+      uses: ['Gerber files grouped by folder'], rules: () => ['The first set found (Gerber X2 preferred) is the one checked.'],
+      example: '2 Gerber sets in package' },
+    { check: 'guid', name: 'One output run', looks: 'Whether every Gerber in the set comes from the same CAD output run.',
+      sev: { error: 'files declare different coordinate GUIDs', info: 'all files share one' }, uses: ['Gerber X2 attribute TF.SameCoordinates'],
+      example: 'Gerber files come from different output runs' },
+    { check: 'layers', name: 'Copper layer count', looks: 'The copper layer count in the Gerbers against the X2 layer index and the IPC-356 stackup.',
+      sev: { error: 'the counts disagree', info: 'the count, when they agree' }, uses: ['Gerber copper layers', 'X2 .FileFunction', 'IPC-356 stackup comment'],
+      example: 'Copper layer count disagrees between files' },
+    { check: 'units', name: 'Units and format', looks: 'Gerber units and coordinate formats, and whether each drill file states its units.',
+      sev: { warn: 'mixed or unknown units, or a drill file with no unit declaration', info: 'the units and formats in use' }, uses: ['Gerber %MO / %FS', 'Excellon METRIC / INCH header'],
+      example: 'Drill file has no unit declaration' },
+    { check: 'parse', name: 'File parsing', looks: 'Files that could not be read, and notes the Gerber parser raised.',
+      sev: { error: 'a file could not be read', warn: 'the parser noted something unusual' }, uses: ['Every file in the package'],
+      example: 'Gerber parse note: board.GTL' },
+    { check: 'drr', name: 'Drill report vs drill files', looks: 'Hole counts per tool in the drill report against the drill files.',
+      sev: { error: 'any tool count differs', info: 'all counts match' }, uses: ['Altium drill report (.DRR)', 'Excellon drill files'],
+      rules: () => [`Tools match by tool number and size first, else by size (within ${T.drrDia} mm) and plating.`],
+      example: 'Drill files disagree with drill report' },
+    { check: 'outline', name: 'Board outline', looks: 'A closed board outline, open paths on the outline layer, and the board size.',
+      sev: { error: 'no closed outline was found', warn: 'the outline layer has open paths', info: 'board size and cutouts' }, uses: ['Outline / profile Gerber'],
+      example: 'Outline layer has 2 open path(s)' },
+    { check: 'extents', name: 'Board extents', looks: 'Drill hits outside the board and copper past the outline.',
+      sev: { error: 'a drill hit is outside the board', warn: 'a copper layer reaches past the outline bounding box' }, uses: ['Outline', 'Drill files', 'Copper layers'],
+      rules: () => [`Copper may pass the outline box by ${T.extentsTol} mm.`, `The first ${T.shown} hits outside are listed.`],
+      example: 'Drill hit outside the board (⌀0.3 mm)' },
+    { check: 'align', name: 'Drill to copper alignment', looks: 'Whether plated holes land on top copper, which shows the drill file and Gerbers share an origin and units.',
+      sev: { error: `under ${T.alignError * 100}% land on copper`, warn: `under ${T.alignWarn * 100}% land on copper`, info: 'the share that lands' }, uses: ['Drill files', 'Top copper'],
+      example: 'Drill file does not line up with copper' },
+  ]);
+
   function* run(pkg, out) {
     const cat = 'Package';
     const L = pkg.layers;
@@ -11,22 +66,8 @@
 
     // ---- missing items ----
     yield 'Missing items';
-    const need = [
-      [L.top, 'error', 'Top copper'], [L.bottom, 'error', 'Bottom copper'],
-      [L.mask.top, 'error', 'Top solder mask'], [L.mask.bottom, 'error', 'Bottom solder mask'],
-      [L.silk.top, 'warn', 'Top silkscreen'],
-      [L.outline && !L.outline.board.synthetic, 'error', 'Board outline (closed profile)'],
-      [pkg.drills.length, 'error', 'NC drill (Excellon)'],
-      [pkg.pnp, 'warn', 'Pick-and-place'], [pkg.bom, 'warn', 'BOM'],
-    ];
-    for (const [ok, sev, what] of need) if (!ok) add('missing', sev, 'Missing: ' + what, 'The package has no file recognized as ' + what.toLowerCase() + '.');
-    const has = t => pkg.files.some(f => f.cls.type === t);
-    const rec = [
-      [L.paste.top || L.paste.bottom, 'Paste layer'], [has('fab-pdf'), 'Fabrication drawing (PDF)'], [has('assy-pdf'), 'Assembly drawing (PDF)'],
-      [pkg.ipc356, 'IPC-D-356 netlist (needed for electrical test)'], [pkg.drr, 'Drill report'],
-      [has('odb') || has('odb-archive') || has('ipc2581'), 'ODB++ or IPC-2581'],
-    ];
-    for (const [ok, what] of rec) if (!ok) add('missing', 'info', 'Not included: ' + what, 'Recommended but not required.');
+    for (const [what, sev, ok] of REQUIRED) if (!ok(pkg, L)) add('missing', sev, 'Missing: ' + what, 'The package has no file recognized as ' + what.toLowerCase() + '.');
+    for (const [what, ok] of RECOMMENDED) if (!ok(pkg, L)) add('missing', 'info', 'Not included: ' + what, 'Recommended but not required.');
 
     // ---- gerber sets ----
     yield 'Gerber sets';
@@ -87,7 +128,7 @@
       for (const r of pkg.drr) {
         total += r.count;
         // Same tool number and size first (Altium numbers tools consistently across files), else size only.
-        const sameSize = tools.filter(t => t.dia != null && Math.abs(t.dia - r.dia) < 0.0015 && (t.plated !== false) === r.plated);
+        const sameSize = tools.filter(t => t.dia != null && Math.abs(t.dia - r.dia) < T.drrDia && (t.plated !== false) === r.plated);
         const byNum = sameSize.filter(t => t.t === r.tool);
         const cands = byNum.length ? byNum : sameSize;
         const got = cands.reduce((s, t) => s + (r.type === 'Slot' ? t.slots : t.hits), 0);
@@ -108,11 +149,11 @@
         `Outline from ${o.file.name}${o.cutouts.length ? `, ${o.cutouts.length} internal cutout(s)` : ''}.`, { bbox: bb });
       const outside = [];
       for (const h of pkg.hits) if (!C.insideBoard(o, h.x, h.y)) outside.push(h);
-      for (const h of C.capped(outside, 20).shown) add('extents', 'error', `Drill hit outside the board (⌀${h.dia} mm)`, `At ${h.x.toFixed(3)}, ${h.y.toFixed(3)} mm.`, { at: { x: h.x, y: h.y } });
-      if (outside.length > 20) add('extents', 'error', `…and ${outside.length - 20} more drill hits outside the board`, '');
+      for (const h of C.capped(outside, T.shown).shown) add('extents', 'error', `Drill hit outside the board (⌀${h.dia} mm)`, `At ${h.x.toFixed(3)}, ${h.y.toFixed(3)} mm.`, { at: { x: h.x, y: h.y } });
+      if (outside.length > T.shown) add('extents', 'error', `…and ${outside.length - T.shown} more drill hits outside the board`, '');
       for (const lay of L.copper) {
         if (lay.polarity === 'negative' || !Fab.bbox.valid(lay.bbox)) continue;
-        if (!Fab.bbox.contains(bb, lay.bbox, 0.01)) add('extents', 'warn', 'Copper extends past the outline bounding box', lay.file.name, { bbox: lay.bbox, layer: lay.file.name });
+        if (!Fab.bbox.contains(bb, lay.bbox, T.extentsTol)) add('extents', 'warn', 'Copper extends past the outline bounding box', lay.file.name, { bbox: lay.bbox, layer: lay.file.name });
       }
     } else if (o) add('outline', 'error', 'No closed board outline found', 'Using the copper extents instead. Checks that need the edge are approximate.');
 
@@ -123,9 +164,9 @@
       let onPad = 0;
       for (const h of plated) if (C.primsAt(L.top, h.x, h.y).length) onPad++;
       const pct = plated.length ? onPad / plated.length : 1;
-      add('align', pct < 0.6 ? 'error' : pct < 0.95 ? 'warn' : 'info',
-        pct < 0.6 ? 'Drill file does not line up with copper' : `${Math.round(pct * 100)}% of plated holes land on top copper`,
-        `${onPad} of ${plated.length} plated hits are covered by top copper.` + (pct < 0.6 ? ' Check the drill origin, units and zero suppression.' : ''));
+      add('align', pct < T.alignError ? 'error' : pct < T.alignWarn ? 'warn' : 'info',
+        pct < T.alignError ? 'Drill file does not line up with copper' : `${Math.round(pct * 100)}% of plated holes land on top copper`,
+        `${onPad} of ${plated.length} plated hits are covered by top copper.` + (pct < T.alignError ? ' Check the drill origin, units and zero suppression.' : ''));
     }
     return;
   }

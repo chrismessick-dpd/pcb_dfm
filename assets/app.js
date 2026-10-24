@@ -220,7 +220,7 @@
       ['BOM audit', C.bom.steps, [pkg]],
       [`Fabrication DFM (${profileName(entry)}${entry.pinned ? ", run's saved rules" : ''}, ${prof.thickness} mm)`, C.dfm.steps, [pkg, prof]],
     ];
-    const totalSteps = 31 + 2 * pkg.layers.copper.length; // fixed steps + raster steps per copper layer
+    const totalSteps = 34 + 2 * pkg.layers.copper.length; // fixed steps + raster steps per copper layer
     let done = 0;
     const t0 = performance.now();
     for (const [name, gen, args] of modules) {
@@ -245,6 +245,7 @@
         setProgress(entry, 0.3 + 0.7 * Math.min(1, done / totalSteps));
         await tick();
       }
+      C.audit(out);
       entry.findings.push(...out);
     }
     attachLocations(pkg, entry.findings);
@@ -458,7 +459,7 @@
       for (const el of root.getElementsByClassName('console-body')) jump(el, el.scrollHeight);
     }
   }
-  const pageKey = e => [state.view, e ? e.id : '', e ? e.status === 'needs' : '', state.view === 'rules' ? state.rulesSel || state.profile : ''].join('|');
+  const pageKey = e => [state.view, e ? e.id : '', e ? e.status === 'needs' : '', state.view === 'rules' ? (state.rulesTab === 'checks' ? 'checks' : state.rulesSel || state.profile) : ''].join('|');
 
   // Scroll a row into view only if it is hidden, without moving the list otherwise.
   function revealRow(row) {
@@ -682,7 +683,51 @@
     if (state.view === 'rules') renderAll();
   }
 
+  const rulesTabs = () => `<div class="seg rules-tabs" role="tablist">${[['profiles', 'Fab profiles'], ['checks', 'BOM & assembly checks']].map(([k, l]) =>
+    `<button class="${(state.rulesTab || 'profiles') === k ? 'on' : ''}" data-act="rules-tab" data-tab="${k}" role="tab">${l}</button>`).join('')}</div>`;
+
+  // Show a check's catalog entry (from a finding's check tag).
+  function showCheckDoc(key) {
+    state.rulesTab = 'checks';
+    state.checkSel = key;
+    closeInspector();
+    go('rules');
+    const el = document.getElementById('chk-' + key);
+    if (el) el.scrollIntoView({ block: 'start', behavior: 'instant' });
+  }
+  // A finding's check name: a link to its catalog entry when there is one.
+  const checkTag = f => C.describe(f.category, f.check)
+    ? `<button class="tag tag-link" data-act="check-doc" data-key="${esc(f.category + '/' + f.check)}" title="What this check looks for">${esc(f.check)}</button>`
+    : `<span class="tag">${esc(f.check)}</span>`;
+
+  // Read-only list of the package, assembly and BOM checks, generated from the check modules' own declarations.
+  function checksHtml() {
+    const e = active();
+    const n = e && e.findings ? key => e.findings.filter(f => f.category + '/' + f.check === key).length : null;
+    const sevs = [['error', 'Error'], ['warn', 'Warning'], ['info', 'Info']];
+    let h = `<div class="page wide">` + pageHead(null, 'Fab rules', 'BOM & assembly checks', 'What Fabcheck looks for in the package, the build data and the BOM. These are logic, not numbers, so they are not editable; this list is generated from the checks themselves.') + rulesTabs();
+    for (const [cat, title, sub] of CATS.filter(c => C.CATALOGED.includes(c[0]))) {
+      const defs = C.catalog.filter(d => d.category === cat);
+      h += `<div class="card sec"><div class="sec-head" style="cursor:default"><div class="sec-title">${esc(title)}<small>${defs.length} checks · ${esc(sub)}</small></div></div><div class="sec-body">`;
+      for (const d of defs) {
+        const rules = d.rules ? d.rules() : [];
+        const hits = n ? n(d.key) : 0;
+        h += `<div class="item check-doc${state.checkSel === d.key ? ' sel' : ''}" id="chk-${esc(d.key)}" style="cursor:default"><div>
+          <div class="item-text"><b>${esc(d.name)}</b> <span class="tag">${esc(d.check)}</span></div>
+          <div class="item-detail">${esc(d.looks)}</div>
+          <div class="check-sev">${sevs.filter(([k]) => d.sev[k]).map(([k, l]) => `<div><span class="pill ${k === 'info' ? '' : k}">${l}</span>${esc(d.sev[k])}</div>`).join('')}</div>
+          <div class="item-sub"><span>Uses: ${esc(d.uses.join(' · '))}</span></div>
+          ${rules.length ? `<ul class="check-rules">${rules.map(r => `<li>${esc(r)}</li>`).join('')}</ul>` : ''}
+          <div class="item-sub"><span>Example: “${esc(d.example)}”</span><span class="mono">${esc(d.source)}</span></div></div>
+          <div class="item-right">${hits ? `<button class="btn btn-plain" data-act="check-findings" data-key="${esc(d.key)}">${plural(hits, 'finding')} in ${esc(e.label)}</button>` : ''}</div></div>`;
+      }
+      h += '</div></div>';
+    }
+    return h + '<p class="note">In patterns, # is a digit, {n} repeats the item before it n times, | separates alternatives, and case is ignored.</p></div>';
+  }
+
   function rulesHtml() {
+    if (state.rulesTab === 'checks') return checksHtml();
     const ps = Fab.rules.list();
     if (!state.rulesSel || !Fab.rules.resolve(state.rulesSel)) state.rulesSel = state.profile;
     const sel = Fab.rules.resolve(state.rulesSel) || ps[0];
@@ -693,7 +738,7 @@
       return `<button class="proj${p.id === sel.id ? ' active' : ''}" data-act="rules-sel" data-id="${esc(p.id)}" title="${esc(p.name + ' · ' + sub)}"><span class="proj-body"><span class="proj-name">${esc(p.name)}</span><span class="proj-sub">${esc(sub)}</span></span></button>`;
     };
     const sync = state.profileSync;
-    let h = `<div class="page wide">` + pageHead(null, 'Fab rules', 'Fab capability profiles', "The limits the DFM checks use. Start from an industry default, then duplicate it and enter a fab house's capability numbers.");
+    let h = `<div class="page wide">` + pageHead(null, 'Fab rules', 'Fab capability profiles', "The limits the DFM checks use. Start from an industry default, then duplicate it and enter a fab house's capability numbers.") + rulesTabs();
     h += `<div class="rules-layout"><div><div class="card" style="padding:8px">
       <div class="side-head"><span class="side-label">Industry defaults</span></div>${ps.filter(p => p.builtin).map(item).join('')}
       <div class="side-head" style="margin-top:8px"><span class="side-label">Custom</span><button class="btn btn-plain" style="padding:2px 6px;font-size:12px" data-act="profile-import">Import…</button></div>
@@ -764,7 +809,7 @@
   function visibleFindings(e) {
     const q = state.q.trim().toLowerCase();
     return e.findings.filter(f => state.filter[f.severity] && (!state.cat || f.category === state.cat) &&
-      (!q || (f.title + ' ' + (f.detail || '') + ' ' + (f.refs || []).join(' ') + ' ' + (f.layer || '')).toLowerCase().includes(q)));
+      (!q || (f.check + ' ' + f.title + ' ' + (f.detail || '') + ' ' + (f.refs || []).join(' ') + ' ' + (f.layer || '')).toLowerCase().includes(q)));
   }
   function whereText(f) {
     if (f.at) return `${f.at.x.toFixed(2)}, ${f.at.y.toFixed(2)} mm`;
@@ -788,7 +833,7 @@
       for (const f of list) {
         const where = whereText(f);
         h += `<div class="item f-row${state.sel === f.id ? ' sel' : ''}" data-act="finding" data-id="${f.id}"><span class="dot ${f.severity}"></span>` +
-          `<div><div class="item-text">${esc(f.title)}</div>${f.detail ? `<div class="item-detail">${esc(f.detail)}</div>` : ''}<div class="item-sub"><span class="tag">${esc(f.check)}</span>${f.layer ? `<span>${esc(f.layer)}</span>` : ''}</div></div>` +
+          `<div><div class="item-text">${esc(f.title)}</div>${f.detail ? `<div class="item-detail">${esc(f.detail)}</div>` : ''}<div class="item-sub">${checkTag(f)}${f.layer ? `<span>${esc(f.layer)}</span>` : ''}</div></div>` +
           `<div class="item-right">${where ? `<span class="loc">${where}</span>` : ''}</div></div>`;
       }
       h += `</div></div>`;
@@ -809,7 +854,7 @@
     if (where) kv.push(['Location', where + (f.side ? ' · ' + f.side : '')]);
     if (f.refs && f.refs.length) kv.push(['Designators', f.refs.slice(0, 40).join(', ') + (f.refs.length > 40 ? ' …' : '')]);
     if (f.row) kv.push(['BOM row', f.row]);
-    $('#inspector').innerHTML = `<div class="insp-head"><span class="insp-crumb">${esc(f.category)} · ${esc(f.check)}</span><button class="icon-btn" data-act="close-insp" aria-label="Close">${ICON.close}</button></div>
+    $('#inspector').innerHTML = `<div class="insp-head"><span class="insp-crumb">${esc(f.category)} · ${C.describe(f.category, f.check) ? `<a href="#" data-act="check-doc" data-key="${esc(f.category + '/' + f.check)}">${esc(f.check)}</a>` : esc(f.check)}</span><button class="icon-btn" data-act="close-insp" aria-label="Close">${ICON.close}</button></div>
       <div class="insp-body"><span class="pill ${f.severity === 'error' ? 'error' : f.severity === 'warn' ? 'warn' : 'accent'}">${{ error: 'Error', warn: 'Warning', info: 'Info' }[f.severity]}</span>
       <div class="insp-title">${esc(f.title)}</div>${f.detail ? `<div class="insp-detail">${esc(f.detail)}</div>` : ''}
       ${kv.length ? `<dl class="kv">${kv.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}
@@ -1197,6 +1242,15 @@
         if (confirm('Delete this run and, if no other run uses it, its stored package from this browser?')) Fab.store.deleteRun(t.dataset.id).then(() => renderAll());
         break;
       case 'rules-sel': state.rulesSel = t.dataset.id; renderAll(); break;
+      case 'rules-tab': state.rulesTab = t.dataset.tab; state.checkSel = null; renderAll(); break;
+      case 'check-doc': ev.preventDefault(); showCheckDoc(t.dataset.key); break;
+      case 'check-findings': {
+        const [cat, check] = t.dataset.key.split('/');
+        state.q = check; state.cat = cat; state.filter = { error: true, warn: true, info: true };
+        state.closed.delete(cat);
+        go('findings');
+        break;
+      }
       case 'profile-use': useProfile(t.dataset.id); break;
       case 'profile-dup': {
         const src = Fab.rules.resolve(t.dataset.id);
