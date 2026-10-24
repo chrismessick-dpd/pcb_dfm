@@ -94,6 +94,17 @@
   }
   const baseName = s => String(s).replace(/\.(zip|tgz)$/i, '');
 
+  // ── Sidebar ──
+  // Slides over the page on narrow windows; on wide ones it collapses away until opened again.
+  const SIDE_KEY = 'fabcheck.ui.sideCollapsed';
+  const narrow = window.matchMedia ? window.matchMedia('(max-width: 860px)') : { matches: false };
+  function toggleSidebar() {
+    if (narrow.matches) { $('#app').classList.toggle('nav-open'); return; }
+    const on = !$('#app').classList.contains('side-collapsed');
+    $('#app').classList.toggle('side-collapsed', on);
+    try { localStorage.setItem(SIDE_KEY, on ? '1' : '0'); } catch (e) { /* storage blocked */ }
+  }
+
   // ── Console ──
   function log(entry, cls, text) {
     const line = { t: performance.now() - entry.t0, cls, text };
@@ -677,7 +688,10 @@
     const sel = Fab.rules.resolve(state.rulesSel) || ps[0];
     const e = active();
     const usedBy = e && e.pkg ? (e.pinned ? e.pinned.id : state.profile) : null;
-    const item = p => `<button class="proj${p.id === sel.id ? ' active' : ''}" data-act="rules-sel" data-id="${esc(p.id)}"><span class="proj-body"><span class="proj-name">${esc(p.name)}</span><span class="proj-sub">${p.builtin ? 'Typical values, read-only' : `From ${esc(p.baseName)} · ${Object.keys(p.edited).length} changed`}${p.id === usedBy ? ' · in use' : ''}</span></span></button>`;
+    const item = p => {
+      const sub = (p.builtin ? 'Typical values, read-only' : `From ${p.baseName} · ${Object.keys(p.edited).length} changed`) + (p.id === usedBy ? ' · in use' : '');
+      return `<button class="proj${p.id === sel.id ? ' active' : ''}" data-act="rules-sel" data-id="${esc(p.id)}" title="${esc(p.name + ' · ' + sub)}"><span class="proj-body"><span class="proj-name">${esc(p.name)}</span><span class="proj-sub">${esc(sub)}</span></span></button>`;
+    };
     const sync = state.profileSync;
     let h = `<div class="page wide">` + pageHead(null, 'Fab rules', 'Fab capability profiles', "The limits the DFM checks use. Start from an industry default, then duplicate it and enter a fab house's capability numbers.");
     h += `<div class="rules-layout"><div><div class="card" style="padding:8px">
@@ -1138,7 +1152,7 @@
       case 'select': state.active = t.dataset.id; state.sel = null; $('#app').classList.remove('nav-open'); renderAll(); break;
       case 'view': go(t.dataset.view); break;
       case 'theme': { const th = isDark(readTheme()) ? 'light' : 'dark'; writeTheme(th); applyTheme(th); break; }
-      case 'nav': $('#app').classList.toggle('nav-open'); break;
+      case 'nav': toggleSidebar(); break;
       case 'rerun': if (e && e.pkg && e.status === 'ready') runChecks(e, 'Re-running checks'); break;
       case 'sev': state.filter = { error: false, warn: false, info: false }; state.filter[t.dataset.sev] = true; state.cat = null; go('findings'); break;
       case 'cat': state.cat = t.dataset.cat; state.filter = { error: true, warn: true, info: true }; go('findings'); break;
@@ -1299,7 +1313,9 @@
       if (ev.target.matches('input, select, textarea')) return;
       if (ev.key === 'Escape') closeInspector();
       if (ev.key === 'o' && !ev.ctrlKey && !ev.metaKey) $('#file-zip').click();
+      else if (ev.key === '[' && !ev.ctrlKey && !ev.metaKey) { ev.preventDefault(); toggleSidebar(); }
     });
+    try { if (localStorage.getItem(SIDE_KEY) === '1' && !narrow.matches) $('#app').classList.add('side-collapsed'); } catch (e) { /* storage blocked */ }
     $('#file-profile').addEventListener('change', async ev => {
       const f = ev.target.files[0]; ev.target.value = '';
       if (!f) return;

@@ -17,7 +17,6 @@
 .brand-mark svg.board { width: 18px; height: 18px; }
 
 /* Packages in the sidebar (same rhythm as Signoff's projects) */
-.proj-name, .proj-sub { display: block; }
 .pkg-sev { display: flex; gap: 4px; flex: none; font-size: 11px; font-variant-numeric: tabular-nums; }
 .pkg-sev span { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: inline-grid; place-items: center; font-weight: 600; }
 .pkg-sev .e { background: var(--issue-soft); color: var(--issue); }
