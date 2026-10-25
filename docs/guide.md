@@ -87,7 +87,7 @@ are served read-only and never copied into the repo; the `.gitignore` keeps `*.z
 
 ### Notes
 
-- Fabcheck is internal for now. The Signoff demo and contractor copies hide its links. Because it
-  never uploads files, it's a good candidate for a public "free DFM checker" later.
+- Fabcheck is public: it shows in the Signoff demos and for contractors as well as FTEs, and is a
+  showcase for customers. It never uploads a package, which is its main selling point.
 - Defaults are typical values, not any fab house's. For a real build, use a custom profile with the
   fab's published capabilities, and record the source in the profile's notes.
