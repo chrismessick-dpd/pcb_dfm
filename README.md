@@ -1,5 +1,7 @@
 # Fabcheck: PCB package DFM
 
+**Live:** https://chrismessick-dpd.github.io/pcb_dfm/
+
 **User guide:** [docs/guide.md](docs/guide.md), with a customer-shareable overview and an FTE section on architecture and use.
 
 A browser tool that opens an Altium fabrication/assembly package (`.zip` or folder) and checks it the
