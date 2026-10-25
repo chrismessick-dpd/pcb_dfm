@@ -1,5 +1,7 @@
 # Fabcheck: PCB package DFM
 
+**User guide:** [docs/guide.md](docs/guide.md), with a customer-shareable overview and an FTE section on architecture and use.
+
 A browser tool that opens an Altium fabrication/assembly package (`.zip` or folder) and checks it the
 way a fab and an assembler would. All processing happens in the browser tab, so no files are uploaded.
 
