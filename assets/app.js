@@ -1331,6 +1331,10 @@
         location.reload();
       });
     }
+    // People & access lives in Signoff EE, whose list decides who's an FTE; the link is for FTEs.
+    const showPeople = () => { $('#people-link').hidden = !(Fab.repoRuns && Fab.repoRuns.isFte()); };
+    showPeople();
+    window.addEventListener('storage', showPeople);
     document.addEventListener('click', onClick);
     document.addEventListener('change', ev => {
       const e = active();

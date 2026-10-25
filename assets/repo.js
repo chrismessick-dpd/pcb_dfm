@@ -159,5 +159,13 @@
     return syncing;
   }
 
-  Fab.repoRuns = Fab.DEMO ? null : { home, upload, fetchRun, markStored, dataRepo, syncProfiles, setFetch: f => { fetchImpl = f; } };
+  // Whether this browser's token is an FTE's, as Signoff EE last found at sync: EE records the
+  // token's fingerprint and whether that token could open its data repo. No request is made.
+  function isFte() {
+    const t = token(), M = window.Signoff && window.Signoff.model;
+    if (!t || !M || !M.tokenTag) return false;
+    return (load('settings', {}) || {}).tokenTag === M.tokenTag(t) && load('dataAccess', '') === 'ok';
+  }
+
+  Fab.repoRuns = Fab.DEMO ? null : { home, upload, fetchRun, markStored, dataRepo, syncProfiles, isFte, setFetch: f => { fetchImpl = f; } };
 })(window.Fab);
