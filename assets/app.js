@@ -41,7 +41,7 @@
   const active = () => state.pkgs.find(p => p.id === state.active) || null;
 
   // ── Theme: shared with Signoff (same key), so both tools switch together ──
-  const SETTINGS_KEY = 'signoff.v1.settings';
+  const SETTINGS_KEY = Fab.signoffNs + 'settings';
   const darkQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
   function readTheme() { try { return (JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') || {}).theme || 'auto'; } catch (e) { return 'auto'; } }
   function writeTheme(t) {
@@ -375,6 +375,11 @@
         return;
       }
       const known = stored ? { run: stored.run, project: null } : Fab.store.runFromSignoff(q.run);
+      // A link from a Signoff EE demo issue that arrived without ?demo: the run lives in the demo.
+      if (!known && !Fab.DEMO && Fab.store.runFromSignoff(q.run, 'signoff.demo.')) {
+        location.replace(location.pathname + (location.search ? location.search + '&demo' : '?demo') + location.hash);
+        return;
+      }
       // The link's repo is the project's home now; where the run was first stored is the fallback.
       const repos = [q.repo, known && known.run.stored && known.run.stored.repo].filter((r, i, a) => r && a.indexOf(r) === i);
       const project = q.project || (known && known.project && known.project.id);
@@ -519,19 +524,23 @@
       (k === 'findings' && nf ? `<span class="count">${nf}</span>${hasErr ? '<span class="dot"></span>' : ''}` : '') + '</button>').join('');
   }
 
+  // A synthetic board made by tools/make_sample.py: not a client design. Fetched from this site, so
+  // the button only shows when the page is served (not opened from file://).
+  const SAMPLE = 'demo/fabcheck-sample-board.zip';
+
   function emptyHtml() {
     return `<div class="page"><div class="drop" id="drop">
       <div class="empty-art">${ICON.upload}</div>
       <h2>Check a fab package before it goes out</h2>
       <p>Drop an Altium output .zip or folder anywhere on this window: Gerber (RS-274X or X2), NC drill, pick-and-place, BOM, ODB++ and drawings.</p>
-      <div class="actions"><button class="btn btn-primary" data-act="open">Choose .zip…</button><button class="btn" data-act="open-dir">Choose folder…</button></div>
+      <div class="actions"><button class="btn btn-primary" data-act="open">Choose .zip…</button><button class="btn" data-act="open-dir">Choose folder…</button>${Fab.DEMO && location.protocol !== 'file:' ? '<button class="btn" data-act="sample">Try a sample board</button>' : ''}</div>
       <div class="drop-tiles">
         <div><b>Package</b>Every file classified; missing items, units, drill report</div>
         <div><b>Build</b>PnP, BOM and ODB++ agree; variant and stencil</div>
         <div><b>BOM</b>Part numbers decoded against descriptions</div>
         <div><b>DFM</b>Traces, drills, rings, edge, mask, silk</div>
       </div>
-      <div class="foot">${ICON.lock} Files are read in this browser tab. Runs are kept in this browser; only "Send to Signoff EE" stores a package, in that project's private repository.</div>
+      <div class="foot">${ICON.lock} ${Fab.DEMO ? 'Files are read in this browser tab and never uploaded. In this demo, runs and anything sent to Signoff EE stay in this browser.' : 'Files are read in this browser tab. Runs are kept in this browser; only "Send to Signoff EE" stores a package, in that project\'s private repository.'}</div>
     </div><div id="recent"></div></div>`;
   }
 
@@ -787,18 +796,19 @@
     let h = `<div class="section-title">Send to Signoff EE</div><div class="card" style="padding:18px 20px">`;
     const projects = Fab.signoff.projects();
     if (!projects.length) {
-      return h + `<p style="margin:0 0 12px;color:var(--text-2)">No Signoff EE projects in this browser yet. Open <a href="../ee_design_review/index.html" style="color:var(--accent)">Signoff EE</a> once at this same address (it keeps its projects in this browser), then come back.</p></div>`;
+      return h + `<p style="margin:0 0 12px;color:var(--text-2)">${Fab.DEMO ? 'No Signoff EE demo projects in this browser yet. Open the <a href="' + Fab.demoHref('../ee_design_review/index.html') + '" style="color:var(--accent)">Signoff EE demo</a> once (it sets up its sample projects in this browser), then come back.' : 'No Signoff EE projects in this browser yet. Open <a href="../ee_design_review/index.html" style="color:var(--accent)">Signoff EE</a> once at this same address (it keeps its projects in this browser), then come back.'}</p></div>`;
     }
     if (!groups.length) return h + `<p style="margin:0;color:var(--text-2)">No errors or warnings to send.</p></div>`;
     // Guess the board's project from the package name (e.g. PCB-1042-03 → board PCB-1042).
     if (!e.signoffSlug || !projects.some(p => p.slug === e.signoffSlug)) {
       const lab = e.label.toLowerCase();
-      const guess = projects.find(p => [p.meta.board, p.meta.name].some(s => s && lab.includes(String(s).toLowerCase().replace(/\s+/g, '')))) || projects[0];
+      const guess = projects.find(p => [p.meta.board, p.meta.name].some(s => s && lab.includes(String(s).toLowerCase().replace(/\s+/g, '')))) ||
+        projects.find(p => (p.meta.checklists || []).includes('fab')) || projects[0];
       e.signoffSlug = guess.slug;
     }
-    h += `<p style="margin:0 0 12px;color:var(--text-2)">Adds ${plural(groups.length, 'issue')} (${errs} from errors as Major, ${warns} from warnings as Minor) to the Fabrication &amp; Release checklist, one per check with every location listed. Sending again updates the same issues and notes what changed. Signoff's Sync then pushes them.</p>
+    h += `<p style="margin:0 0 12px;color:var(--text-2)">Adds ${plural(groups.length, 'issue')} (${errs} from errors as Major, ${warns} from warnings as Minor) to the Fabrication &amp; Release checklist, one per check with every location listed. Sending again updates the same issues and notes what changed. ${Fab.DEMO ? 'In this demo they go to the Signoff EE demo in this browser.' : "Signoff's Sync then pushes them."}</p>
       <div class="filters" style="margin:0"><label class="tb-field" style="font-size:13px">Project <select data-act="signoff-project">${projects.map(p => `<option value="${esc(p.slug)}"${p.slug === e.signoffSlug ? ' selected' : ''}>${esc(p.meta.name)}${p.meta.board ? ' · ' + esc(p.meta.board) : ''}${(p.meta.checklists || []).includes('fab') ? '' : ' (no Fab checklist)'}</option>`).join('')}</select></label>
-      <button class="btn btn-primary" data-act="signoff-send">Send to Signoff EE</button>${e.signoffResult ? `<a class="btn btn-plain" href="../ee_design_review/index.html">Open Signoff EE</a>` : ''}</div>`;
+      <button class="btn btn-primary" data-act="signoff-send">Send to Signoff EE</button>${e.signoffResult ? `<a class="btn btn-plain" href="${Fab.demoHref('../ee_design_review/index.html')}">Open Signoff EE</a>` : ''}</div>`;
     const target = projects.find(p => p.slug === e.signoffSlug);
     if (target && !(target.meta.checklists || []).includes('fab')) h += `<p class="note">This project doesn't use the Fabrication &amp; Release checklist, so the issues won't show until you add it in the project's details in Signoff EE.</p>`;
     if (e.signoffResult) h += `<p class="note" style="color:var(--pass)">${esc(e.signoffResult)}</p>`;
@@ -1226,7 +1236,7 @@
           const name = r.name;
           e.sentTo = { projectId: r.projectId, name };
           if (run) Fab.store.updateRun(run.id, { sentTo: e.sentTo });
-          e.signoffResult = `Sent to "${name}": ${r.created} new, ${r.updated} updated${r.resolvedNotes ? `, ${r.resolvedNotes} earlier issue(s) noted as no longer found` : ''}. Sync in Signoff EE to push them.`;
+          e.signoffResult = `Sent to "${name}": ${r.created} new, ${r.updated} updated${r.resolvedNotes ? `, ${r.resolvedNotes} earlier issue(s) noted as no longer found` : ''}. ${Fab.DEMO ? 'Open Signoff EE to see them.' : 'Sync in Signoff EE to push them.'}`;
           log(e, 'ok', e.signoffResult);
           toast('Sent to Signoff EE');
           if (Fab.repoRuns && run) Fab.repoRuns.upload(e, r.projectId, (cls, t) => log(e, cls, t)).then(() => renderAll());
@@ -1243,6 +1253,7 @@
       case 'delete-run':
         if (confirm('Delete this run and, if no other run uses it, its stored package from this browser?')) Fab.store.deleteRun(t.dataset.id).then(() => renderAll());
         break;
+      case 'sample': openPackage(() => Fab.loader.fromUrl(SAMPLE), 'fabcheck-sample-board.zip'); break;
       case 'rules-sel': state.rulesSel = t.dataset.id; renderAll(); break;
       case 'rules-tab': state.rulesTab = t.dataset.tab; state.checkSel = null; renderAll(); break;
       case 'check-doc': ev.preventDefault(); showCheckDoc(t.dataset.key); break;
@@ -1308,6 +1319,18 @@
     // Signoff EE opens Fabcheck in this named window, so following links reuses one tab.
     if (!window.name) window.name = 'dovetail-fabcheck';
     applyTheme(readTheme());
+    if (Fab.DEMO) {
+      document.querySelectorAll('.side-tools a.side-link').forEach(a => a.setAttribute('href', Fab.demoHref(a.getAttribute('href'))));
+      const banner = $('#demo-banner');
+      banner.hidden = false;
+      document.body.classList.add('has-banner');
+      banner.innerHTML = 'You’re exploring a demo of Fabcheck, Dovetail’s fab package DFM tool. Files never leave this browser.<button id="reset-demo">Reset demo</button>';
+      banner.querySelector('#reset-demo').addEventListener('click', async () => {
+        for (const k of Object.keys(localStorage)) if (k.indexOf(Fab.fabcheckNs) === 0) localStorage.removeItem(k);
+        await Fab.store.clearAll().catch(() => {});
+        location.reload();
+      });
+    }
     document.addEventListener('click', onClick);
     document.addEventListener('change', ev => {
       const e = active();

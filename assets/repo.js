@@ -159,5 +159,5 @@
     return syncing;
   }
 
-  Fab.repoRuns = { home, upload, fetchRun, markStored, dataRepo, syncProfiles, setFetch: f => { fetchImpl = f; } };
+  Fab.repoRuns = Fab.DEMO ? null : { home, upload, fetchRun, markStored, dataRepo, syncProfiles, setFetch: f => { fetchImpl = f; } };
 })(window.Fab);

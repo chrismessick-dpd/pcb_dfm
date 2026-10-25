@@ -4,6 +4,14 @@ window.Fab = window.Fab || {};
 (function (Fab) {
   'use strict';
 
+  // ---- demo mode (?demo) ----
+  // The public demo keeps everything in its own storage: Signoff EE's demo namespace, a separate
+  // run database and profile keys. Nothing reaches GitHub. Suite links go to the other demos.
+  Fab.DEMO = /[?&]demo\b/.test(location.search);
+  Fab.signoffNs = Fab.DEMO ? 'signoff.demo.' : 'signoff.v1.';
+  Fab.fabcheckNs = Fab.DEMO ? 'fabcheck.demo.' : 'fabcheck.v1.';
+  Fab.demoHref = href => !Fab.DEMO || /[?&]demo\b/.test(href) ? href : href.replace(/^([^?#]*)(\?[^#]*)?/, (m, path, q) => path + (q ? q + '&demo' : '?demo'));
+
   // ---- text ----
   Fab.decodeText = function (bytes) {
     const utf8 = new TextDecoder('utf-8').decode(bytes);

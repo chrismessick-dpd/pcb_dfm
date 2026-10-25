@@ -76,11 +76,11 @@
   Fab.profiles = BUILTIN;
 
   // ---- custom profiles (localStorage, merged per field) ----
-  const KEY = 'fabcheck.v1.profiles', LAST = 'fabcheck.v1.lastProfile';
+  const KEY = Fab.fabcheckNs + 'profiles', LAST = Fab.fabcheckNs + 'lastProfile';
   const load = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } };
   const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* storage full or blocked */ } };
   const now = () => new Date().toISOString();
-  const who = () => ((load('signoff.v1.settings', {}) || {}).user) || 'Fabcheck';
+  const who = () => ((load(Fab.signoffNs + 'settings', {}) || {}).user) || 'Fabcheck';
   const stamp = v => ({ v, at: now(), by: who() });
   const newer = (a, b) => !a ? b : !b ? a : (a.at !== b.at ? (a.at > b.at ? a : b) : ((a.by || '') >= (b.by || '') ? a : b));
 

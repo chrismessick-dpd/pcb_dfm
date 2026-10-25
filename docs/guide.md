@@ -89,5 +89,14 @@ are served read-only and never copied into the repo; the `.gitignore` keeps `*.z
 
 - Fabcheck is public: it shows in the Signoff demos and for contractors as well as FTEs, and is a
   showcase for customers. It never uploads a package, which is its main selling point.
+- **Demo mode** (`index.html?demo`): a banner with a Reset button, and "Try a sample board", which
+  loads `demo/fabcheck-sample-board.zip`. That package is a synthetic 2-layer board drawn by
+  `tools/make_sample.py` with a few planted problems; it is not a client design. In the demo:
+  - suite links go to the Signoff demos;
+  - Send to Signoff writes into the Signoff EE demo (`signoff.demo.` in localStorage) and never to
+    GitHub;
+  - runs and profiles use their own storage (`fabcheck-demo` database, `fabcheck.demo.` keys);
+  - a Signoff issue link that arrives without `?demo` reopens in the demo when the run belongs to a
+    demo project.
 - Defaults are typical values, not any fab house's. For a real build, use a custom profile with the
   fab's published capabilities, and record the source in the profile's notes.

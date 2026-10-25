@@ -11,7 +11,7 @@
 //   comments[id] { id, item, author, at, text, updatedAt, updatedBy }
 (function (Fab) {
   'use strict';
-  const NS = 'signoff.v1.';
+  const NS = Fab.signoffNs;
   const now = () => new Date().toISOString();
   const uid = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
@@ -125,7 +125,7 @@
     const all = load('projects', {});
     const slug = Object.keys(all).find(k => all[k].id === projectId);
     if (slug) save('ui', Object.assign(load('ui', {}) || {}, { slug, view: 'findings' }));
-    window.open('../ee_design_review/index.html', 'dovetail-signoff-ee');
+    window.open(Fab.demoHref('../ee_design_review/index.html'), 'dovetail-signoff-ee');
     return !!slug;
   }
   function projectById(id) { const all = load('projects', {}); const slug = Object.keys(all).find(k => all[k].id === id); return slug ? Object.assign({ slug }, all[slug]) : null; }

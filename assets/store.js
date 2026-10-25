@@ -3,7 +3,7 @@
 // original upload and can be stored in a Signoff project's repo.
 (function (Fab) {
   'use strict';
-  const DB = 'fabcheck', VER = 1;
+  const DB = Fab.DEMO ? 'fabcheck-demo' : 'fabcheck', VER = 1;
 
   // ---- IndexedDB ----
   let dbp = null;
@@ -16,7 +16,11 @@
         if (!d.objectStoreNames.contains('runs')) d.createObjectStore('runs', { keyPath: 'id' });
         if (!d.objectStoreNames.contains('packages')) d.createObjectStore('packages', { keyPath: 'key' });
       };
-      r.onsuccess = () => res(r.result);
+      r.onsuccess = () => {
+        // Let another tab delete or upgrade the database (the demo's Reset) instead of blocking it.
+        r.result.onversionchange = () => { r.result.close(); dbp = null; };
+        res(r.result);
+      };
       r.onerror = () => rej(r.error);
     });
     return dbp;
@@ -98,7 +102,7 @@
   function runRecord(entry, pkgRec, settings) {
     const c = { error: 0, warn: 0, info: 0 };
     for (const f of entry.findings) c[f.severity]++;
-    const by = ((() => { try { return JSON.parse(localStorage.getItem('signoff.v1.settings') || '{}'); } catch (e) { return {}; } })().user) || '';
+    const by = ((() => { try { return JSON.parse(localStorage.getItem(Fab.signoffNs + 'settings') || '{}'); } catch (e) { return {}; } })().user) || '';
     return {
       id: newId(), at: new Date().toISOString(), by,
       tool: { name: 'Fabcheck', version: (window.FABCHECK_VERSION || {}).hash || 'dev' },
@@ -133,17 +137,23 @@
   }
 
   // A run record named on a Signoff EE issue (source.run), when this browser has never seen the run.
-  function runFromSignoff(runId) {
+  function runFromSignoff(runId, ns) {
     let projects = {};
-    try { projects = JSON.parse(localStorage.getItem('signoff.v1.projects') || '{}'); } catch (e) { /* ignore */ }
+    try { projects = JSON.parse(localStorage.getItem((ns || Fab.signoffNs) + 'projects') || '{}'); } catch (e) { /* ignore */ }
     for (const p of Object.values(projects)) for (const c of Object.values(p.custom || {})) {
       if (c.source && c.source.run && c.source.run.id === runId) return { run: c.source.run, project: p };
     }
     return null;
   }
 
+  // Drop this database (the demo's Reset). Closes the open connection first so the delete isn't blocked.
+  async function clearAll() {
+    if (dbp) { try { (await dbp).close(); } catch (e) { /* never opened */ } dbp = null; }
+    await new Promise(res => { const r = indexedDB.deleteDatabase(DB); r.onsuccess = r.onerror = r.onblocked = () => res(); });
+  }
+
   Fab.store = {
-    keep, manifest, packageRecord, restoreFiles, compactFindings, runRecord, saveRun, updateRun, recentRuns, deleteRun, runFromSignoff,
+    clearAll, keep, manifest, packageRecord, restoreFiles, compactFindings, runRecord, saveRun, updateRun, recentRuns, deleteRun, runFromSignoff,
     getRun: id => get('runs', id), getPackage: key => get('packages', key), putRun: v => put('runs', v), putPackage: v => put('packages', v),
   };
 })(window.Fab);
