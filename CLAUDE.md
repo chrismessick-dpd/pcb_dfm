@@ -79,8 +79,14 @@ Done: kept runs and deep links with Signoff EE (stages 1–2), editable/shared f
 sidebar, demo mode with the scrubbed Handle sample.
 
 Open:
-- Signoff EE builds its "Open in Fabcheck" link without `?demo` (`ee_design_review/assets/app.js`
-  ~line 590); Fabcheck redirects such links into the demo, but EE should append `?demo` itself.
 - Not built yet: acid traps (needs a trace graph), text-height check, microvia/HDI profile, revision
   Gerber diff beyond what `revisions.js` does, ODB++ archive vs folder equality.
 - The bottom-side pin-1 rule is unverified (no sample with 3+ bottom parts sharing a footprint).
+- The suite's demos (Signoff EE, ME, PL) now share one made-up product, a Smart Thermostat. The
+  Fabcheck demo board is still the scrubbed sample, so it isn't part of that story yet. A made-up
+  thermostat board package would fix that; see `../CLAUDE.md`.
+
+Suite context: the folder above holds a `CLAUDE.md` for the whole suite, covering engine
+vendoring, project summaries and the demo suite. The vendored `model.js`/`github.js` were last
+synced at ee_design_review `ae10959`. They add `project.summary`, which Fabcheck's writes keep as
+is, and `cfg.merge`.
