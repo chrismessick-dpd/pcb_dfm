@@ -52,15 +52,15 @@
   C.define('Assembly', 'checks/assembly.js', [
     { check: 'origin', name: 'Pick-and-place origin', looks: 'Whether the pick-and-place coordinates land on pads as they are, or only after a shift.',
       sev: { warn: 'the placements line up only with an offset', info: 'they share the Gerber origin' }, uses: ['Pick-and-place X/Y', 'Top and bottom copper pads', 'Drill file extents'],
-      rules: () => [`Tries no shift, the board lower-left corner, its negative and the drill lower-left corner; keeps the one that puts the most parts within ${T.padNear} mm of a pad.`],
+      rules: () => [`Tries no shift, the board lower-left corner, its negative and the drill lower-left corner; keeps the one that puts the most parts within ${Fab.fmtLen(T.padNear)} of a pad.`],
       example: 'Pick-and-place uses a different origin than the Gerbers' },
     { check: 'placement', name: 'Placements vs pads', looks: 'Parts placed outside the board, on the wrong side, or far from any pad.',
-      sev: { error: 'outside the board, or no pads on its side but pads on the other', warn: `no pads on its side within ${T.padFar} mm` }, uses: ['Pick-and-place X/Y, layer', 'Copper pads', 'Board outline'],
-      rules: () => [`Looks for a pad within ${T.padNear} mm on the placement side; vias are not pads.`],
+      sev: { error: 'outside the board, or no pads on its side but pads on the other', warn: `no pads on its side within ${Fab.fmtLen(T.padFar)}` }, uses: ['Pick-and-place X/Y, layer', 'Copper pads', 'Board outline'],
+      rules: () => [`Looks for a pad within ${Fab.fmtLen(T.padNear)} on the placement side; vias are not pads.`],
       example: 'R12: no pads on bottom, but there are on the other side' },
     { check: 'rotation', name: 'Two-terminal rotation', looks: 'Two-pad parts whose rotation is 90° off from the other parts with the same footprint and side.',
       sev: { warn: 'a part disagrees with the majority of its footprint group', info: 'how many parts were checked' }, uses: ['Pick-and-place rotation, footprint', 'Copper pad pairs'],
-      rules: () => [`A pad pair counts when its midpoint is within ${T.pairCenter} mm of the placement and both pads have the same shape.`,
+      rules: () => [`A pad pair counts when its midpoint is within ${Fab.fmtLen(T.pairCenter)} of the placement and both pads have the same shape.`,
         `Groups of at least ${T.rotGroup} parts; a part is flagged only when at most ${Math.round(T.rotOutliers * 100)}% of its group disagree. Convention-free: no fixed 0° definition.`],
       example: 'C41: rotation 90° is 90° off from its pads' },
     { check: 'bom-pnp', name: 'Pick-and-place vs BOM', looks: 'Designators placed but not on the BOM, and BOM designators with no placement.',
@@ -200,7 +200,7 @@
           add('placement', 'error', `${p.des}: no pads on ${p.side}, but there are on the other side`, `Footprint ${p.footprint}. Check the Layer column in the PnP.`, ex);
         } else if (!far) {
           row.issues.push('no pads');
-          add('placement', 'warn', `${p.des}: no ${p.side} pads within ${T.padFar} mm`, `Footprint ${p.footprint}. Wrong origin, side or a part without copper?`, ex);
+          add('placement', 'warn', `${p.des}: no ${p.side} pads within ${Fab.fmtLen(T.padFar)}`, `Footprint ${p.footprint}. Wrong origin, side or a part without copper?`, ex);
         }
       }
       // Two-terminal pad pair centered on the placement (used for the rotation check).

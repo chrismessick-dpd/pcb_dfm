@@ -19,7 +19,7 @@ vendors give away their DFM viewers.
   - `jszip@3.10.1` reads zip packages.
   - `xlsx@0.18.5` (SheetJS) reads BOMs in `.xlsx`/`.xls`/`.csv`.
   - Later phases: `pako@2.1.0` for ODB++ `.tgz` and `pdf.js` for previewing the fab drawing.
-- **Metric first.** Everything is converted to mm on parse. Mil is shown only as a secondary readout.
+- **Metric first.** Everything is converted to mm on parse. Every length shown also gives mil in parentheses, through one formatter, `Fab.fmtLen` ("0.084 mm (3.3 mil)"; `Fab.fmtSize` for pairs). Coordinates, areas and µm values stay metric only.
 - **Style** matches the Signoff design-review tool: system font, `#f5f5f7` canvas, white rounded cards,
   translucent sidebar, Dovetail teal `#004952` accent, and dark mode via `prefers-color-scheme`.
 

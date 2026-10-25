@@ -45,15 +45,15 @@
       example: 'Gerber parse note: board.GTL' },
     { check: 'drr', name: 'Drill report vs drill files', looks: 'Hole counts per tool in the drill report against the drill files.',
       sev: { error: 'any tool count differs', info: 'all counts match' }, uses: ['Altium drill report (.DRR)', 'Excellon drill files'],
-      rules: () => [`Tools match by tool number and size first, else by size (within ${T.drrDia} mm) and plating.`],
+      rules: () => [`Tools match by tool number and size first, else by size (within ${Fab.fmtLen(T.drrDia)}) and plating.`],
       example: 'Drill files disagree with drill report' },
     { check: 'outline', name: 'Board outline', looks: 'A closed board outline, open paths on the outline layer, and the board size.',
       sev: { error: 'no closed outline was found', warn: 'the outline layer has open paths', info: 'board size and cutouts' }, uses: ['Outline / profile Gerber'],
       example: 'Outline layer has 2 open path(s)' },
     { check: 'extents', name: 'Board extents', looks: 'Drill hits outside the board and copper past the outline.',
       sev: { error: 'a drill hit is outside the board', warn: 'a copper layer reaches past the outline bounding box' }, uses: ['Outline', 'Drill files', 'Copper layers'],
-      rules: () => [`Copper may pass the outline box by ${T.extentsTol} mm.`, `The first ${T.shown} hits outside are listed.`],
-      example: 'Drill hit outside the board (⌀0.3 mm)' },
+      rules: () => [`Copper may pass the outline box by ${Fab.fmtLen(T.extentsTol)}.`, `The first ${T.shown} hits outside are listed.`],
+      example: `Drill hit outside the board: ⌀${Fab.fmtLen(0.3)}` },
     { check: 'align', name: 'Drill to copper alignment', looks: 'Whether plated holes land on top copper, which shows the drill file and Gerbers share an origin and units.',
       sev: { error: `under ${T.alignError * 100}% land on copper`, warn: `under ${T.alignWarn * 100}% land on copper`, info: 'the share that lands' }, uses: ['Drill files', 'Top copper'],
       example: 'Drill file does not line up with copper' },
@@ -132,7 +132,7 @@
         const byNum = sameSize.filter(t => t.t === r.tool);
         const cands = byNum.length ? byNum : sameSize;
         const got = cands.reduce((s, t) => s + (r.type === 'Slot' ? t.slots : t.hits), 0);
-        if (got !== r.count) bad.push(`T${r.tool} ${r.dia} mm ${r.plated ? 'PTH' : 'NPTH'} ${r.type}: report ${r.count}, drill files ${got}`);
+        if (got !== r.count) bad.push(`T${r.tool} ${Fab.fmtLen(r.dia)} ${r.plated ? 'PTH' : 'NPTH'} ${r.type}: report ${r.count}, drill files ${got}`);
       }
       if (bad.length) add('drr', 'error', 'Drill files disagree with drill report', bad.join('\n'));
       else add('drr', 'info', 'Drill files match the drill report', `${pkg.drr.length} tools, ${total} holes.`);
@@ -145,11 +145,11 @@
       const open = o.loops.filter(l => !l.closed);
       if (open.length) add('outline', 'warn', `Outline layer has ${open.length} open path(s)`, 'On ' + o.file.name + '. Open segments next to the profile can be read as extra routing.');
       const bb = o.board.bbox;
-      add('outline', 'info', `Board ${(bb[2] - bb[0]).toFixed(2)} × ${(bb[3] - bb[1]).toFixed(2)} mm`,
+      add('outline', 'info', `Board ${Fab.fmtSize(bb[2] - bb[0], bb[3] - bb[1], 2)}`,
         `Outline from ${o.file.name}${o.cutouts.length ? `, ${o.cutouts.length} internal cutout(s)` : ''}.`, { bbox: bb });
       const outside = [];
       for (const h of pkg.hits) if (!C.insideBoard(o, h.x, h.y)) outside.push(h);
-      for (const h of C.capped(outside, T.shown).shown) add('extents', 'error', `Drill hit outside the board (⌀${h.dia} mm)`, `At ${h.x.toFixed(3)}, ${h.y.toFixed(3)} mm.`, { at: { x: h.x, y: h.y } });
+      for (const h of C.capped(outside, T.shown).shown) add('extents', 'error', `Drill hit outside the board: ⌀${Fab.fmtLen(h.dia)}`, `At ${h.x.toFixed(3)}, ${h.y.toFixed(3)} mm.`, { at: { x: h.x, y: h.y } });
       if (outside.length > T.shown) add('extents', 'error', `…and ${outside.length - T.shown} more drill hits outside the board`, '');
       for (const lay of L.copper) {
         if (lay.polarity === 'negative' || !Fab.bbox.valid(lay.bbox)) continue;

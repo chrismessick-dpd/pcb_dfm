@@ -178,7 +178,7 @@
       if (skipped.size) log(entry, 'dim', `         + ${[...skipped].map(([t, n]) => `${n} ${t}`).join(', ')}`);
       const bb = pkg.boardBBox;
       log(entry, 'ok', `Using ${pkg.set.x2 ? 'Gerber X2' : 'RS-274X'} set "${pkg.set.dir}": ${pkg.layers.copper.length} copper layers` +
-        (bb ? `, board ${(bb[2] - bb[0]).toFixed(2)} × ${(bb[3] - bb[1]).toFixed(2)} mm` : '') +
+        (bb ? `, board ${Fab.fmtSize(bb[2] - bb[0], bb[3] - bb[1], 2)}` : '') +
         (pkg.odb ? `, ODB++ components ${pkg.odb.comps.length}` : ''));
       renderSidebar();
       if (opts.stored) restoreRun(entry, opts.stored);
@@ -186,7 +186,7 @@
         const settings = opts.expect && opts.expect.run.settings;
         if (settings) {
           pinRun(entry, settings);
-          log(entry, 'dim', `Using the run's own rules: ${entry.pinned.name}, ${entry.pinned.thickness} mm${settings.rules ? '' : ' (run made before rules were saved; using the built-in profile)'}`);
+          log(entry, 'dim', `Using the run's own rules: ${entry.pinned.name}, ${Fab.fmtLen(entry.pinned.thickness)}${settings.rules ? '' : ' (run made before rules were saved; using the built-in profile)'}`);
           logAdded(entry);
         } else {
           // Default to the profile last used for this package or this Signoff project.
@@ -218,7 +218,7 @@
       ['Build consistency', C.build.steps, [pkg]],
       ['Pins (IPC-356)', C.pins.steps, [pkg]],
       ['BOM audit', C.bom.steps, [pkg]],
-      [`Fabrication DFM (${profileName(entry)}${entry.pinned ? ", run's saved rules" : ''}, ${prof.thickness} mm)`, C.dfm.steps, [pkg, prof]],
+      [`Fabrication DFM (${profileName(entry)}${entry.pinned ? ", run's saved rules" : ''}, ${Fab.fmtLen(prof.thickness)})`, C.dfm.steps, [pkg, prof]],
     ];
     const totalSteps = 34 + 2 * pkg.layers.copper.length; // fixed steps + raster steps per copper layer
     let done = 0;
@@ -309,7 +309,7 @@
     try { C.assembly(entry.pkg, profile(entry)); C.pins(entry.pkg); } catch (e) { console.error(e); }
     entry.findings = stored.findings.map(f => Object.assign({}, f));
     const c = run.summary || {};
-    log(entry, 'ok', `Opened run ${run.id} from ${stored.where || 'this browser'}: ${new Date(run.at).toLocaleString()}${run.by ? ' by ' + run.by : ''}, ${entry.pinned.name}, ${run.settings.thickness} mm`);
+    log(entry, 'ok', `Opened run ${run.id} from ${stored.where || 'this browser'}: ${new Date(run.at).toLocaleString()}${run.by ? ' by ' + run.by : ''}, ${entry.pinned.name}, ${Fab.fmtLen(run.settings.thickness)}`);
     if (entry.pinned.editedSince) log(entry, 'warn', `Profile "${entry.pinned.name}" has been edited since this run; the run keeps the rules it was made with.`);
     else if (entry.pinned.missing) log(entry, 'dim', `         Profile "${entry.pinned.name}" isn't on this computer; the run's saved rules are used.`);
     logAdded(entry);
@@ -548,7 +548,7 @@
         const run = r.run, c = run.summary || {};
         return `<tr data-act="open-run" data-id="${run.id}"><td><b style="font-weight:500">${esc(baseName(run.package.name))}</b><div class="muted mono">${run.package.sha256.slice(0, 12)}… · ${(run.package.size / 1048576).toFixed(1)} MB</div></td>` +
           `<td>${esc(new Date(run.at).toLocaleString())}<div class="muted">${esc(run.by || '')}${run.stored ? ' · stored in ' + esc(run.stored.repo) : ' · this browser only'}</div></td>` +
-          `<td>${esc(runProfileName(run.settings))}<div class="muted">${run.settings.thickness} mm</div></td>` +
+          `<td>${esc(runProfileName(run.settings))}<div class="muted">${Fab.fmtLen(run.settings.thickness)}</div></td>` +
           `<td>${pill(c.error, 'error')}${pill(c.warn, 'warn')}${pill(c.info, '')}${r.rerun && r.rerun.differs ? '<div class="muted">re-run differed</div>' : ''}</td>` +
           `<td>${r.sentTo ? esc(r.sentTo.name || r.sentTo.projectId) : '<span class="muted">not sent</span>'}</td>` +
           `<td><button class="btn btn-plain" data-act="delete-run" data-id="${run.id}">Delete</button></td></tr>`;
@@ -573,7 +573,7 @@
     h += `<div class="drop" style="margin-top:0"><div class="empty-art">${ICON.upload}</div>`;
     if (run) {
       h += `<h2>Drop the package that made this run</h2><p>This run isn't stored in this browser${run.stored ? ' and could not be read from ' + esc(run.stored.repo) : ''}. Drop <b>${esc(run.package.name)}</b> (${(run.package.size / 1048576).toFixed(2)} MB) and Fabcheck checks its fingerprint and re-runs it with the run's settings.</p>
-        <dl class="kv" style="text-align:left;max-width:520px;margin:0 auto 18px"><dt>SHA-256</dt><dd class="hash">${esc(run.package.sha256)}</dd><dt>Settings</dt><dd>${esc(runProfileName(run.settings))}, ${run.settings.thickness} mm${run.settings.rules ? ' (rules saved with the run)' : ''}</dd><dt>Fabcheck</dt><dd>${esc((run.tool || {}).version || '?')} (this one: ${esc((window.FABCHECK_VERSION || {}).hash || 'dev')})</dd><dt>Findings then</dt><dd>${run.summary.error} errors, ${run.summary.warn} warnings, ${run.summary.info} info</dd></dl>`;
+        <dl class="kv" style="text-align:left;max-width:520px;margin:0 auto 18px"><dt>SHA-256</dt><dd class="hash">${esc(run.package.sha256)}</dd><dt>Settings</dt><dd>${esc(runProfileName(run.settings))}, ${Fab.fmtLen(run.settings.thickness)}${run.settings.rules ? ' (rules saved with the run)' : ''}</dd><dt>Fabcheck</dt><dd>${esc((run.tool || {}).version || '?')} (this one: ${esc((window.FABCHECK_VERSION || {}).hash || 'dev')})</dd><dt>Findings then</dt><dd>${run.summary.error} errors, ${run.summary.warn} warnings, ${run.summary.info} info</dd></dl>`;
     } else {
       h += `<h2>Run ${esc(e.need.runId)} isn't available</h2><p>It isn't stored in this browser, and no Signoff EE issue in this browser names it. Open the issue's project in Signoff EE here first, or drop the package to check it afresh.</p>`;
     }
@@ -595,7 +595,7 @@
       const bb = pkg.boardBBox;
       if (pkg.set.files.length) chips.push(pkg.set.x2 ? 'Gerber X2' : 'RS-274X');
       if (pkg.layers.copper.length) chips.push(pkg.layers.copper.length + '-layer');
-      if (bb) chips.push(`${(bb[2] - bb[0]).toFixed(1)} × ${(bb[3] - bb[1]).toFixed(1)} mm`);
+      if (bb) chips.push(Fab.fmtSize(bb[2] - bb[0], bb[3] - bb[1], 1));
       const v = (pkg.variants || []).find(x => x.variant);
       chips.push(v ? 'Variant ' + v.variant : (pkg.variants || []).length ? 'No variant' : null);
       if (pkg.odb) chips.push('ODB++');
@@ -771,7 +771,7 @@
         h += `<div class="item rule-row" style="cursor:default"><div class="rule-name"><b>${esc(r.name)}</b><div class="muted">${esc(r.desc)}</div>
           <div class="item-sub">${r.checks.length ? 'Used by ' + r.checks.map(c => `<span class="tag">${esc(c)}</span>`).join('') : '<span class="muted">Not checked yet</span>'}</div></div>
           <div class="rule-val"><div><input class="input" type="number" step="${r.unit === 'count' ? 1 : r.unit === 'ratio' ? 0.5 : 0.001}" data-act="rule" data-key="${r.key}" value="${v}"${sel.builtin ? ' disabled' : ''}><span class="unit">${unit}</span></div>
-            ${r.unit === 'mm' ? `<div class="muted">${(v / 0.0254).toFixed(1)} mil</div>` : ''}
+            ${r.unit === 'mm' ? `<div class="muted">${Fab.mil(v)}</div>` : ''}
             ${edited ? `<div class="muted rule-base">${esc(sel.baseName)}: ${esc(Fab.rules.fmtVal(r, bv))} <button class="btn btn-plain" style="padding:0 4px;font-size:12px" data-act="rule-reset" data-key="${r.key}">Reset</button></div>` : ''}
             ${issues.map(i => `<div class="rule-${i.level}">${esc(i.text)}</div>`).join('')}</div></div>`;
       }
@@ -847,8 +847,10 @@
     state.sel = f.id;
     document.querySelectorAll('[data-act="finding"]').forEach(el => el.classList.toggle('sel', el.dataset.id === f.id));
     const kv = [];
-    if (f.value != null && isFinite(f.value)) kv.push(['Measured', typeof f.value === 'number' ? (+f.value.toFixed(4)) + (f.check === 'aspect' ? ':1' : ' mm') : f.value]);
-    if (f.limit != null) kv.push(['Limit', f.limit + (f.check === 'aspect' ? ':1' : ' mm')]);
+    // Most measured values are lengths; a few checks measure something else.
+    const unit = { aspect: v => +v.toFixed(2) + ':1', isolated: v => +v.toFixed(3) + ' mm²', 'copper-balance': v => +v.toFixed(1) + ' points' }[f.check] || (v => Fab.fmtLen(+v.toFixed(3)));
+    if (f.value != null && isFinite(f.value)) kv.push(['Measured', typeof f.value === 'number' ? unit(f.value) : f.value]);
+    if (f.limit != null) kv.push(['Limit', unit(f.limit)]);
     if (f.layer) kv.push(['Layer', f.layer]);
     const where = whereText(f);
     if (where) kv.push(['Location', where + (f.side ? ' · ' + f.side : '')]);
@@ -1124,7 +1126,7 @@
     }
     if (r.pnp) {
       h += `<div class="section-title">Placements</div><div class="card table-wrap"><table class="table compact"><thead><tr><th>Designator</th><th>Change</th></tr></thead><tbody>`;
-      const rows = r.pnp.moved.map(m => `<tr data-act="rev-at" data-x="${m.at.x}" data-y="${m.at.y}"><td class="mono">${esc(m.des)}</td><td>${[m.dist > 0.005 ? `moved ${m.dist.toFixed(3)} mm` : '', m.rot ? `rotated ${m.rot}°` : '', m.side ? `side ${m.side}` : '', m.footprint ? `footprint ${m.footprint}` : ''].filter(Boolean).map(esc).join(' · ')}</td></tr>`);
+      const rows = r.pnp.moved.map(m => `<tr data-act="rev-at" data-x="${m.at.x}" data-y="${m.at.y}"><td class="mono">${esc(m.des)}</td><td>${[m.dist > 0.005 ? `moved ${Fab.fmtLen(m.dist, 3)}` : '', m.rot ? `rotated ${m.rot}°` : '', m.side ? `side ${m.side}` : '', m.footprint ? `footprint ${m.footprint}` : ''].filter(Boolean).map(esc).join(' · ')}</td></tr>`);
       if (r.pnp.added.length) rows.push(`<tr><td class="mono">${esc(r.pnp.added.map(p => p.des).join(', '))}</td><td><span class="pill ok">added</span></td></tr>`);
       if (r.pnp.removed.length) rows.push(`<tr><td class="mono">${esc(r.pnp.removed.map(p => p.des).join(', '))}</td><td><span class="pill error">removed</span></td></tr>`);
       h += (rows.join('') || '<tr><td colspan="2" class="muted">No placement differences.</td></tr>') + '</tbody></table></div>';
@@ -1325,7 +1327,7 @@
       if (ev.target.matches('[data-act="thickness"]')) {
         state.thickness = parseFloat(ev.target.value) || 1.6;
         if (e && e.pinned) e.pinned.thickness = state.thickness;
-        if (e && e.status === 'ready') runChecks(e, `Board thickness set to ${state.thickness} mm`);
+        if (e && e.status === 'ready') runChecks(e, `Board thickness set to ${Fab.fmtLen(state.thickness)}`);
       }
       if (ev.target.matches('[data-act="signoff-project"]')) { e.signoffSlug = ev.target.value; e.signoffResult = null; renderAll(); }
       if (ev.target.matches('[data-act="baseline"]')) { e.baseline = ev.target.value; e.revCache = null; renderAll(); }

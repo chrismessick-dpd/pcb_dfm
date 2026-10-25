@@ -234,8 +234,8 @@
       `${name}: a hairline of ${neg ? 'plane' : 'pour'} copper, thinner than ${Math.round(res * 1000)} µm, is left between two clearances (for example where an edge pull-back and a via clearance almost meet). It will flake off; widen the clearance so they overlap, or remove the copper.`,
       { at: { x: g.x, y: g.y }, bbox: Fab.bbox.grow([Math.min(g.a[0], g.b[0]), Math.min(g.a[1], g.b[1]), Math.max(g.a[0], g.b[0]), Math.max(g.a[1], g.b[1])], 0.15), layer: name });
     gapsAll.sort((a, b) => a.v - b.v);
-    for (const g of gapsAll.slice(0, MAX)) add('spacing', g.v < prof.minSpace * 0.8 ? 'error' : 'warn', `Copper spacing ≈${g.v.toFixed(3)} mm`,
-      `${name}: two separate copper areas closer than ${prof.minSpace} mm (${tol}).`,
+    for (const g of gapsAll.slice(0, MAX)) add('spacing', g.v < prof.minSpace * 0.8 ? 'error' : 'warn', `Copper spacing ≈${Fab.fmtLen(g.v, 3)}`,
+      `${name}: two separate copper areas closer than ${Fab.fmtLen(prof.minSpace)} (${tol}).`,
       { at: { x: g.x, y: g.y }, bbox: Fab.bbox.grow([Math.min(g.a[0], g.b[0]), Math.min(g.a[1], g.b[1]), Math.max(g.a[0], g.b[0]), Math.max(g.a[1], g.b[1])], 0.15), layer: name, value: g.v, limit: prof.minSpace });
     if (gapsAll.length > MAX) add('spacing', 'warn', `…${gapsAll.length - MAX} more spacing findings on ${name}`, '');
     // Narrow drawn traces are already reported by the vector trace check; keep pours, pads and planes.
@@ -243,8 +243,8 @@
     // A wedge (copper tapering to a point, e.g. where a round clearance meets a straight one) always
     // narrows to about one pixel; a neck stays wider. Report necks one by one, wedges as a summary.
     const wedges = thin.filter(s => s.v < 2 * res), necks = thin.filter(s => s.v >= 2 * res).sort((a, b) => a.v - b.v);
-    for (const s of necks.slice(0, MAX)) add('sliver', s.v < prof.minTrace / 2 ? 'error' : 'warn', `Copper neck ≈${s.v.toFixed(3)} mm wide`,
-      `${name}: ${neg ? 'plane' : 'pour/pad'} copper narrows below ${prof.minTrace} mm here (${tol}). It may etch through or lift.`,
+    for (const s of necks.slice(0, MAX)) add('sliver', s.v < prof.minTrace / 2 ? 'error' : 'warn', `Copper neck ≈${Fab.fmtLen(s.v, 3)} wide`,
+      `${name}: ${neg ? 'plane' : 'pour/pad'} copper narrows below ${Fab.fmtLen(prof.minTrace)} here (${tol}). It may etch through or lift.`,
       { at: { x: s.x, y: s.y }, bbox: Fab.bbox.grow(s.bbox, 0.15), layer: name, value: s.v, limit: prof.minTrace });
     if (necks.length > MAX) add('sliver', 'warn', `…${necks.length - MAX} more copper necks on ${name}`, '');
     if (wedges.length) {
@@ -271,8 +271,8 @@
     all = all.filter(g => !(flashAt(g.a[0], g.a[1]) && flashAt(g.b[0], g.b[1])));
     all.sort((a, b) => a.v - b.v);
     const name = layer.file.name;
-    for (const g of all.slice(0, MAX)) add('mask-dam', 'warn', `Mask dam ≈${g.v.toFixed(3)} mm next to a region opening`,
-      `${name}: the mask web between these openings is below ${prof.minMaskDam} mm (${Math.round(res * 1000)} µm raster, about ±5 µm). It will flake off or be removed.`,
+    for (const g of all.slice(0, MAX)) add('mask-dam', 'warn', `Mask dam ≈${Fab.fmtLen(g.v, 3)} next to a region opening`,
+      `${name}: the mask web between these openings is below ${Fab.fmtLen(prof.minMaskDam)} (${Math.round(res * 1000)} µm raster, about ±5 µm). It will flake off or be removed.`,
       { at: { x: g.x, y: g.y }, bbox: Fab.bbox.grow([Math.min(g.a[0], g.b[0]), Math.min(g.a[1], g.b[1]), Math.max(g.a[0], g.b[0]), Math.max(g.a[1], g.b[1])], 0.15), layer: name, value: g.v, limit: prof.minMaskDam });
     if (all.length > MAX) add('mask-dam', 'warn', `…${all.length - MAX} more region mask dams on ${name}`, '');
     return { res, count: all.length };

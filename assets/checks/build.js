@@ -16,14 +16,14 @@
       uses: ['Variant names in output headers (PnP, BOM, Gerber comments)', 'BOM', 'Pick-and-place'], example: 'Outputs come from different variants: Production vs [No Variations]' },
     { check: 'odb', name: 'ODB++ vs BOM and pick-and-place', looks: 'ODB++ component data against the BOM (fitted, not placed, missing) and the pick-and-place (side, position).',
       sev: { error: 'a fitted part is marked not placed or missing in ODB++, or the sides disagree', warn: 'parts placed in ODB++ but not on the BOM, or PnP parts missing from ODB++', info: 'counts, and position offsets (normal for connectors)' },
-      uses: ['ODB++ components (extracted odb/ tree)', 'BOM', 'Pick-and-place'], rules: () => [`Positions agree within ${T.odbMove} mm; larger offsets on the same side are listed as info, since ODB++ uses the footprint origin.`, `Pad-only designators (${C.pattern(C.PAD_ONLY)}) are skipped.`],
+      uses: ['ODB++ components (extracted odb/ tree)', 'BOM', 'Pick-and-place'], rules: () => [`Positions agree within ${Fab.fmtLen(T.odbMove)}; larger offsets on the same side are listed as info, since ODB++ uses the footprint origin.`, `Pad-only designators (${C.pattern(C.PAD_ONLY)}) are skipped.`],
       example: 'R33 is on the BOM but ODB++ marks it not placed' },
     { check: 'odb-pn', name: 'ODB++ part vs BOM part number', looks: "The board's part name in ODB++ against the BOM's part number and name.", sev: { warn: 'it names a different part' },
       uses: ['ODB++ component part name', 'BOM MPN, name, MPN 2'], rules: () => [`Generic library names are skipped: containing ${C.pattern(GENERIC).split('|').join(', ')} or a space, or with more than one underscore.`],
       example: 'BOM row 11: MPN TLV70033DDCR ≠ board part TLV70033DDCT' },
     { check: 'paste', name: 'Paste per pin', looks: 'Stencil apertures on every SMD pin of fitted parts, and none on unfitted parts.',
       sev: { error: 'an unfitted part gets paste', warn: 'a fitted part has SMD pads without paste', info: 'how many parts were checked' }, uses: ['ODB++ component pins', 'Paste layers', 'BOM DNP', 'Copper pads'],
-      rules: () => [`Pins within ${T.thtPin} mm of a drill hit are through-hole and need no paste.`, 'Windowed paste inside an exposed/thermal pad counts for that pad.', `Pad-only designators are skipped; the first ${T.shown} parts with missing paste are listed.`],
+      rules: () => [`Pins within ${Fab.fmtLen(T.thtPin)} of a drill hit are through-hole and need no paste.`, 'Windowed paste inside an exposed/thermal pad counts for that pad.', `Pad-only designators are skipped; the first ${T.shown} parts with missing paste are listed.`],
       example: 'J4 is not fitted but the stencil prints paste on 6 pad(s)' },
   ]);
 
@@ -97,9 +97,9 @@
       // The PnP point is the footprint center while ODB++ uses the footprint origin, so offsets on
       // connectors are normal. List them for reference only.
       const offs = moved.filter(m => m.c.side === m.p.side);
-      if (!moved.length) add('odb', 'info', 'Pick-and-place matches ODB++ positions and sides', `${pnp.parts.length} placements within ${T.odbMove} mm.`);
+      if (!moved.length) add('odb', 'info', 'Pick-and-place matches ODB++ positions and sides', `${pnp.parts.length} placements within ${Fab.fmtLen(T.odbMove)}.`);
       else if (offs.length) add('odb', 'info', `${offs.length} part(s) have a different PnP center than ODB++ origin`,
-        offs.slice(0, 20).map(m => `${m.p.des} ${m.d.toFixed(2)} mm`).join(', ') + '. Normal when a footprint origin is not its center (connectors); a reason to double-check if it is a passive.', { refs: offs.map(m => m.p.des) });
+        offs.slice(0, 20).map(m => `${m.p.des} ${Fab.fmtLen(m.d, 2)}`).join(', ') + '. Normal when a footprint origin is not its center (connectors); a reason to double-check if it is a passive.', { refs: offs.map(m => m.p.des) });
     }
 
     // ---- paste per pin ----

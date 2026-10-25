@@ -165,7 +165,7 @@
     return out;
   }
   function fmtVal(r, v) {
-    if (r.unit === 'mm') return `${+v.toFixed(3)} mm (${+(v / 0.0254).toFixed(1)} mil)`;
+    if (r.unit === 'mm') return Fab.fmtLen(+(+v).toFixed(3));
     if (r.unit === 'mm2') return `${+v.toFixed(3)} mm²`;
     if (r.unit === 'ratio') return `${+v.toFixed(2)}:1`;
     if (r.unit === 'pct') return `${+v.toFixed(1)} points`;

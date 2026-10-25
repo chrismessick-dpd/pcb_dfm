@@ -16,7 +16,20 @@ window.Fab = window.Fab || {};
     if (v == null || !isFinite(v)) return '–';
     return v.toFixed(digits == null ? 3 : digits) + ' mm';
   };
-  Fab.mil = function (mm) { return (mm / 0.0254).toFixed(1) + ' mil'; };
+  // Lengths read in mm with mil after them: "0.084 mm (3.3 mil)", "1.6 mm (63 mil)".
+  // Mil: one decimal under 20 mil, whole numbers from 20 up, no trailing ".0".
+  const milNum = mm => { const m = mm / 0.0254; return String(Math.abs(m) < 20 ? +m.toFixed(1) : Math.round(m)); };
+  Fab.mil = function (mm) { return milNum(mm) + ' mil'; };
+  // digits: fixed decimals for the mm value; omitted, the value prints as given (up to 4 decimals).
+  const mmNum = (v, digits) => digits == null ? String(+(+v).toFixed(4)) : (+v).toFixed(digits);
+  Fab.fmtLen = function (mm, digits) {
+    if (mm == null || !isFinite(mm)) return '–';
+    return `${mmNum(mm, digits)} mm (${Fab.mil(mm)})`;
+  };
+  // A pair of lengths, "1.20 × 0.80 mm (47 × 31 mil)".
+  Fab.fmtSize = function (w, h, digits) {
+    return `${mmNum(w, digits)} × ${mmNum(h, digits)} mm (${milNum(w)} × ${milNum(h)} mil)`;
+  };
   Fab.esc = function (s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   };

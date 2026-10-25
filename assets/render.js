@@ -283,7 +283,7 @@
       const x = 16, y = this.H - 16;
       ctx.beginPath(); ctx.moveTo(x, y - 5); ctx.lineTo(x, y); ctx.lineTo(x + px, y); ctx.lineTo(x + px, y - 5); ctx.stroke();
       ctx.font = '11px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-      ctx.fillText((step >= 1 ? step : +step.toPrecision(2)) + ' mm', x + 4, y - 8);
+      ctx.fillText(Fab.fmtLen(step >= 1 ? step : +step.toPrecision(2)), x + 4, y - 8);
       ctx.restore();
     }
 

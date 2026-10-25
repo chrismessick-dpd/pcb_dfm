@@ -18,8 +18,8 @@
       example: 'Could not line the IPC-356 netlist up with the Gerbers' },
     { check: 'centroid', name: 'Placement vs pad center', looks: "The pick-and-place point against the center of the part's pads.",
       sev: { warn: 'a part is off center', info: 'connectors and mechanical parts that are off center (usual)' }, uses: ['Pick-and-place X/Y', 'IPC-356 pad positions'],
-      rules: () => [`Off center when the distance is over ${T.centroidMin} mm or ${T.centroidSpan * 100}% of the pad span, whichever is larger.`, `Connector-like designators (${C.pattern(CONNECTOR)}) are info only.`],
-      example: 'U3: placement is 0.62 mm from its pad center' },
+      rules: () => [`Off center when the distance is over ${Fab.fmtLen(T.centroidMin)} or ${T.centroidSpan * 100}% of the pad span, whichever is larger.`, `Connector-like designators (${C.pattern(CONNECTOR)}) are info only.`],
+      example: `U3: placement is ${Fab.fmtLen(0.62, 2)} from its pad center` },
     { check: 'pin1', name: 'Pin 1 orientation', looks: 'Pin 1 direction against the placement rotation, compared across all parts that share a footprint and side.',
       sev: { error: 'a part is about 180° off (reversed polarity)', warn: 'a part is off by another angle', info: 'how many parts were checked' }, uses: ['IPC-356 pin numbers and positions', 'Pick-and-place rotation, footprint'],
       rules: () => [`Pin 1 is the pad named ${C.pattern(PIN1).replace(/[()]/g, '').split('|').join(', ')}.`, `Groups of at least ${T.group} parts; the majority angle needs ${T.majority * 100}% of the group within ${T.agree}°.`, `180° ± ${T.reversed}° is an error. The bottom-side rotation convention that gives fewer outliers is used.`],
@@ -64,11 +64,11 @@
       if (d > Math.max(T.centroidMin, T.centroidSpan * span)) off.push({ p, d, c });
     }
     const real = off.filter(o => !connectorLike(o.p.des)).sort((a, b) => b.d - a.d);
-    for (const o of real.slice(0, T.shown)) add('centroid', 'warn', `${o.p.des}: placement is ${o.d.toFixed(2)} mm from its pad center`,
+    for (const o of real.slice(0, T.shown)) add('centroid', 'warn', `${o.p.des}: placement is ${Fab.fmtLen(o.d, 2)} from its pad center`,
       `PnP ${o.p.gx.toFixed(3)}, ${o.p.gy.toFixed(3)} mm vs pads centered at ${o.c.x.toFixed(3)}, ${o.c.y.toFixed(3)} mm (${o.p.footprint}). Pick-and-place machines center the part on this point; check the footprint origin.`,
       { at: { x: o.c.x, y: o.c.y }, refs: [o.p.des], side: o.p.side });
     const conn = off.filter(o => connectorLike(o.p.des));
-    if (conn.length) add('centroid', 'info', `${conn.length} connector/mechanical part(s) placed off their pad center`, conn.map(o => `${o.p.des} ${o.d.toFixed(2)} mm`).join(', ') + '. Usual for footprints with the origin on a mounting feature; confirm the assembler uses the same reference.', { refs: conn.map(o => o.p.des) });
+    if (conn.length) add('centroid', 'info', `${conn.length} connector/mechanical part(s) placed off their pad center`, conn.map(o => `${o.p.des} ${Fab.fmtLen(o.d, 2)}`).join(', ') + '. Usual for footprints with the origin on a mounting feature; confirm the assembler uses the same reference.', { refs: conn.map(o => o.p.des) });
 
     yield 'Pin 1 orientation';
     // Pin 1 direction in the footprint's own frame. By construction every instance of a footprint

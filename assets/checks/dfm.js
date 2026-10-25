@@ -9,7 +9,9 @@
   function* run(pkg, prof, out) {
     const add = (check, severity, title, detail, extra) => out.push(F(Object.assign({ category: 'DFM', check, severity, title, detail }, extra || {})));
     const L = pkg.layers;
-    const fmt = v => v.toFixed(3) + ' mm';
+    const fmt = v => Fab.fmtLen(v, 3), fl = Fab.fmtLen, dia = d => '⌀' + Fab.fmtLen(d);
+    // Relief attributes carry their unit ("0.254mm", "10mil").
+    const attrLen = t => { const m = /^\s*([\d.]+)\s*(mm|mil|in)?\s*$/i.exec(t || ''); return m ? fl(+m[1] * ({ mil: 0.0254, in: 25.4 }[(m[2] || 'mm').toLowerCase()] || 1)) : t; };
     const outer = [L.top, L.bottom].filter(l => l && l.polarity !== 'negative');
 
     // ---- minimum trace width ----
@@ -29,7 +31,7 @@
       const all = [...widths.values()].sort((a, b) => a.w - b.w);
       if (!all.length) continue;
       const name = lay.file.name;
-      add('trace', 'info', `${name}: min trace ${fmt(all[0].w)}`, 'Trace widths used: ' + all.map(x => `${x.w.toFixed(3)} (${x.prims.length})`).join(', ') + ' mm.', { layer: name });
+      add('trace', 'info', `${name}: min trace ${fmt(all[0].w)}`, 'Trace widths used: ' + all.map(x => `${fmt(x.w)} ×${x.prims.length}`).join(', ') + '.', { layer: name });
       for (const x of all) {
         if (x.w >= prof.minTrace - 1e-6) break;
         const shown = x.prims.slice(0, 10);
@@ -44,17 +46,17 @@
     const tlist = [...tools.values()].sort((a, b) => a.dia - b.dia);
     if (tlist.length) {
       const minP = tlist.find(t => t.plated);
-      add('drill', 'info', `Smallest drill ${fmt(tlist[0].dia)}`, `${tlist.length} drill sizes. Aspect ratio at ${prof.thickness} mm thickness: ${minP ? (prof.thickness / minP.dia).toFixed(1) + ':1 for the smallest plated hole' : 'n/a'}.`);
+      add('drill', 'info', `Smallest drill ${fmt(tlist[0].dia)}`, `${tlist.length} drill sizes. Aspect ratio at ${fl(prof.thickness)} thickness: ${minP ? (prof.thickness / minP.dia).toFixed(1) + ':1 for the smallest plated hole' : 'n/a'}.`);
     }
     for (const t of tlist) {
       const h = t.hits[0];
       if (t.dia < prof.minDrill - 1e-6) add('drill', 'error', `Drill ${fmt(t.dia)} below ${fmt(prof.minDrill)}`, `${t.hits.length} ${t.plated ? 'plated' : 'non-plated'} hole(s). Needs laser or a finer drill class.`, { at: h, value: t.dia, limit: prof.minDrill });
       const ar = prof.thickness / t.dia;
-      if (t.plated && ar > prof.maxAspect) add('aspect', 'error', `Aspect ratio ${ar.toFixed(1)}:1 for ⌀${t.dia} mm`, `Above ${prof.maxAspect}:1 at ${prof.thickness} mm board thickness. ${t.hits.length} hole(s).`, { at: h, value: ar, limit: prof.maxAspect });
+      if (t.plated && ar > prof.maxAspect) add('aspect', 'error', `Aspect ratio ${ar.toFixed(1)}:1 for ${dia(t.dia)}`, `Above ${prof.maxAspect}:1 at ${fl(prof.thickness)} board thickness. ${t.hits.length} hole(s).`, { at: h, value: ar, limit: prof.maxAspect });
     }
     for (const s of pkg.slots) {
       const len = Math.hypot(s.x2 - s.x1, s.y2 - s.y1) + s.dia;
-      if (s.plated && s.dia < prof.minSlot - 1e-6) add('slot', 'warn', `Plated slot width ${fmt(s.dia)} below ${fmt(prof.minSlot)}`, `Slot length ${len.toFixed(3)} mm. Narrow slots need a small router bit; check with the fab.`, { bbox: [Math.min(s.x1, s.x2) - s.dia / 2, Math.min(s.y1, s.y2) - s.dia / 2, Math.max(s.x1, s.x2) + s.dia / 2, Math.max(s.y1, s.y2) + s.dia / 2], value: s.dia, limit: prof.minSlot });
+      if (s.plated && s.dia < prof.minSlot - 1e-6) add('slot', 'warn', `Plated slot width ${fmt(s.dia)} below ${fmt(prof.minSlot)}`, `Slot length ${fmt(len)}. Narrow slots need a small router bit; check with the fab.`, { bbox: [Math.min(s.x1, s.x2) - s.dia / 2, Math.min(s.y1, s.y2) - s.dia / 2, Math.max(s.x1, s.x2) + s.dia / 2, Math.max(s.y1, s.y2) + s.dia / 2], value: s.dia, limit: prof.minSlot });
       if (len / s.dia < 2) add('slot', 'warn', `Slot length/width ${(len / s.dia).toFixed(2)} is under 2`, 'Short slots tend to drift; many fabs require length ≥ 2× width.', { at: { x: (s.x1 + s.x2) / 2, y: (s.y1 + s.y2) / 2 } });
     }
 
@@ -87,15 +89,15 @@
       for (const [ex, ey] of [[s.x1, s.y1], [s.x2, s.y2]]) ring = Math.min(ring, C.depthAt(prims, ex, ey) - s.dia / 2);
       if (ring < prof.ringPth - 1e-4) ringFail.push({ h: { x: mx, y: my, dia: s.dia }, lay, ring, limit: prof.ringPth, isVia: false, slot: true });
     }
-    if (isFinite(ringMin.v)) add('ring', 'info', `Smallest outer annular ring ${fmt(ringMin.v)}`, `⌀${ringMin.h.dia} mm hole on ${ringMin.lay.file.name}. Limits: PTH ${prof.ringPth}, via ${prof.ringVia} mm.`, { at: ringMin.h });
+    if (isFinite(ringMin.v)) add('ring', 'info', `Smallest outer annular ring ${fmt(ringMin.v)}`, `${dia(ringMin.h.dia)} hole on ${ringMin.lay.file.name}. Limits: PTH ${fl(prof.ringPth)}, via ${fl(prof.ringVia)}.`, { at: ringMin.h });
     ringFail.sort((a, b) => a.ring - b.ring);
     for (const r of ringFail.slice(0, MAX)) add('ring', r.ring < 0 ? 'error' : r.ring < r.limit / 2 ? 'error' : 'warn',
-      `${r.ring < 0 ? 'Breakout' : 'Annular ring ' + fmt(r.ring)} on ⌀${r.h.dia} mm ${r.slot ? 'slot' : r.isVia ? 'via' : 'PTH'}`,
-      `${r.lay.file.name}. Required ${fmt(r.limit)}.` + (r.pad ? ` Pad ${r.pad.toFixed(3)} mm${r.fn ? ' (' + r.fn.split(',')[0] + ')' : ''}${r.pad <= r.h.dia ? ', no larger than the hole' : ''}.` : ''),
+      `${r.ring < 0 ? 'Breakout' : 'Annular ring ' + fmt(r.ring)} on ${dia(r.h.dia)} ${r.slot ? 'slot' : r.isVia ? 'via' : 'PTH'}`,
+      `${r.lay.file.name}. Required ${fmt(r.limit)}.` + (r.pad ? ` Pad ${fmt(r.pad)}${r.fn ? ', ' + r.fn.split(',')[0] : ''}${r.pad <= r.h.dia ? ', no larger than the hole' : ''}.` : ''),
       { at: { x: r.h.x, y: r.h.y }, layer: r.lay.file.name, value: r.ring, limit: r.limit });
     if (ringFail.length > MAX) add('ring', 'warn', `…${ringFail.length - MAX} more annular ring findings`, '');
     if (noPad.length) {
-      for (const n of noPad.slice(0, 10)) add('ring', 'warn', `Plated hole ⌀${n.h.dia} mm without copper on ${n.lay.side}`, `${n.lay.file.name} has no copper at this hole. Plating needs a pad on both outer layers.`, { at: n.h, layer: n.lay.file.name });
+      for (const n of noPad.slice(0, 10)) add('ring', 'warn', `Plated hole ${dia(n.h.dia)} without copper on ${n.lay.side}`, `${n.lay.file.name} has no copper at this hole. Plating needs a pad on both outer layers.`, { at: n.h, layer: n.lay.file.name });
       if (noPad.length > 10) add('ring', 'warn', `…${noPad.length - 10} more plated holes without outer copper`, '');
     }
 
@@ -110,15 +112,15 @@
       if (used.size) {
         const styles = [...used.values()].map(ps => ps[0].ap.amparams);
         add('thermal', 'info', `${lay.file.name}: ${[...used.values()].reduce((s, ps) => s + ps.length, 0)} thermal reliefs`,
-          `Spoke widths ${[...new Set(styles.map(a => a.Width))].join(', ')}; air gaps ${[...new Set(styles.map(a => a.Gap))].join(', ')}; spokes ${[...new Set(styles.map(a => a.Entries))].join(', ')}.`, { layer: lay.file.name });
+          `Spoke widths ${[...new Set(styles.map(a => attrLen(a.Width)))].join(', ')}; air gaps ${[...new Set(styles.map(a => attrLen(a.Gap)))].join(', ')}; spokes ${[...new Set(styles.map(a => a.Entries))].join(', ')}.`, { layer: lay.file.name });
       }
       for (const [code, ps] of used) {
         const a = ps[0].ap.amparams;
         const spoke = parseFloat(a.Width), gap = parseFloat(a.Gap), n = parseInt(a.Entries, 10);
         const bad = [];
-        if (isFinite(spoke) && spoke < prof.minSpoke - 1e-6) bad.push(`spoke width ${spoke} mm < ${prof.minSpoke}`);
+        if (isFinite(spoke) && spoke < prof.minSpoke - 1e-6) bad.push(`spoke width ${fl(spoke)} < ${fl(prof.minSpoke)}`);
         if (isFinite(n) && n < prof.minSpokes) bad.push(`${n} spoke(s)`);
-        if (isFinite(gap) && gap < prof.minSpace - 1e-6) bad.push(`air gap ${gap} mm < ${prof.minSpace}`);
+        if (isFinite(gap) && gap < prof.minSpace - 1e-6) bad.push(`air gap ${fl(gap)} < ${fl(prof.minSpace)}`);
         if (bad.length) add('thermal', 'warn', `Thermal relief D${code}: ${bad.join(', ')}`, `${lay.file.name}, ${ps.length} pad(s). A starved thermal can crack or fail to plate; a narrow air gap etches poorly.`, { at: ps[0], layer: lay.file.name });
       }
     }
@@ -194,7 +196,7 @@
       }
       clusters.sort((a, b) => a.d - b.d);
       const how = lay.polarity === 'negative' ? 'negative plane' : 'clear-polarity cut-outs';
-      for (const c of clusters.slice(0, MAX)) add('edge', c.d < lim / 2 ? 'error' : 'warn', `Copper ≈${fmt(c.d)} from board edge`, `${lay.file.name} (${how}; sampled every ${step} mm, ±${depthStep} mm). Required ${fmt(lim)}. ${(c.n * step).toFixed(1)} mm of edge affected.`, { bbox: Fab.bbox.grow(c.bbox, 0.2), layer: lay.file.name, value: c.d, limit: lim });
+      for (const c of clusters.slice(0, MAX)) add('edge', c.d < lim / 2 ? 'error' : 'warn', `Copper ≈${fmt(c.d)} from board edge`, `${lay.file.name} (${how}; sampled every ${fl(step)}, ±${fl(depthStep)}). Required ${fmt(lim)}. ${fl(+(c.n * step).toFixed(1))} of edge affected.`, { bbox: Fab.bbox.grow(c.bbox, 0.2), layer: lay.file.name, value: c.d, limit: lim });
       if (!clusters.length && isFinite(closest)) add('edge', 'info', `${lay.file.name}: closest copper to edge ≈${fmt(closest)}`, `${how}, sampled. Required ${fmt(lim)}.`, { layer: lay.file.name });
     }
 
@@ -221,7 +223,7 @@
               if (C.copperAt(lay, h.x + rr * Math.cos(a), h.y + rr * Math.sin(a), o)) { d = t; break outer; }
             }
           }
-          if (d < lim - 1e-4) add('npth', 'warn', `Copper ≈${fmt(d)} from NPTH ⌀${h.dia} mm`, `${lay.file.name} (probed; layer has clear-polarity features). Required ${fmt(lim)}.`, { at: h, layer: lay.file.name, value: d, limit: lim });
+          if (d < lim - 1e-4) add('npth', 'warn', `Copper ≈${fmt(d)} from NPTH ${dia(h.dia)}`, `${lay.file.name} (probed; layer has clear-polarity features). Required ${fmt(lim)}.`, { at: h, layer: lay.file.name, value: d, limit: lim });
           continue;
         }
         for (const p of idx.query([h.x - r - lim, h.y - r - lim, h.x + r + lim, h.y + r + lim])) {
@@ -234,14 +236,14 @@
           }
           d = Math.min(d, C.primDistToPoint(p, h.x, h.y) - r);
         }
-        if (d < lim - 1e-4) add('npth', d <= 0 ? 'error' : 'warn', d <= 0 ? `Copper inside NPTH ⌀${h.dia} mm` : `Copper ${fmt(d)} from NPTH ⌀${h.dia} mm`, `${lay.file.name}. Required ${fmt(lim)}. Unplated holes need a copper pull-back.`, { at: h, layer: lay.file.name, value: d, limit: lim });
+        if (d < lim - 1e-4) add('npth', d <= 0 ? 'error' : 'warn', d <= 0 ? `Copper inside NPTH ${dia(h.dia)}` : `Copper ${fmt(d)} from NPTH ${dia(h.dia)}`, `${lay.file.name}. Required ${fmt(lim)}. Unplated holes need a copper pull-back.`, { at: h, layer: lay.file.name, value: d, limit: lim });
       }
     }
     if (drilledAway.length) {
       const holes = new Set(drilledAway.map(x => x.h));
       add('npth', 'info', `${holes.size} NPTH hole(s) carry a pad no larger than the hole`,
         'The pad is drilled away, so this is harmless, but some fabs query copper on unplated holes. Pad sizes: ' +
-        [...new Set(drilledAway.map(x => x.p.ap.w.toFixed(3) + ' in ⌀' + x.h.dia))].join(', ') + ' mm.', { at: [...holes][0] });
+        [...new Set(drilledAway.map(x => fmt(x.p.ap.w) + ' in ' + dia(x.h.dia)))].join(', ') + '.', { at: [...holes][0] });
     }
 
     // ---- solder mask expansion and dams (flashed pads) ----
@@ -266,11 +268,11 @@
       }
       if (exps.length) {
         const vals = exps.map(e => e.ex).sort((a, b) => a - b);
-        add('mask', 'info', `${side} mask expansion ${vals[0].toFixed(3)} … ${vals[vals.length - 1].toFixed(3)} mm`, `${exps.length} pads with a matching mask opening. Median ${vals[vals.length >> 1].toFixed(3)} mm.`);
+        add('mask', 'info', `${side} mask expansion ${fmt(vals[0])} … ${fmt(vals[vals.length - 1])}`, `${exps.length} pads with a matching mask opening. Median ${fmt(vals[vals.length >> 1])}.`);
       }
-      for (const e of exps.filter(e => e.ex < prof.minMaskExp - 1e-4).slice(0, MAX)) add('mask', 'warn', `Mask opening smaller than pad (${fmt(e.ex)})`, `${mask.file.name}. Solder-mask-defined pad; fine for some BGAs, otherwise a mistake.`, { at: e.p, layer: mask.file.name, value: e.ex });
+      for (const e of exps.filter(e => e.ex < prof.minMaskExp - 1e-4).slice(0, MAX)) add('mask', 'warn', `Mask opening smaller than pad by ${fmt(-e.ex)}`, `${mask.file.name}. Solder-mask-defined pad; fine for some BGAs, otherwise a mistake.`, { at: e.p, layer: mask.file.name, value: e.ex });
       if (tented.via) add('mask', 'info', `${tented.via} tented vias on ${side}`, 'Vias without a mask opening. Confirm tenting or plugging is on the fab drawing.');
-      for (const p of tented.pad.slice(0, 20)) add('mask', 'warn', `Pad without mask opening on ${side}`, `${cu.file.name}: ${p.ap.tpl} ${p.ap.w.toFixed(3)} × ${p.ap.h.toFixed(3)} mm pad is covered by mask.`, { at: p, layer: cu.file.name });
+      for (const p of tented.pad.slice(0, 20)) add('mask', 'warn', `Pad without mask opening on ${side}`, `${cu.file.name}: ${p.ap.tpl} ${Fab.fmtSize(p.ap.w, p.ap.h, 3)} pad is covered by mask.`, { at: p, layer: cu.file.name });
 
       // Mask dams between neighboring flashed openings
       const opens = mask.prims.filter(q => q.k === 'F' && q.dark);
@@ -358,12 +360,12 @@
         if (centers < 0.005 && a.kind === 'hit' && b.kind === 'hit') dup.push({ a, b });
         else if (gap < lim - 1e-4) close.push({ a, b, gap, lim, vias: a.via && b.via });
       }
-      for (const d of dup.slice(0, MAX)) add('hole-gap', 'error', `Two holes drilled at the same spot (⌀${d.a.src.dia} and ⌀${d.b.src.dia} mm)`, 'Stacked drill hits break the bit or leave a ragged hole; remove the duplicate.', { at: { x: d.a.x1, y: d.a.y1 } });
+      for (const d of dup.slice(0, MAX)) add('hole-gap', 'error', `Two holes drilled at the same spot: ${dia(d.a.src.dia)} and ${dia(d.b.src.dia)}`, 'Stacked drill hits break the bit or leave a ragged hole; remove the duplicate.', { at: { x: d.a.x1, y: d.a.y1 } });
       close.sort((p, q) => p.gap - q.gap);
       for (const c of close.slice(0, MAX)) {
         const m1 = mid(c.a), m2 = mid(c.b);
         add('hole-gap', c.gap < 0 ? 'error' : 'warn', c.gap < 0 ? 'Holes overlap' : `Hole to hole ${fmt(c.gap)}${c.vias ? ' (vias)' : ''}`,
-          `Drill wall to drill wall between ⌀${c.a.src.dia} and ⌀${c.b.src.dia} mm ${c.a.kind === 'slot' || c.b.kind === 'slot' ? 'slot/hole' : 'holes'}. Required ${fmt(c.lim)}; closer holes crack the web between them or wander into each other.`,
+          `Drill wall to drill wall between ${dia(c.a.src.dia)} and ${dia(c.b.src.dia)} ${c.a.kind === 'slot' || c.b.kind === 'slot' ? 'slot/hole' : 'holes'}. Required ${fmt(c.lim)}; closer holes crack the web between them or wander into each other.`,
           { bbox: Fab.bbox.grow([Math.min(m1.x, m2.x), Math.min(m1.y, m2.y), Math.max(m1.x, m2.x), Math.max(m1.y, m2.y)], 0.3), value: c.gap, limit: c.lim });
       }
       if (close.length > MAX) add('hole-gap', 'warn', `…${close.length - MAX} more hole-to-hole findings`, '');
@@ -383,12 +385,12 @@
         }
         nearEdge.sort((p, q) => p.wall - q.wall);
         for (const n of nearEdge.slice(0, MAX)) add('hole-edge', n.wall < prof.holeToEdge / 2 ? 'error' : 'warn', `${n.h.plated ? 'Plated' : 'Non-plated'} hole ${fmt(n.wall)} from the board edge`,
-          `⌀${n.h.src.dia} mm ${n.h.kind}. Required ${fmt(prof.holeToEdge)} from drill wall to the outline or a cutout; closer holes can break out when the board is routed.`, { at: mid(n.h), value: n.wall, limit: prof.holeToEdge });
+          `${dia(n.h.src.dia)} ${n.h.kind}. Required ${fmt(prof.holeToEdge)} from drill wall to the outline or a cutout; closer holes can break out when the board is routed.`, { at: mid(n.h), value: n.wall, limit: prof.holeToEdge });
         if (nearEdge.length > MAX) add('hole-edge', 'warn', `…${nearEdge.length - MAX} more holes near the edge`, '');
         if (castell.length) {
           const small = castell.filter(c => c.h.r * 2 < prof.minCastellation - 1e-4);
           add('castellation', 'info', `${castell.length} castellated (half) hole(s) on the board edge`, `Plated holes cut by the outline. Order the castellated / plated half-hole option and call it out on the fab drawing.`, { at: mid(castell[0].h) });
-          for (const c of small.slice(0, MAX)) add('castellation', 'error', `Castellated hole ⌀${c.h.src.dia} mm is below ${fmt(prof.minCastellation)}`, 'Small half-holes tear their plating when the edge is routed.', { at: mid(c.h), value: c.h.src.dia, limit: prof.minCastellation });
+          for (const c of small.slice(0, MAX)) add('castellation', 'error', `Castellated hole ${dia(c.h.src.dia)} is below ${fmt(prof.minCastellation)}`, 'Small half-holes tear their plating when the edge is routed.', { at: mid(c.h), value: c.h.src.dia, limit: prof.minCastellation });
         }
       }
       for (const s of pkg.slots) if (!s.plated && s.dia < prof.minNpthSlot - 1e-6) add('slot', 'warn', `Non-plated slot ${fmt(s.dia)} wide, below ${fmt(prof.minNpthSlot)}`, 'Unplated slots are routed; most fabs need a wider router bit than for plated slots.', { bbox: [Math.min(s.x1, s.x2) - s.dia / 2, Math.min(s.y1, s.y2) - s.dia / 2, Math.max(s.x1, s.x2) + s.dia / 2, Math.max(s.y1, s.y2) + s.dia / 2], value: s.dia, limit: prof.minNpthSlot });
@@ -427,7 +429,7 @@
         const sz = Math.min(p.ap.w, p.ap.h);
         if (sz < prof.minBgaPad - 1e-4) { const k = sz.toFixed(3); if (!small.has(k)) small.set(k, []); small.get(k).push(p); }
       }
-      for (const [k, ps] of small) add('bga-pad', 'warn', `BGA pads ${k} mm, below ${fmt(prof.minBgaPad)}`, `${lay.file.name}: ${ps.length} pad(s). Small BGA lands need ENIG and tighter registration; check with the fab.`, { at: { x: ps[0].x, y: ps[0].y }, layer: lay.file.name, value: +k, limit: prof.minBgaPad });
+      for (const [k, ps] of small) add('bga-pad', 'warn', `BGA pads ${fmt(+k)}, below ${fmt(prof.minBgaPad)}`, `${lay.file.name}: ${ps.length} pad(s). Small BGA lands need ENIG and tighter registration; check with the fab.`, { at: { x: ps[0].x, y: ps[0].y }, layer: lay.file.name, value: +k, limit: prof.minBgaPad });
       // Only pads that get paste are solder joints; an unpasted pad (a test point) with a via is fine.
       const paste = L.paste && L.paste[lay.side], pg = new G.Grid(2.0);
       if (paste) for (const q of paste.prims) if (q.dark) pg.insert(q, q.bbox);
@@ -448,7 +450,7 @@
       for (const v of inPad) { if (!byPad.has(v.p)) byPad.set(v.p, []); byPad.get(v.p).push(v.h); }
       if (prof.viaInPad) add('via-in-pad', 'info', `${inPad.length} via(s) in ${byPad.size} SMD/BGA pad(s) on ${lay.side}`, 'Allowed by this profile: order them filled and capped (plated over, POFV) and say so on the fab drawing.', { at: inPad[0].h, layer: lay.file.name });
       else for (const [p, hs] of [...byPad].slice(0, MAX)) add('via-in-pad', 'warn', hs.length > 1 ? `${hs.length} vias in one pad on ${lay.side}` : `Via in pad on ${lay.side}`,
-        `⌀${hs[0].dia} mm via${hs.length > 1 ? 's' : ''} inside a ${p.ap.w.toFixed(2)} × ${p.ap.h.toFixed(2)} mm pad. Open vias wick solder away from the joint; fill and cap them (an advanced process), tent them from the far side for a thermal pad, or move them off the pad.`, { at: hs[0], bbox: Fab.bbox.grow(p.bbox, 0.2), layer: lay.file.name });
+        `${dia(hs[0].dia)} via${hs.length > 1 ? 's' : ''} inside a ${Fab.fmtSize(p.ap.w, p.ap.h, 2)} pad. Open vias wick solder away from the joint; fill and cap them (an advanced process), tent them from the far side for a thermal pad, or move them off the pad.`, { at: hs[0], bbox: Fab.bbox.grow(p.bbox, 0.2), layer: lay.file.name });
       if (!prof.viaInPad && byPad.size > MAX) add('via-in-pad', 'warn', `…${byPad.size - MAX} more pads with vias on ${lay.side}`, '');
     }
 
@@ -457,7 +459,7 @@
       for (const lay of L.copper) {
         yield `Spacing and slivers · ${lay.file.name}`;
         const r = Fab.raster.copperSpacing(pkg, lay, prof, add, MAX);
-        if (!r.gaps && !r.slivers) add('spacing', 'info', `${lay.file.name}: no spacing or sliver problems`, `Checked on a ${Math.round(r.res * 1000)} µm raster against ${prof.minSpace} mm spacing and ${prof.minTrace} mm width.`, { layer: lay.file.name });
+        if (!r.gaps && !r.slivers) add('spacing', 'info', `${lay.file.name}: no spacing or sliver problems`, `Checked on a ${Math.round(r.res * 1000)} µm raster against ${fl(prof.minSpace)} spacing and ${fl(prof.minTrace)} width.`, { layer: lay.file.name });
       }
       const cover = [];
       for (const lay of L.copper) {
