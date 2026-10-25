@@ -172,6 +172,71 @@
     return total;
   }
 
+  // ── Summary ──────────────────────────────────────────────
+  // A small digest written into each project file at sync (project.summary), so tools that
+  // don't load this tool's checklists (Signoff PL) can show where a review stands. It is
+  // derived, never merged: sync drops the old one and recomputes it from the document. It
+  // depends only on the document and the checklists, so an unchanged project writes the same
+  // bytes and isn't committed again. `at` / `by` are the latest edit in the document.
+  function reqsEnabled(project) {
+    if ((project.meta.checklists || []).indexOf('reqs') >= 0) return true;
+    return !project.meta.reqsDecided && liveReqs(project).length > 0;
+  }
+
+  function lastEdit(project) {
+    var last = { updatedAt: '', updatedBy: '' };
+    function see(rec) { if (rec && newer(last, rec) === rec) last = rec; }
+    see(project.meta);
+    ['items', 'sections', 'comments', 'custom', 'reqs'].forEach(function (k) {
+      Object.keys(project[k] || {}).forEach(function (id) { see(project[k][id]); });
+    });
+    return last;
+  }
+
+  function projectSummary(project, templates) {
+    var stats = projectStats(project, templates), meta = project.meta, checklists = {};
+    var issues = { open: {}, fixed: 0, waived: 0 };
+    SEVERITIES.forEach(function (s) { issues.open[s] = 0; });
+    templates.forEach(function (t) {
+      if (meta.checklists.indexOf(t.id) < 0) return;
+      var c = stats.per[t.id];
+      checklists[t.id] = { name: t.short || t.title || t.id, total: c.total, reviewed: c.reviewed, pct: c.pct, issuesOpen: c.issuesOpen };
+      checklistRows(project, t).forEach(function (g) {
+        g.rows.forEach(function (r) {
+          if (r.status !== 'issue' || r.auto === 'profile') return;
+          var res = r.state.resolution;
+          if (res) issues[res]++;
+          else issues.open[r.severity] = (issues.open[r.severity] || 0) + 1;
+        });
+      });
+    });
+    var reqs = null;
+    if (reqsEnabled(project)) {
+      var q = reqStats(project);
+      reqs = { total: q.total, approved: q.approved, pass: q.pass, fail: q.fail, open: q.open, unlinked: q.unlinked };
+    }
+    var last = lastEdit(project);
+    return {
+      v: 1,
+      tool: C.discipline || '',
+      name: meta.name, client: meta.client || '', number: meta.board || '', revision: meta.revision || '',
+      stage: meta.stage || '', archived: !!meta.archived,
+      total: stats.total, reviewed: stats.reviewed, pct: stats.pct,
+      checklists: checklists, issues: issues, reqs: reqs,
+      at: last.updatedAt || project.createdAt || '', by: last.updatedBy || ''
+    };
+  }
+
+  // The document as written to its repository: the stored summary replaced by a fresh one.
+  // A writer without checklists (Fabcheck) keeps the stored one; the next sync here renews it.
+  function withSummary(project, summarize) {
+    if (!summarize) return project;
+    var out = Object.assign({}, project);
+    delete out.summary;
+    try { out.summary = summarize(out); } catch (e) { /* no checklists yet: write without */ }
+    return out;
+  }
+
   function liveComments(project, itemId) {
     return Object.keys(project.comments).map(function (k) { return project.comments[k]; })
       .filter(function (c) { return !c.deleted && (itemId === undefined || c.item === itemId); })
@@ -225,7 +290,9 @@
       sections: mergeMaps(local.sections, remote.sections),
       comments: mergeMaps(local.comments, remote.comments),
       custom: mergeMaps(local.custom, remote.custom),
-      reqs: mergeMaps(local.reqs || {}, remote.reqs || {})
+      reqs: mergeMaps(local.reqs || {}, remote.reqs || {}),
+      // Derived (see projectSummary): carried along for writers that can't rebuild it.
+      summary: local.summary && remote.summary && (local.summary.at || '') > (remote.summary.at || '') ? local.summary : remote.summary || local.summary
     };
   }
 
@@ -233,11 +300,13 @@
   // A project's own requirements (not from a template), in project.reqs:
   //   { id, ref: 'REQ-001', text, kind: 'shall' | 'should', category, source,
   //     method: inspection | analysis | demonstration | test,
-  //     status: draft | approved | changed, verify: open | pass | fail, evidence,
+  //     status: draft | approved | changed | deprecated, verify: open | pass | fail, evidence,
   //     links: [check ids it traces to], createdAt, updatedAt, updatedBy, deleted }
   // Comments on a requirement are ordinary comments with item = the requirement's id.
+  // A deprecated requirement is kept for reference (lined out) but no longer counts: it's left
+  // out of the totals, verification and failing flags.
   var REQ_METHODS = ['inspection', 'analysis', 'demonstration', 'test'];
-  var REQ_STATUS = ['draft', 'approved', 'changed'];
+  var REQ_STATUS = ['draft', 'approved', 'changed', 'deprecated'];
   var REQ_VERIFY = ['open', 'pass', 'fail'];
 
   function refNumber(ref) { var m = /(\d+)\s*$/.exec(ref || ''); return m ? parseInt(m[1], 10) : 0; }
@@ -251,11 +320,19 @@
       });
   }
 
-  // Next free REQ-nnn. Two people adding offline can pick the same number; the page flags it.
+  // Next free ID, following the project's most-used numbering (an imported GEN-001… list goes on
+  // with GEN-124), else REQ-001. Two people adding offline can pick the same number; the page flags it.
   function nextReqRef(project) {
-    var max = 0;
-    liveReqs(project).forEach(function (q) { if (/^REQ-/i.test(q.ref || '')) max = Math.max(max, refNumber(q.ref)); });
-    return 'REQ-' + String(max + 1).padStart(3, '0');
+    var counts = {}, max = {}, width = {};
+    liveReqs(project).forEach(function (q) {
+      var m = /^(.*?)(\d+)\s*$/.exec(q.ref || ''); if (!m) return;
+      var pre = m[1];
+      counts[pre] = (counts[pre] || 0) + 1;
+      max[pre] = Math.max(max[pre] || 0, parseInt(m[2], 10));
+      width[pre] = Math.max(width[pre] || 0, m[2].length);
+    });
+    var pre = Object.keys(counts).sort(function (a, b) { return counts[b] - counts[a]; })[0];
+    return pre === undefined ? 'REQ-001' : pre + String(max[pre] + 1).padStart(width[pre], '0');
   }
 
   function newReq(project, fields, user) {
@@ -297,16 +374,17 @@
   }
 
   function reqStats(project) {
-    var s = { total: 0, approved: 0, draft: 0, changed: 0, pass: 0, fail: 0, open: 0, unlinked: 0, duplicates: [] };
+    var s = { total: 0, approved: 0, draft: 0, changed: 0, deprecated: 0, pass: 0, fail: 0, open: 0, unlinked: 0, duplicates: [] };
     var seen = {};
     liveReqs(project).forEach(function (q) {
+      var k = (q.ref || '').toUpperCase();
+      if (k && seen[k]) s.duplicates.push(q.ref);
+      seen[k] = 1;
+      if (q.status === 'deprecated') { s.deprecated++; return; }
       s.total++;
       s[q.status] = (s[q.status] || 0) + 1;
       s[q.verify] = (s[q.verify] || 0) + 1;
       if (!(q.links || []).length) s.unlinked++;
-      var k = (q.ref || '').toUpperCase();
-      if (k && seen[k]) s.duplicates.push(q.ref);
-      seen[k] = 1;
     });
     return s;
   }
@@ -336,13 +414,23 @@
 
   // Header names accepted when importing, by field.
   var REQ_COLUMNS = {
-    ref: /^(id|ref|req(uirement)?\s*(id|#|no\.?|number)|#)$/i,
+    ref: /^(id|ref|req(uirement)?\.?\s*(id|#|no\.?|number)|#)$/i,
+    title: /^(name|title|short\s*name|summary)$/i,
     text: /^(requirement|text|description|statement|req(uirement)?\s*text)$/i,
     kind: /^(type|kind|shall\s*\/\s*should|level|priority)$/i,
-    category: /^(category|area|group|subsystem)$/i,
-    source: /^(source|spec|reference|doc(ument)?|origin)$/i,
-    method: /^(verification(\s*method)?|method|verify\s*by|v&v)$/i
+    category: /^(category|area|group|sub-?\s*system)$/i,
+    source: /^(source|spec|reference|doc(ument)?|origin|rationale)\b/i,
+    method: /^(verification(\s*method)?|method|verify\s*by|v&v)$/i,
+    status: /^(status|state)$/i
   };
+
+  // A spreadsheet's status words -> ours ('' leaves the status as it is).
+  function importStatus(raw) {
+    if (/obsolete|deprecat|withdrawn|supersed|cancel|removed|deleted|retired/.test(raw)) return 'deprecated';
+    if (/changed/.test(raw)) return 'changed';
+    if (/approved|accepted|active|implemented|released|baselined/.test(raw)) return 'approved';
+    return raw ? 'draft' : '';
+  }
 
   // Rows (with a header row) -> requirement records for `project`. Rows whose ID matches an
   // existing requirement update it; the rest are added. Resolves { added, updated, skipped }.
@@ -361,21 +449,25 @@
     var scratch = { reqs: Object.assign({}, project.reqs || {}) };
     rows.slice(1).forEach(function (r) {
       var get = function (f) { return col[f] === undefined ? '' : String(r[col[f]] || '').trim(); };
-      var text = get('text');
+      var text = get('text'), title = get('title');
       if (!text) { res.skipped++; return; }
+      // A short name column ("Power input voltage") leads the statement, which often needs it.
+      if (title && text.toLowerCase().indexOf(title.toLowerCase()) !== 0) text = title + ': ' + text;
       var kindRaw = get('kind').toLowerCase(), methodRaw = get('method').toLowerCase();
       var fields = {
         text: text,
         category: get('category'),
         source: get('source'),
-        kind: /should|desired|optional|goal/.test(kindRaw) || (!kindRaw && /\bshould\b/i.test(text) && !/\bshall\b/i.test(text)) ? 'should' : 'shall',
+        kind: /should|could|won'?t|may\b|desired|optional|goal|nice/.test(kindRaw) || (!kindRaw && /\bshould\b/i.test(text) && !/\bshall\b/i.test(text)) ? 'should' : 'shall',
         method: REQ_METHODS.filter(function (m) { return methodRaw.indexOf(m.slice(0, 4)) >= 0; })[0] || (methodRaw === 'i' ? 'inspection' : methodRaw === 'a' ? 'analysis' : methodRaw === 'd' ? 'demonstration' : methodRaw === 't' ? 'test' : 'inspection')
       };
+      var status = importStatus(get('status').toLowerCase());
+      if (status) fields.status = status;
       var ref = get('ref');
       var existing = ref && byRef[ref.toUpperCase()];
       var rec;
       if (existing) {
-        rec = stamp(Object.assign({}, existing, fields, existing.status === 'approved' && existing.text !== text ? { status: 'changed' } : {}), user);
+        rec = stamp(Object.assign({}, existing, fields, !status && existing.status === 'approved' && existing.text !== text ? { status: 'changed' } : {}), user);
         res.updated++;
       } else {
         rec = newReq(scratch, Object.assign(ref ? { ref: ref } : {}, fields), user);
@@ -536,7 +628,8 @@
     now: now, uid: uid, slugify: slugify, stamp: stamp,
     resolveTemplates: resolveTemplates, indexTemplates: indexTemplates, applies: applies,
     newProject: newProject, checklistRows: checklistRows, countStatuses: countStatuses,
-    projectStats: projectStats, liveComments: liveComments, retiredItems: retiredItems,
+    projectStats: projectStats, reqsEnabled: reqsEnabled, projectSummary: projectSummary, withSummary: withSummary,
+    liveComments: liveComments, retiredItems: retiredItems,
     newer: newer, mergeMaps: mergeMaps, mergeProjects: mergeProjects, mergeLocalCopies: mergeLocalCopies,
     stableStringify: stableStringify, importLegacy: importLegacy, isLegacy: isLegacy,
     emptyRoster: emptyRoster, mergeRosters: mergeRosters, liveUsers: liveUsers, roleOf: roleOf, sharedRepo: sharedRepo,
