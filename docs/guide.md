@@ -90,8 +90,12 @@ are served read-only and never copied into the repo; the `.gitignore` keeps `*.z
 - Fabcheck is public: it shows in the Signoff demos and for contractors as well as FTEs, and is a
   showcase for customers. It never uploads a package, which is its main selling point.
 - **Demo mode** (`index.html?demo`): a banner with a Reset button, and "Try a sample board", which
-  loads `demo/fabcheck-sample-board.zip`. That package is a synthetic 2-layer board drawn by
-  `tools/make_sample.py` with a few planted problems; it is not a client design. In the demo:
+  loads `demo/fabcheck-sample-board.zip`: a scrubbed copy of a 4-layer Dovetail board, built by
+  `tools/make_sample.py` from the original package (which stays off the repo). The script removes
+  everything identifying (bottom silkscreen except the Dovetail mark, drawings, reports with local
+  paths, the part number), trims each check to one finding, and plants a few more problems. It
+  refuses to write the zip if a local path, the client or the part number is still in any file. In
+  the demo:
   - suite links go to the Signoff demos;
   - Send to Signoff writes into the Signoff EE demo (`signoff.demo.` in localStorage) and never to
     GitHub;

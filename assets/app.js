@@ -524,7 +524,7 @@
       (k === 'findings' && nf ? `<span class="count">${nf}</span>${hasErr ? '<span class="dot"></span>' : ''}` : '') + '</button>').join('');
   }
 
-  // A synthetic board made by tools/make_sample.py: not a client design. Fetched from this site, so
+  // A scrubbed Dovetail board made by tools/make_sample.py, with planted problems. Fetched from this site, so
   // the button only shows when the page is served (not opened from file://).
   const SAMPLE = 'demo/fabcheck-sample-board.zip';
 

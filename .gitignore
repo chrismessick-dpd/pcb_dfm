@@ -8,5 +8,7 @@ __pycache__/
 samples/
 *.zip
 *.tgz
-# The synthetic demo board (tools/make_sample.py) is the one zip that is committed
+# The scrubbed demo board (tools/make_sample.py) is the one zip that is committed
 !demo/fabcheck-sample-board.zip
+# Words the demo sample must not contain (tools/make_sample.py); kept local
+tools/sample-forbid.txt
