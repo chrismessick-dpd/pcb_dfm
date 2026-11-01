@@ -388,13 +388,32 @@
     }
   }
 
+  // Stored findings come from IndexedDB or a project's repo, which contractors can write to.
+  // Keep the fields the views use as plain data: known severities and categories, strings as
+  // strings, coordinates as numbers.
+  const SEVS = ['error', 'warn', 'info'];
+  const finite = v => typeof v === 'number' && isFinite(v);
+  function cleanFinding(f) {
+    f = Object.assign({}, f && typeof f === 'object' ? f : {});
+    f.id = String(f.id == null ? '' : f.id);
+    f.severity = SEVS.includes(f.severity) ? f.severity : 'info';
+    if (!CATS.some(c => c[0] === f.category)) f.category = 'Package';
+    for (const k of ['check', 'title', 'detail', 'layer', 'side']) if (f[k] != null && typeof f[k] !== 'string') f[k] = String(f[k]);
+    if (f.at && !(finite(f.at.x) && finite(f.at.y))) delete f.at;
+    if (f.bbox && !(Array.isArray(f.bbox) && f.bbox.length === 4 && f.bbox.every(finite))) delete f.bbox;
+    if (f.refs != null) f.refs = Array.isArray(f.refs) ? f.refs.map(String) : [];
+    if (f.value != null && !finite(f.value) && !(typeof f.value === 'string' && isFinite(f.value))) delete f.value;
+    if (f.row != null && !finite(f.row)) delete f.row;
+    return f;
+  }
+
   // Show a kept run: its stored findings, with the board parsed and parts placed.
   function restoreRun(entry, stored) {
     const run = stored.run;
     entry.run = run; entry.sentTo = stored.sentTo || null;
     pinRun(entry, run.settings || {});
     try { C.assembly(entry.pkg, profile(entry)); C.pins(entry.pkg); } catch (e) { console.error(e); }
-    entry.findings = stored.findings.map(f => Object.assign({}, f));
+    entry.findings = (Array.isArray(stored.findings) ? stored.findings : []).map(cleanFinding);
     const c = run.summary || {};
     log(entry, 'ok', `Opened run ${run.id} from ${stored.where || 'this browser'}: ${new Date(run.at).toLocaleString()}${run.by ? ' by ' + run.by : ''}, ${entry.pinned.name}, ${Fab.fmtLen(run.settings.thickness)}`);
     if (entry.pinned.editedSince) log(entry, 'warn', `Profile "${entry.pinned.name}" has been edited since this run; the run keeps the rules it was made with.`);
@@ -468,8 +487,9 @@
         return;
       }
       // The link's repo is the project's home now; where the run was first stored is the fallback.
-      const repos = [q.repo, known && known.run.stored && known.run.stored.repo].filter((r, i, a) => r && a.indexOf(r) === i);
       const project = q.project || (known && known.project && known.project.id);
+      const repos = [q.repo, known && known.run.stored && known.run.stored.repo]
+        .filter((r, i, a) => r && a.indexOf(r) === i && Fab.repoRuns && Fab.repoRuns.trusted(r, project));
       for (const repo of Fab.repoRuns && project ? repos : []) {
         const got = await Fab.repoRuns.fetchRun(Object.assign({}, q, { repo, project }), (cls, t) => toast(t)).catch(err => { console.warn('Run not readable from ' + repo, err); return null; });
         if (got) { await openPackage(async () => Fab.store.restoreFiles(got.pkgRec), got.stored.run.package.name, { stored: got.stored, pkgRec: got.pkgRec, link: q }); return; }
@@ -653,7 +673,7 @@
           `<td>${esc(runProfileName(run.settings))}<div class="muted">${Fab.fmtLen(run.settings.thickness)}</div></td>` +
           `<td>${pill(c.error, 'error')}${pill(c.warn, 'warn')}${pill(c.info, '')}${r.rerun && r.rerun.differs ? '<div class="muted">re-run differed</div>' : ''}</td>` +
           `<td>${r.sentTo ? esc(r.sentTo.name || r.sentTo.projectId) : '<span class="muted">not sent</span>'}</td>` +
-          `<td><button class="btn btn-plain" data-act="delete-run" data-id="${run.id}">Delete</button></td></tr>`;
+          `<td><button class="btn btn-plain" data-act="delete-run" data-id="${esc(run.id)}">Delete</button></td></tr>`;
       }).join('') + '</tbody></table></div>';
     if (state.pendingTop != null) { jump($('#main'), state.pendingTop); state.pendingTop = null; }
   }
@@ -965,7 +985,7 @@
       h += `<div class="card sec${state.closed.has(cat) ? ' collapsed' : ''}" data-cat="${cat}"><div class="sec-head" data-act="toggle-sec">${ICON.chev}<div class="sec-title">${title}<small>${list.length} shown</small></div><div class="sec-meta">${cc.error ? `<span class="pill error">${cc.error}</span>` : ''}${cc.warn ? `<span class="pill warn">${cc.warn}</span>` : ''}</div></div><div class="sec-body">`;
       for (const f of list) {
         const where = whereText(f);
-        h += `<div class="item f-row${state.sel === f.id ? ' sel' : ''}" data-act="finding" data-id="${f.id}"><span class="dot ${f.severity}"></span>` +
+        h += `<div class="item f-row${state.sel === f.id ? ' sel' : ''}" data-act="finding" data-id="${esc(f.id)}"><span class="dot ${esc(f.severity)}"></span>` +
           `<div><div class="item-text">${esc(f.title)}</div>${f.detail ? `<div class="item-detail">${esc(f.detail)}</div>` : ''}<div class="item-sub">${checkTag(f)}${f.layer ? `<span>${esc(f.layer)}</span>` : ''}</div></div>` +
           `<div class="item-right">${where ? `<span class="loc">${where}</span>` : ''}</div></div>`;
       }
@@ -992,7 +1012,7 @@
     $('#inspector').innerHTML = `<div class="insp-head"><span class="insp-crumb">${esc(f.category)} · ${C.describe(f.category, f.check) ? `<a href="#" data-act="check-doc" data-key="${esc(f.category + '/' + f.check)}">${esc(f.check)}</a>` : esc(f.check)}</span><button class="icon-btn" data-act="close-insp" aria-label="Close">${ICON.close}</button></div>
       <div class="insp-body"><span class="pill ${f.severity === 'error' ? 'error' : f.severity === 'warn' ? 'warn' : 'accent'}">${{ error: 'Error', warn: 'Warning', info: 'Info' }[f.severity]}</span>
       <div class="insp-title">${esc(f.title)}</div>${f.detail ? `<div class="insp-detail">${esc(f.detail)}</div>` : ''}
-      ${located(f) ? `<button class="insp-preview" data-act="show-on-board" data-id="${f.id}" aria-label="Open on the board"><span class="insp-prev-slot"></span><span class="insp-prev-layer"></span><span class="insp-prev-go">Open on board →</span></button>` : ''}
+      ${located(f) ? `<button class="insp-preview" data-act="show-on-board" data-id="${esc(f.id)}" aria-label="Open on the board"><span class="insp-prev-slot"></span><span class="insp-prev-layer"></span><span class="insp-prev-go">Open on board →</span></button>` : ''}
       ${kv.length ? `<dl class="kv">${kv.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}</div>`;
     $('#inspector').classList.add('open');
     if (located(f)) showPreview(active(), f);
@@ -1303,7 +1323,7 @@
     h += `<div class="card table-wrap"><table class="table compact"><thead><tr><th class="num">Row</th><th>Designators</th><th class="num">Qty</th><th>Name / value</th><th>Manufacturer</th><th>MPN</th><th>Lifecycle</th><th>Issues</th></tr></thead><tbody>`;
     for (const l of bom.lines) {
       const iss = [...new Map((byRow.get(l.row) || []).map(f => [f.check + f.severity, f])).values()];
-      h += `<tr data-act="bom-row" data-row="${l.row}"><td class="num muted">${l.row}</td><td class="mono" style="max-width:260px">${esc(l.des.join(', '))}</td><td class="num">${esc(l.qtyRaw)}</td><td>${esc(l.name)}${l.value ? `<div class="muted">${esc(l.value)}</div>` : ''}</td><td>${esc(l.mfr)}</td><td class="mono">${esc(l.mpn)}</td><td>${esc(l.lifecycle)}${l.revStatus ? `<div class="muted">${esc(l.revStatus)}</div>` : ''}</td><td>${iss.map(f => `<span class="pill ${f.severity}" title="${esc(f.title)}">${esc(f.check)}</span>`).join('')}</td></tr>`;
+      h += `<tr data-act="bom-row" data-row="${l.row}"><td class="num muted">${l.row}</td><td class="mono" style="max-width:260px">${esc(l.des.join(', '))}</td><td class="num">${esc(l.qtyRaw)}</td><td>${esc(l.name)}${l.value ? `<div class="muted">${esc(l.value)}</div>` : ''}</td><td>${esc(l.mfr)}</td><td class="mono">${esc(l.mpn)}</td><td>${esc(l.lifecycle)}${l.revStatus ? `<div class="muted">${esc(l.revStatus)}</div>` : ''}</td><td>${iss.map(f => `<span class="pill ${esc(f.severity)}" title="${esc(f.title)}">${esc(f.check)}</span>`).join('')}</td></tr>`;
     }
     return h + '</tbody></table></div></div>';
   }

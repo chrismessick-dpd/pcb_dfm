@@ -29,7 +29,8 @@ guide, FTE section, demo mode), `docs/fab-rules.md` (every fab-rule default with
 ## Code layout and conventions
 
 - Static HTML + classic scripts sharing `window.Fab` (works from `file://`; no modules, no build, no
-  Node). CDN libs pinned: JSZip 3.10.1, SheetJS xlsx 0.18.5, pako 2.1.0. Script order is in
+  Node). CDN libs pinned with SRI hashes: JSZip 3.10.1, SheetJS xlsx 0.20.3 (cdn.sheetjs.com), pako 2.1.0.
+  Changing one means a new `integrity` hash in `index.html`; the CSP there lists the allowed hosts. Script order is in
   `index.html`.
 - `assets/app.js` is the UI (views: overview, findings, board, assembly, bom, files, revisions,
   archive, rules). Re-render through `renderAll()`; `redraw(root, key, fill)` keeps scroll position.

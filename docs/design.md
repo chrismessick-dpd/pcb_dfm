@@ -15,9 +15,10 @@ vendors give away their DFM viewers.
     Our own code therefore uses classic `<script>` tags that share one `window.Fab` namespace.
     The raster kernels run in Blob-URL workers built from the same functions (see *Speed*), so they
     work from `file://` too.
-- **CDN libraries pinned to exact versions** (cdnjs):
-  - `jszip@3.10.1` reads zip packages.
-  - `xlsx@0.18.5` (SheetJS) reads BOMs in `.xlsx`/`.xls`/`.csv`.
+- **CDN libraries pinned to exact versions**, each with a Subresource Integrity hash:
+  - `jszip@3.10.1` (cdnjs) reads zip packages.
+  - `xlsx@0.20.3` (SheetJS, from cdn.sheetjs.com: cdnjs stops at 0.18.5, which has a
+    prototype-pollution bug on crafted files) reads BOMs in `.xlsx`/`.xls`/`.csv`.
   - Later phases: `pako@2.1.0` for ODB++ `.tgz` and `pdf.js` for previewing the fab drawing.
 - **Metric first.** Everything is converted to mm on parse. Every length shown also gives mil in parentheses, through one formatter, `Fab.fmtLen` ("0.084 mm (3.3 mil)"; `Fab.fmtSize` for pairs). Coordinates, areas and µm values stay metric only.
 - **Style** matches the Signoff design-review tool: system font, `#f5f5f7` canvas, white rounded cards,
@@ -483,7 +484,9 @@ The contract shared with Signoff EE is `ee_design_review/docs/fabcheck-link.md`.
   - Verified on two sample packages: sample A gives 81 = 81 findings, and sample B 310 = 310.
   - Sample A keeps 25 of 80 files: 0.91 MB of a 1.71 MB zip.
   - Sample B keeps 30 of 68 files: 5.26 MB of a 9.05 MB zip.
-- **Deep links.** `#/board?run=…&project=…&repo=…&check=…&x=…&y=…&layer=…` resolves the run in order:
+- **Deep links.** `#/board?run=…&project=…&repo=…&check=…&x=…&y=…&layer=…` resolves the run in order
+  (a `repo` outside this suite's own repos is ignored; see `trusted` in `repo.js`, and stored
+  findings go through `cleanFinding`):
   1. IndexedDB, which opens the stored findings without re-running and re-parses only to place parts;
   2. the project's repo (stage 2);
   3. otherwise the run record on the Signoff issue (`source.run` in `signoff.v1.projects`). Fabcheck

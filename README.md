@@ -34,5 +34,7 @@ Fabcheck uses Signoff EE's stylesheet verbatim (`assets/suite.css`) with Fabchec
 to store runs in a project's repo. After Signoff changes them, run `python tools/sync_vendor.py`
 (`--check` verifies the copies).
 
-Libraries come from cdnjs, pinned to exact versions: JSZip 3.10.1 and SheetJS 0.18.5. The Gerber,
+Libraries are pinned to exact versions and checked by Subresource Integrity hashes: JSZip 3.10.1
+and pako 2.1.0 from cdnjs, SheetJS 0.20.3 from cdn.sheetjs.com. The page's Content-Security-Policy
+allows scripts only from these and the site itself. The Gerber,
 Excellon, PnP and BOM parsing is written for this tool (`assets/`).
