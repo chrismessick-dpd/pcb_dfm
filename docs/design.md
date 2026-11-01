@@ -397,7 +397,7 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
       ones on their side's copper, assembly ones on the silkscreen) and flash the layer red or amber.
   - Beside the stack: the module, the step, a one-line explanation with the profile's limits, and a
     small dimensioned drawing of what the step measures at those limits (`Fab.stage.detail`).
-  - A bar along the bottom shows progress in weighted units: 1 per step, 3 per copper layer's
+  - A bar along the top shows progress in weighted units: 1 per step, 3 per copper layer's
     spacing step, and the raster pass about as much as everything else, filled by the pixel area of
     its finished jobs. Beside it: errors and warnings so far, raster jobs done, percent and time.
     It moves by `transform`. While running, a soft light sweeps along the filled part only
@@ -423,13 +423,17 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
     step run, spread evenly (taller at a module's start, red or amber where the step found
     something) and opening out from where the steps ran; a glowing marker sits on the step shown.
     Chris found one block per step too chunky. Pressing or sliding along it (touch too; a
-    vertical swipe still scrolls), or the arrow keys on it, shows that step: its words, its detail
-    drawing, the layers it reads lit, and what it found. **← Summary** under it, Escape, or Right past
-    the last step goes back to the summary. On the time-weighted bar the raster pass is about half
+    vertical swipe still scrolls), or Left and Right anywhere on the Overview (not while typing or in
+    a dropdown), shows that step: its words, its detail drawing, the layers it reads lit, and what it
+    found. The arrows go round through the summary, between the last step and the first; **← Summary**
+    under the bar, or Escape on it, goes straight back. Home and End on the bar go to the first and
+    last step. Under the bar, "Select DFM step details" says it can be used. On the time-weighted bar the raster pass is about half
     the width and the quick steps about 3 px each on a phone, too small to land on, hence even
     spacing once the bar no longer shows progress. A slide maps the finger to the steps as
-    measured at the press, and the stage only grows while sliding, so a step that changes the words'
-    height can't move the target or bounce the page. The steps live only with the run in this tab; a
+    measured at the press. The bar sits along the top of the stage, so the words below changing
+    height from step to step never move it under the finger. At the bottom it moved with them, and
+    neither growing the stage only while sliding nor holding it at its tallest step was good enough
+    (Chris, 2026-11-01). The steps live only with the run in this tab; a
     run reopened from storage has no bar.
   - This replaced a vertical step rail right of the words (2026-11-01), on Chris's call: the steps
     belong on the bar that already shows the run.

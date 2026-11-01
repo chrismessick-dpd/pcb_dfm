@@ -28,11 +28,11 @@ is uploaded.
 1. Drop a package on the page. Checks run straight away. The **Inspection** panel draws your board's
    layer stack and lights up the layers each check is reading. During the long raster pass you can
    watch each part of each layer glow as it's analyzed. Findings drop onto their layer as red or
-   amber pins, and a small drawing shows what the check measures. A bar along the bottom shows the
+   amber pins, and a small drawing shows what the check measures. A bar along the top shows the
    progress and time. When the run is done, the pins stay, each layer shows its count, and selecting
    a layer shows its worst finding on the board. Warnings are triangles and errors are dots, here and
    everywhere else. The full log is folded away under it.
-2. **Overview** shows the totals for each area. While the checks run, the layer stack beside them lights what each step looks at; the bar under it marks each step to come. Once they finish, that bar is the steps it ran: press or slide along it to read one that went by too fast (**← Summary** comes back). **Findings** lists every issue with its severity;
+2. **Overview** shows the totals for each area. While the checks run, the layer stack beside them lights what each step looks at; the bar under it marks each step to come. Once they finish, that bar is the steps it ran: press or slide along it, or use the left and right arrow keys, to read one that went by too fast (**← Summary** comes back). **Findings** lists every issue with its severity;
    select one to see it on a small preview of the board, and select the preview to zoom into it on
    the **Board**, with its layer turned on. **Board** draws the board (drag to pan; scroll, or pinch on a phone or tablet, to zoom; the up and down arrow keys step through its findings list): click a finding and it zooms to the spot, fading the layers above it so
    inner-layer problems stay visible. **Realistic** shows the board as it will be built: green mask,

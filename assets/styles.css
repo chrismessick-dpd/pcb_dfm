@@ -241,7 +241,7 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .check-rules li { margin: 2px 0; }
 
 /* Inspection stage: the layer stack beside the run (assets/stage.js) */
-.stage { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(220px, 1fr); gap: 8px 28px; align-items: center; padding: 18px 22px 0; overflow: hidden; }
+.stage { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(220px, 1fr); gap: 8px 28px; align-items: center; padding: 18px 22px 16px; overflow: hidden; }
 @media (max-width: 860px) { .stage { grid-template-columns: 1fr; } }
 .stage-art { min-width: 0; }
 .stk { width: 100%; max-width: 620px; height: auto; display: block; margin: 0 auto; overflow: visible; }
@@ -336,7 +336,8 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .stg-fig .d-arrow { fill: var(--stk-glow); }
 .stg-fig .d-cap { font: 500 10.5px var(--sans); fill: var(--text-2); text-anchor: middle; }
 /* The run's progress, along the bottom of the stage. */
-.stg-prog { grid-column: 1 / -1; margin: 6px -22px 0; padding: 10px 22px 12px; border-top: 1px solid var(--hair, rgba(128, 128, 128, 0.18)); }
+/* Along the top of the stage, the full width. */
+.stg-prog { grid-column: 1 / -1; margin: -18px -22px 6px; padding: 14px 22px 10px; border-bottom: 1px solid var(--hair, rgba(128, 128, 128, 0.18)); }
 .stg-bar { position: relative; height: 5px; border-radius: 5px; background: var(--bg-sunk); }
 .stg-bar i { position: absolute; inset: 0; transform-origin: left; background: linear-gradient(90deg, var(--accent), var(--stk-glow)); border-radius: inherit; transition: transform 0.5s var(--ease); }
 /* While running, a soft light sweeps along the filled part (only), so the bar reads as alive

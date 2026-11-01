@@ -2,7 +2,7 @@
    step reads glow; raster jobs light the part of the board each worker is analyzing, live; findings
    drop onto their layer as pins (and stay, as a map of the run, when it is done); hole checks light
    the board's real drill hits; a detail drawing shows what the step measures, at the profile's limit;
-   and a bar along the bottom shows the run's progress, with its steps marked along it; once the run
+   and a bar along the top shows the run's progress, with its steps marked along it; once the run
    is done, the bar's steps can be slid along to go back to one. */
 (function (Fab) {
   'use strict';
@@ -279,8 +279,9 @@
     if (f.edge) cls.push('edge-on');
     if (f.raster) cls.push('raster-on');
     if (picked(e)) cls.push('picked');
-    return `<div class="${cls.join(' ')}" id="stage" data-key="${esc(e.id + ':' + e.status)}"><div class="stage-art">${svg}</div>` +
-      `<div class="stage-side"><div class="stg-text" data-mode="${st ? 'step' : 'sum'}">${textHtml(e, prof, st, f)}</div>${done ? open : ''}</div>${progHtml(e, fx)}</div>`;
+    // The bar sits along the top, so the words changing height below it never move it.
+    return `<div class="${cls.join(' ')}" id="stage" data-key="${esc(e.id + ':' + e.status)}">${progHtml(e, fx)}<div class="stage-art">${svg}</div>` +
+      `<div class="stage-side"><div class="stg-text" data-mode="${st ? 'step' : 'sum'}">${textHtml(e, prof, st, f)}</div>${done ? open : ''}</div></div>`;
   }
 
   // The words beside the stack: the step shown, or the run's summary once it is done.
@@ -353,7 +354,7 @@
     if (hint && hint.innerHTML !== h) hint.innerHTML = h;
   }
   function hintHtml(e) {
-    return picked(e) ? '<button type="button" class="stg-now" id="stg-now">← Summary</button>' : 'Slide along the bar to revisit a step';
+    return picked(e) ? '<button type="button" class="stg-now" id="stg-now">← Summary</button>' : 'Select DFM step details';
   }
 
   // Show the step picked on the bar (null: the summary).
@@ -376,8 +377,8 @@
     }
     return best;
   }
-  // Press and slide along the bar (a vertical swipe still scrolls the page); arrows, Home, End and
-  // Escape from the keyboard.
+  // Press and slide along the bar (a vertical swipe still scrolls the page). From the keyboard, left
+  // and right step through anywhere on the page (unless typing); Home, End and Escape on the bar.
   document.addEventListener('pointerdown', ev => {
     const bar = ev.target.closest && ev.target.closest('#stg-bar');
     if (!bar || !cur || !canPick(cur.e)) return;
@@ -385,32 +386,33 @@
     try { bar.setPointerCapture(ev.pointerId); } catch (_) { /* a synthetic pointer */ }
     const boxes = segBoxes(document.getElementById('stg-steps'));
     let last = null;
-    // While sliding, the stage only grows, so the page doesn't bounce from step to step.
-    const root = document.getElementById('stage');
     const go = x => {
       const i = segAt(boxes, x);
-      if (i != null && i !== last) {
-        last = i; pick(i);
-        if (root) root.style.minHeight = Math.max(parseFloat(root.style.minHeight) || 0, root.offsetHeight) + 'px';
-      }
+      if (i != null && i !== last) { last = i; pick(i); }
     };
     const was = cur.e.live.pick;
     go(ev.clientX);
     const move = m => go(m.clientX);
-    const end = () => { if (root) root.style.minHeight = ''; bar.removeEventListener('pointermove', move); bar.removeEventListener('pointerup', end); bar.removeEventListener('pointercancel', cancel); };
+    const end = () => { bar.removeEventListener('pointermove', move); bar.removeEventListener('pointerup', end); bar.removeEventListener('pointercancel', cancel); };
     // The browser took the touch as a scroll of the page: put back what was shown before the press.
     const cancel = () => { end(); pick(was); };
     bar.addEventListener('pointermove', move); bar.addEventListener('pointerup', end); bar.addEventListener('pointercancel', cancel);
   });
   document.addEventListener('click', ev => { if (ev.target.closest && ev.target.closest('#stg-now')) pick(null); });
   document.addEventListener('keydown', ev => {
-    if (!ev.target.closest || !ev.target.closest('#stg-bar') || !cur || !canPick(cur.e)) return;
-    // The summary sits after the last step.
+    if (!cur || !canPick(cur.e) || ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey) return;
+    const onBar = !!(ev.target.closest && ev.target.closest('#stg-bar'));
+    if (!onBar) {
+      if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight') return;
+      const t = ev.target, stage = document.getElementById('stage');
+      if (!stage || !stage.offsetParent || (t.closest && t.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]'))) return;
+    }
+    // The summary sits between the last step and the first, so the arrows go round.
     const run = cur.e.live, n = run.steps.length, at = run.pick != null ? run.pick : n;
-    const to = { ArrowLeft: at - 1, ArrowRight: at + 1 >= n ? null : at + 1, Home: 0, End: n - 1, Escape: null }[ev.key];
+    const next = i => (i + n + 1) % (n + 1), to = { ArrowLeft: next(at - 1), ArrowRight: next(at + 1), Home: 0, End: n - 1, Escape: n }[ev.key];
     if (to === undefined) return;
     ev.preventDefault();
-    pick(to);
+    pick(to === n ? null : to);
   });
 
   // Light up the step shown and write its words, without redrawing the stage.
@@ -447,7 +449,7 @@
     barSync(e);
   }
 
-  // The bar along the bottom: found so far on the left, jobs, percent and time on the right.
+  // The bar along the top: found so far on the left, jobs, percent and time on the right.
   function progHtml(e, fx) {
     const run = e.live, done = e.status === 'ready';
     if (!run || (done && run.ms == null)) return '';
