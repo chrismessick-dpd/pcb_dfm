@@ -137,6 +137,7 @@
     fit(bb) {
       bb = bb || (this.pkg && this.pkg.boardBBox);
       if (!Fab.bbox.valid(bb) || this.W < 10) return;
+      this.stopFly();
       this._fitted = true;
       const w = bb[2] - bb[0], h = bb[3] - bb[1];
       this.view.cx = (bb[0] + bb[2]) / 2; this.view.cy = (bb[1] + bb[3]) / 2;
@@ -150,6 +151,35 @@
       const w = Math.max(bb[2] - bb[0], minSpan), h = Math.max(bb[3] - bb[1], minSpan);
       this.fit([c.x - w / 2, c.y - h / 2, c.x + w / 2, c.y + h / 2]);
     }
+
+    // focus(), moving the way a map does between two places: out far enough to see both (and at
+    // least a little out, so a short hop still reads as a move), across, then in. Zoom runs on a log
+    // scale with a bump in the middle; any pan or zoom by hand stops it where it is.
+    flyTo(bb, minSpan) {
+      const from = Object.assign({}, this.view);
+      this.focus(bb, minSpan);
+      const to = Object.assign({}, this.view);
+      if (!this._fitted || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      const d = Math.hypot(to.cx - from.cx, to.cy - from.cy), M = Math.min(this.W, this.H);
+      const bb0 = this.pkg && this.pkg.boardBBox;
+      const whole = Fab.bbox.valid(bb0) ? Math.min(this.W / ((bb0[2] - bb0[0]) * 1.08 || 1), this.H / ((bb0[3] - bb0[1]) * 1.08 || 1)) : 0;
+      // Mid-flight scale: both ends in view with room around them, never past the whole board.
+      const out = Math.max(whole * 0.9, Math.min(from.scale / 1.6, to.scale / 1.6, M / (d * 1.4 + 1e-9)));
+      const z0 = Math.log(from.scale), z1 = Math.log(to.scale), bump = Math.max(0, (z0 + z1) / 2 - Math.log(out));
+      const ms = 420 + 160 * Math.min(2, bump), t0 = performance.now();
+      const ease = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      Object.assign(this.view, from);
+      const step = now => {
+        const t = Math.min(1, (now - t0) / ms), e = ease(t);
+        this.view.cx = from.cx + (to.cx - from.cx) * e;
+        this.view.cy = from.cy + (to.cy - from.cy) * e;
+        this.view.scale = Math.exp(z0 + (z1 - z0) * e - bump * Math.sin(Math.PI * e));
+        this._draw();
+        this._fly = t < 1 ? requestAnimationFrame(step) : 0;
+      };
+      this._fly = requestAnimationFrame(step);
+    }
+    stopFly() { if (this._fly) { cancelAnimationFrame(this._fly); this._fly = 0; } }
 
     toScreen(x, y) {
       const v = this.view;
@@ -357,6 +387,7 @@
       let drag = null;
       c.addEventListener('wheel', e => {
         e.preventDefault();
+        this.stopFly();
         const r = c.getBoundingClientRect();
         const sx = e.clientX - r.left, sy = e.clientY - r.top;
         const [mx, my] = this.toModel(sx, sy);
@@ -366,7 +397,7 @@
         this.view.cx += mx - nx; this.view.cy += my - ny;
         this.draw();
       }, { passive: false });
-      c.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY, cx: this.view.cx, cy: this.view.cy, moved: false }; c.setPointerCapture(e.pointerId); });
+      c.addEventListener('pointerdown', e => { this.stopFly(); drag = { x: e.clientX, y: e.clientY, cx: this.view.cx, cy: this.view.cy, moved: false }; c.setPointerCapture(e.pointerId); });
       c.addEventListener('pointermove', e => {
         const r = c.getBoundingClientRect();
         const [mx, my] = this.toModel(e.clientX - r.left, e.clientY - r.top);
@@ -386,7 +417,7 @@
         }
         drag = null;
       });
-      c.addEventListener('dblclick', () => this.fit());
+      c.addEventListener('dblclick', () => { this.stopFly(); this.fit(); });
     }
   }
 

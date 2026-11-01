@@ -191,7 +191,9 @@
   }
   function pinSvg(r, p, fresh) {
     const [x, y] = proj(p.u, p.v, r.y), c = p.sev === 'error' ? 'e' : 'w';
-    return `<g class="pin ${c}${fresh ? ' new' : ''}" transform="translate(${x.toFixed(1)} ${y.toFixed(1)})"><ellipse class="pin-ring" rx="7" ry="3.2"/><ellipse class="pin-dot" rx="2.4" ry="1.3"/></g>`;
+    // Warnings stand up as triangles, errors lie flat as dots, so shape tells them apart too.
+    const dot = c === 'w' ? '<path class="pin-dot" d="M0 -3.4L3 1.5H-3Z"/>' : `<ellipse class="pin-dot" rx="2.4" ry="1.3"/>`;
+    return `<g class="pin ${c}${fresh ? ' new' : ''}" transform="translate(${x.toFixed(1)} ${y.toFixed(1)})"><ellipse class="pin-ring" rx="7" ry="3.2"/>${dot}</g>`;
   }
   // Pins by layer, thinned so a layer full of findings stays readable (errors drawn last, on top).
   function pinsByLayer(list) {
@@ -260,9 +262,9 @@
       // Label in the column on the right, level with the layer's middle, with a leader to it.
       const ly = r.y + DEPTH / 2 + 4, [ex] = proj(1, 0.5, r.y);
       svg += `<line class="stk-lead" x1="${(ex + 4).toFixed(1)}" y1="${(ly - 4).toFixed(1)}" x2="${LBL_X - 4}" y2="${(ly - 4).toFixed(1)}"/>`;
-      if (c) svg += `<text class="stk-n ${c.error ? 'e' : 'w'}" x="${LBL_X}" y="${ly.toFixed(1)}">${c.error || c.warn}</text>`;
+      if (c) svg += `<text class="stk-n ${c.error ? 'e' : 'w'}" x="${LBL_X}" y="${ly.toFixed(1)}">${c.error ? '●' : '▲'} ${c.error || c.warn}</text>`;
       else if (done) svg += `<text class="stk-n ok" x="${LBL_X}" y="${ly.toFixed(1)}">✓</text>`;
-      svg += `<text class="stk-lbl" x="${LBL_X + (done ? 30 : 0)}" y="${ly.toFixed(1)}">${esc(r.label)}</text></g>`;
+      svg += `<text class="stk-lbl" x="${LBL_X + (done ? 36 : 0)}" y="${ly.toFixed(1)}">${esc(r.label)}</text></g>`;
     }
     svg += `<polygon class="stk-outline" points="${poly(s.uv, R[0].y)}"/>${fx === 'exit' ? burst(R) : ''}</svg>`;
 
@@ -292,7 +294,7 @@
     const n = e.live.n;
     if (e.status === 'ready') return '';
     if (!n.error && !n.warn) return 'Nothing found yet';
-    return [n.error && `<b class="e">●</b> ${plural(n.error, 'error')}`, n.warn && `<b class="w">●</b> ${plural(n.warn, 'warning')}`].filter(Boolean).join('<span class="sep"></span>') + ' so far';
+    return [n.error && `<b class="e">●</b> ${plural(n.error, 'error')}`, n.warn && `<b class="w">▲</b> ${plural(n.warn, 'warning')}`].filter(Boolean).join('<span class="sep"></span>') + ' so far';
   }
   function timeText(e) {
     const run = e.live;

@@ -110,6 +110,10 @@ had it pushed so a session working on `main` can merge it. Commits:
    rings at the start, softer rings at the finish; keep the start expand and the finish bounce.
 3. Finding preview in the inspector (replaces "Show on board"), zooming into the Board view;
    `jumpPlan` shared by the board and the preview.
+4. Board flies between findings (`Viewer.flyTo`). A stage layer click opens that layer's worst
+   finding. Warnings are triangles everywhere, for Chris, who is colorblind. The fab profile
+   dropdown is in the Overview header. "Edit rules" is gone from Overview, and board thickness is
+   on the Fab rules tab bar.
 
 To merge:
 - Merge `refs/heads/stage-glow` into `main` (a fast-forward if `main` hasn't moved). Conflicts, if
@@ -123,6 +127,8 @@ To merge:
   - a run on the demo: glow, pins, bar, and the finish rings and bounce;
   - Findings → select an inner-layer finding → preview → board, with the layer on and the
     covering layers dimmed.
+  - on the board, select one finding in the list and then a distant one: the view zooms out, across
+    and back in.
 - Push `main` (when Chris says so), then delete the branch and its worktree.
 
 Open:

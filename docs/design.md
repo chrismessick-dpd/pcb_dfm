@@ -376,8 +376,10 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
 - **Sidebar.** Open packages, listed like Signoff's projects, with error/warning badges and a spinner
   while checks run. Several packages can be open at once, which is what the Revisions and Archive
   tabs compare.
-- **Overview.** The **inspection stage** at the top, then stats, one card per check category, the fab profile and
-  thickness controls, and the run log. The package build and every check module are generators that
+- **Overview.** The fab profile beside "Run checks again" in the header, the **inspection stage**
+  with the run log under it, then stats and one card per check category. Fab rules is reached from
+  its menu item only; its tab bar carries the open board's thickness on the right (overriding the
+  profile's default thickness for the run, and re-checking when changed). The package build and every check module are generators that
   yield a label before each step. The pipeline runs one step, prints its result (errors and warnings,
   plus the first few hits) with timings, and repaints before the next.
   - The stage (`assets/stage.js`) draws the package's own stack, exploded: silkscreen, mask and each
@@ -398,7 +400,9 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
     its finished jobs. Beside it: errors and warnings so far, raster jobs done, percent and time.
     It moves by `transform`, and a highlight runs along it on the compositor, so it keeps moving
     while a synchronous step blocks the page (the SVG effects pause then).
-  - Finished, each layer shows its error or warning count, keeps its pins and opens alone on the board.
+  - Finished, each layer shows its error count (●) or warning count (▲) and keeps its pins.
+    Selecting a layer shows its worst located finding on the board, as selecting the finding
+    would; a layer with none opens alone.
   - As a run starts, the layers rise out of a closed stack. As it finishes, they draw together and
     spring back apart, faint rings in the board's plane open out from the stack, each at its own size
     and pace, and a white edge runs down it. The app sets `entry.live.fx` and the
@@ -414,6 +418,11 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
   - Showing a finding turns on its layer if it was off. DFM findings without a layer turn on what
     they measure: the plated and non-plated holes for hole checks, the outline for edge checks.
 - **Board.** Layer list, the canvas (pan/zoom, top/bottom, placements), and a findings rail.
+  - Moving from one finding to another on the board flies there (`Viewer.flyTo`): out far enough
+    to see both places (at least 1.6×, never past the whole board), across, then in, in about
+    0.4–0.75 s. Panning or zooming by hand stops it. Arriving from another view jumps straight there.
+  - Warnings are drawn as triangles everywhere (list dots, board marks, stage pins and counts), and
+    errors and info as circles, so severity doesn't depend on telling red from orange.
   - Zooming to a finding dims every layer between the viewer and the finding's layer to 15%
     (stack depth: silkscreen, mask, paste, then copper by order; mirrored from the bottom), so an inner
     layer's copper isn't hidden. Fit clears it.

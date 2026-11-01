@@ -664,18 +664,17 @@
       chips.push(v ? 'Variant ' + v.variant : (pkg.variants || []).length ? 'No variant' : null);
       if (pkg.odb) chips.push('ODB++');
     }
-    const sub = `<div class="chips">${chips.filter(Boolean).map(t => `<span class="chip">${esc(t)}</span>`).join('')}<span class="chip accent">${esc(profileName(e))}</span>${e.pinned ? `<span class="chip">${e.pinned.editedSince ? 'Profile edited since this run' : "Run's saved rules"}</span>` : ''}</div>`;
+    const sub = `<div class="chips">${chips.filter(Boolean).map(t => `<span class="chip">${esc(t)}</span>`).join('')}${e.pinned ? `<span class="chip">${e.pinned.editedSince ? 'Profile edited since this run' : "Run's saved rules"}</span>` : ''}</div>`;
     const back = signoffProject(e) ? `<button class="btn" data-act="back-signoff">Back to Signoff EE</button>` : '';
-    const actions = back + `<button class="btn" data-act="rerun"${busy || !pkg ? ' disabled' : ''}>Run checks again</button><button class="btn btn-primary" data-act="view" data-view="board"${!pkg ? ' disabled' : ''}>Open board</button>`;
+    // The fab profile sits with the button that re-checks with it.
+    const actions = back + profileSelect(e) + `<button class="btn" data-act="rerun"${busy || !pkg ? ' disabled' : ''}>Run checks again</button><button class="btn btn-primary" data-act="view" data-view="board"${!pkg ? ' disabled' : ''}>Open board</button>`;
     let h = `<div class="page wide">` + pageHead(e, 'Fab package', e.label, sub, actions);
     const stat = (cls, n, label, sev) => `<button class="card stat ${cls}" style="border:none;text-align:left" data-act="sev" data-sev="${sev}"><div class="stat-num">${busy ? '–' : n}</div><div class="stat-label">${label}</div></button>`;
     // The inspection stage leads the page, with its log folded under it; the totals follow.
     const stageHtml = Fab.stage && pkg && (e.status === 'running' || e.status === 'ready') ? Fab.stage.html(e, profile(e)) : '';
     if (stageHtml) h += stageHtml + logHtml(e, busy);
     h += `<div class="grid grid-4${stageHtml ? ' after-stage' : ''}">${stat('issue', c.error, 'Errors', 'error')}${stat('warn', c.warn, 'Warnings', 'warn')}${stat('info', c.info, 'Info', 'info')}<div class="card stat"><div class="stat-num">${pkg ? pkg.files.length : '–'}</div><div class="stat-label">Files in package</div></div></div>`;
-    h += `<div class="section-title">Checks<span class="chips">` +
-      profileSelect(e) + `<button class="btn btn-plain" data-view="rules">Edit rules</button>` +
-      `<label class="tb-field">Board thickness <input data-act="thickness" type="number" step="0.1" min="0.2" max="6" value="${e.pinned ? e.pinned.thickness : state.thickness}"> mm</label></span></div><div class="grid grid-3">`;
+    h += `<div class="section-title">Checks</div><div class="grid grid-3">`;
     for (const [cat, title, desc] of CATS) {
       const fs = e.findings.filter(f => f.category === cat), cc = counts(fs), tot = fs.length || 1;
       h += `<button class="card cl-card cat-card" data-act="cat" data-cat="${cat}"><div class="cl-card-top"><div><div class="cl-card-title">${title}</div><div class="cl-card-desc">${desc}</div></div>` +
@@ -756,8 +755,14 @@
     if (state.view === 'rules') renderAll();
   }
 
-  const rulesTabs = () => `<div class="seg rules-tabs" role="tablist">${[['profiles', 'Fab profiles'], ['checks', 'BOM & assembly checks']].map(([k, l]) =>
-    `<button class="${(state.rulesTab || 'profiles') === k ? 'on' : ''}" data-act="rules-tab" data-tab="${k}" role="tab">${l}</button>`).join('')}</div>`;
+  // The tab bar, with the board thickness on its right: the one DFM input that belongs to the board,
+  // not the fab. Changing it re-checks the open package.
+  const rulesTabs = () => {
+    const e = active();
+    return `<div class="rules-bar"><div class="seg rules-tabs" role="tablist">${[['profiles', 'Fab profiles'], ['checks', 'BOM & assembly checks']].map(([k, l]) =>
+      `<button class="${(state.rulesTab || 'profiles') === k ? 'on' : ''}" data-act="rules-tab" data-tab="${k}" role="tab">${l}</button>`).join('')}</div>` +
+      `<label class="tb-field" title="Finished thickness of the open board, used for aspect ratio. Changing it re-checks the open package; the profile's default thickness applies otherwise.">Board thickness <input data-act="thickness" type="number" step="0.1" min="0.2" max="6" value="${e && e.pinned ? e.pinned.thickness : state.thickness}"> mm</label></div>`;
+  };
 
   // Show a check's catalog entry (from a finding's check tag).
   function showCheckDoc(key) {
@@ -1116,7 +1121,9 @@
     const e = active();
     state.sel = f.id;
     closeInspector();
-    if (state.view !== 'board') go('board'); else renderBoard(e);
+    // Already on the board (moving from one finding to the next): fly there, so it's clear where.
+    const onBoard = state.view === 'board' && !!viewer && viewer.pkg === e.pkg;
+    if (!onBoard) go('board'); else renderBoard(e);
     const plan = jumpPlan(viewer.layers, f, viewer.view.flip);
     if (plan.side) setSide(plan.side);
     // Its layer is turned on if it was off; layers between the viewer and it are dimmed.
@@ -1126,7 +1133,7 @@
     renderLayers(e);
     if (!selectRailRow(f.id)) renderRail(e);
     viewer.highlight = highlightOf(f);
-    viewer.focus(focusBox(f), 2.5);
+    if (onBoard) viewer.flyTo(focusBox(f), 2.5); else viewer.focus(focusBox(f), 2.5);
   }
 
   function drawPlacements(ctx, v) {
@@ -1175,7 +1182,12 @@
       ctx.strokeStyle = color[f.severity];
       ctx.globalAlpha = state.focusCheck && !hot ? 0.35 : 1;
       ctx.lineWidth = hot ? 3 : 2;
-      ctx.beginPath(); ctx.arc(x, y, hot ? 9 : 6, 0, 2 * Math.PI); ctx.stroke();
+      const r = hot ? 9 : 6;
+      ctx.beginPath();
+      // Warnings are triangles, errors and info circles: the shape tells them apart without color.
+      if (f.severity === 'warn') { ctx.moveTo(x, y - r * 1.15); ctx.lineTo(x + r * 1.1, y + r * 0.75); ctx.lineTo(x - r * 1.1, y + r * 0.75); ctx.closePath(); }
+      else ctx.arc(x, y, r, 0, 2 * Math.PI);
+      ctx.stroke();
     }
     ctx.restore();
   }
@@ -1380,6 +1392,11 @@
       case 'rev-layer': { const g = e.revCache.res.gerber[+t.dataset.i]; focusFinding({ id: 'rev', bbox: g.bbox, layer: g.layerRef.file.name }); break; }
       case 'stage-layer': {
         const file = t.dataset.file;
+        // The layer's worst finding with a place, shown the way a selected finding is; a layer
+        // without one opens alone on the board.
+        const sev = { error: 0, warn: 1, info: 2 };
+        const best = e.findings.filter(f => f.layer === file && located(f)).sort((a, b) => sev[a.severity] - sev[b.severity])[0];
+        if (best) { focusFinding(best); break; }
         go('board');
         const L = viewer.layers.find(l => l.layer && l.layer.file.name === file);
         if (L && (L.side === 'top' || L.side === 'bottom')) setSide(L.side, true);
