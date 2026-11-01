@@ -379,6 +379,12 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
    change the stage's height. */
 .stg-prog:not(.done) .stg-meta > span { white-space: nowrap; }
 @media (max-width: 860px) { .stg-prog:not(.done) .stg-meta { min-height: 2.8em; } }
+/* The run's clock: a column per digit (minutes, tens of seconds, seconds), each slid a digit at a
+   time by a transform animation, which keeps going while a check blocks the page. */
+.stg-clock { display: inline-flex; align-items: flex-start; height: 1.4em; overflow: hidden; vertical-align: top; }
+.stg-clock i { font-style: normal; display: block; height: 1.4em; }
+.stg-clock > span { display: flex; flex-direction: column; text-align: right; animation-name: clk; animation-iteration-count: infinite; animation-delay: var(--t); will-change: transform; }
+@keyframes clk { to { transform: translateY(-100%); } }
 .stg-meta .sep::before { content: "·"; margin: 0 7px; opacity: 0.6; }
 #stg-time { white-space: nowrap; }
 .stg-meta b { font-weight: 400; font-size: 9px; vertical-align: 1px; }

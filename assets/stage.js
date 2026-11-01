@@ -216,7 +216,6 @@
 
   const MODULES = [['package', 'Package'], ['assembly', 'Assembly'], ['build', 'Build'], ['pins', 'Pins'], ['bom', 'BOM'], ['dfm', 'Fab DFM']];
   const modTitle = m => { const i = MODULES.findIndex(x => x[0] === m); return i < 0 ? 'Starting' : `${MODULES[i][1]} · ${i + 1} of ${MODULES.length}`; };
-  const clock = ms => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
   const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
   // At the finish: rings in the board's plane open out from the middle of the stack, each at its own
@@ -511,7 +510,7 @@
     // A finished run's bar is a slider over its steps, with the summary after the last.
     const slider = canPick(e) ? ` tabindex="0" role="slider" aria-orientation="horizontal" aria-label="Step shown" aria-valuemin="1" aria-valuemax="${run.steps.length + 1}"` : '';
     return `<div class="stg-prog${done ? ' done' : ''}${canPick(e) ? ' steps' : ''}" id="stg-prog"><div class="stg-bar" id="stg-bar"${slider}><i class="stg-fill" id="stg-fill" style="transform:scaleX(${done ? 1 : run.frac.toFixed(4)})"></i>${done ? '' : `<b class="stg-run" id="stg-run" style="width:${(run.frac * 100).toFixed(2)}%"><s></s></b>`}${steps}</div>` +
-      `<div class="stg-meta"><span id="stg-found">${foundText(e)}</span><span id="stg-time">${timeText(e)}</span></div></div>`;
+      `<div class="stg-meta"><span id="stg-found">${foundText(e)}</span><span><span id="stg-time">${timeText(e)}</span>${done ? '' : clockHtml(run)}</span></div></div>`;
   }
   // Running totals; once done the title has the counts, so the bar keeps its time and, when its
   // steps can be picked, says so.
@@ -525,7 +524,14 @@
     const run = e.live;
     if (e.status === 'ready') return `Finished in ${(run.ms / 1000).toFixed(1)} s`;
     const jobs = run.jobs.length ? `${run.jobs.filter(j => j.state === 'done').length} of ${run.jobs.length} raster jobs<span class="sep"></span>` : '';
-    return `${jobs}${Math.floor(run.frac * 100)}%<span class="sep"></span>${clock(performance.now() - run.t0)}`;
+    return `${jobs}${Math.floor(run.frac * 100)}%<span class="sep"></span>`;
+  }
+  // The run's clock (m:ss), as columns of digits that slide by CSS transform animations, started at
+  // the run's start. The browser runs those off the main thread, so the clock keeps ticking while a
+  // long check step blocks the page (a clock written from script would stop until the step ends).
+  function clockHtml(run) {
+    const col = (n, s) => `<span style="animation-duration:${s}s;animation-timing-function:steps(${n})">${Array.from({ length: n }, (_, i) => `<i>${i}</i>`).join('')}</span>`;
+    return `<span class="stg-clock" style="--t:${(-(performance.now() - run.t0) / 1000).toFixed(3)}s">${col(60, 3600)}<i>:</i>${col(6, 60)}${col(10, 10)}</span>`;
   }
 
   // The run moved on to a new step: show it (unless one is picked on the bar), without redrawing.

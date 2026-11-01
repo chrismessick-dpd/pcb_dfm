@@ -404,7 +404,11 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
     (`.stg-run`, sized to the fill), by transform on the compositor, so it keeps moving while a
     synchronous step blocks the page (the SVG effects pause then). A brighter streak with a pulsing
     head at the leading edge was tried and dropped as too loud.
-  - Finished, each layer shows its error count (●) or warning count (▲) and keeps its pins.
+    The run's clock works the same way (Chris, 2026-11-01: written from script, it hung through
+    long DFM steps): a column of digits each for minutes, tens of seconds and seconds, slid a digit
+    at a time by `steps()` transform animations started at the run's start (a negative delay), so
+    it keeps time while a step blocks the page. It sits outside the text the 500 ms update rewrites,
+    which would restart it. The percent and raster job counts still change only between steps.  - Finished, each layer shows its error count (●) or warning count (▲) and keeps its pins.
     Selecting a layer shows its worst located finding on the board, as selecting the finding
     would; a layer with none opens alone.
   - While the checks run, the stage holds one height, so it doesn't jump from step to step (Chris,
