@@ -46,7 +46,16 @@ guide, FTE section, demo mode), `docs/fab-rules.md` (every fab-rule default with
   thread. Speed changes must leave findings identical: run every check step on the committed code
   (`git archive HEAD` into a scratch folder, served alongside) and on the new code, and diff every
   finding (check, severity, title, detail, layer, location, value, box). See *Speed* in `design.md`.
-- `assets/stage.js` draws the Overview's inspection stage (layer stack lit by the running step).
+- `assets/stage.js` draws the Overview's inspection stage, at the top of the page: the layer stack
+  lit by the running step, a glowing patch per raster worker job (`prepareRaster(..., watch)`, passed
+  as `out.watch`; metadata only, findings identical with it), finding pins per layer, real drill hits,
+  a dimensioned detail drawing per DFM step, a weighted progress bar, and start/finish transitions.
+  Live state is `entry.live` (`entry.run` is the saved run record; don't reuse the name). A
+  re-render keeps the `#stage` node while `data-key` (entry id + status) is unchanged.
+- Showing a finding on the board goes through `jumpPlan` in `app.js` (side, layers to turn on,
+  layer to dim above, inner layer → no realistic look). `focusFinding` applies it to the board; the
+  inspector's preview (`showPreview`, a second `Viewer` on a copy of the layer list) applies it to
+  the copy, and `openFromPreview` zooms the preview's snapshot into the board's framing.
 - DFM limits come from `assets/profiles.js` (`Fab.rules`): 28 rules, built-ins Prototype / Standard /
   Advanced. A new rule needs an entry in `RULES`, a value in all three built-ins, a row in
   `docs/fab-rules.md` with its source (or "rule of thumb"), and its check id in `checks`. Old runs
@@ -79,12 +88,42 @@ Browser-pane gotchas:
 - A stale tab holding an IndexedDB connection blocks a delete, and later opens hang. Close old tabs.
 - The pane is often hidden, so long scripts time out: start work with a flag on `window` and poll.
 - Clean test data afterwards (localStorage `fabcheck.*` / `signoff.*`, IndexedDB databases).
+- While the pane is hidden, CSS animations stay at their first frame (things that fade in look
+  missing in screenshots). Check with the pane displayed, or disable the animation for the check.
+- To catch a moment of the stage mid-run, poll for its state from a script (e.g. `.fx-job` count,
+  `fx-exit` class) every few ms, then screenshot or zoom.
 
-## State (2026-10-24) and open items
+## State (2026-10-31) and open items
 
 Done: kept runs and deep links with Signoff EE (stages 1–2), editable/shared fab profiles, the
 2026-10 rules audit and new checks, BOM & assembly checks tab, mil after lengths, collapsible
 sidebar, demo mode with the scrubbed Handle sample.
+
+### Branch `stage-glow`: ready to merge into `main` (2026-10-31)
+
+Made on a branch because another session was working on `main`. It branched from `main` at
+`961ae01`, and `main` had nothing newer when it was pushed. Chris saw each piece in the browser and
+had it pushed so a session working on `main` can merge it. Commits:
+1. Inspection stage: live raster glow, finding pins, detail drawings, progress bar. Replaces the old
+   cutaway via. Touches `raster.js` and `checks/dfm.js` (the watch hook) as well as the UI.
+2. Inspection stage leads the Overview, with start and finish transitions. Chris tuned these: no
+   rings at the start, softer rings at the finish; keep the start expand and the finish bounce.
+3. Finding preview in the inspector (replaces "Show on board"), zooming into the Board view;
+   `jumpPlan` shared by the board and the preview.
+
+To merge:
+- Merge `refs/heads/stage-glow` into `main` (a fast-forward if `main` hasn't moved). Conflicts, if
+  any, will be in `assets/app.js`, `assets/stage.js`, `assets/styles.css`, `assets/version.js` and
+  the two docs. For `version.js`, take either side and re-stamp.
+- Then run `python tools/stamp_version.py` and `python tools/sync_vendor.py --check`.
+- If the merge touched `raster.js` or `checks/dfm.js`, re-run the findings-identical check (above)
+  against `961ae01` on both Generator packages and the demo, for all three profiles. The branch
+  passed it: 9 of 9 identical, every raster job reporting `start` and `done`.
+- In the browser, check:
+  - a run on the demo: glow, pins, bar, and the finish rings and bounce;
+  - Findings → select an inner-layer finding → preview → board, with the layer on and the
+    covering layers dimmed.
+- Push `main` (when Chris says so), then delete the branch and its worktree.
 
 Open:
 - Not built yet: acid traps (needs a trace graph), text-height check, microvia/HDI profile, revision
