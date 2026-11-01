@@ -355,13 +355,18 @@
     run.pick = i == null || (e.status !== 'ready' && i === n - 1) ? null : i;
     paint(e, cur.prof);
   }
-  function barAt(bars, y) {
+  // Where each bar was when the press began ([top, bottom, index]); measured again only when a new
+  // step adds a bar, so a step that changes the page's layout can't move the target under the finger.
+  function barBoxes(bars) {
+    return [...bars.children].map(b => { const r = b.getBoundingClientRect(); return [r.top, r.bottom, +b.dataset.i]; });
+  }
+  function barAt(boxes, y) {
     let best = null, d = Infinity;
-    for (const b of bars.children) {
-      const r = b.getBoundingClientRect(), dd = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0;
-      if (dd < d) { d = dd; best = b; }
+    for (const [top, bottom, i] of boxes) {
+      const dd = y < top ? top - y : y > bottom ? y - bottom : 0;
+      if (dd < d) { d = dd; best = i; }
     }
-    return best ? +best.dataset.i : null;
+    return best;
   }
   // Press and slide along the rail; arrows, Home, End and Escape from the keyboard.
   document.addEventListener('pointerdown', ev => {
@@ -369,10 +374,20 @@
     if (!bars || !cur) return;
     ev.preventDefault();
     bars.setPointerCapture(ev.pointerId);
-    const go = y => { const i = barAt(bars, y); if (i != null) pick(i); };
+    let boxes = barBoxes(bars), last = null;
+    // While sliding, the stage only grows, so the page below doesn't bounce from step to step.
+    const root = document.getElementById('stage');
+    const go = y => {
+      if (boxes.length !== bars.childElementCount) boxes = barBoxes(bars);
+      const i = barAt(boxes, y);
+      if (i != null && i !== last) {
+        last = i; pick(i);
+        if (root) root.style.minHeight = Math.max(parseFloat(root.style.minHeight) || 0, root.offsetHeight) + 'px';
+      }
+    };
     go(ev.clientY);
     const move = m => go(m.clientY);
-    const end = () => { bars.removeEventListener('pointermove', move); bars.removeEventListener('pointerup', end); bars.removeEventListener('pointercancel', end); };
+    const end = () => { if (root) root.style.minHeight = ''; bars.removeEventListener('pointermove', move); bars.removeEventListener('pointerup', end); bars.removeEventListener('pointercancel', end); };
     bars.addEventListener('pointermove', move); bars.addEventListener('pointerup', end); bars.addEventListener('pointercancel', end);
   });
   document.addEventListener('click', ev => { if (ev.target.closest && ev.target.closest('#stg-now')) pick(null); });

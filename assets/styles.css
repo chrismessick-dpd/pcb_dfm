@@ -309,10 +309,12 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .stage-side { min-width: 0; display: flex; gap: 18px; align-self: stretch; }
 .stg-main { flex: 1; min-width: 0; align-self: center; }
 /* The step rail: a bar per step run (a gap between modules), pressed or slid to go back to one. */
-.stg-rail { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 34px; flex: none; padding: 4px 0; border-radius: 8px; outline: none; }
+/* A fixed size at the top of its column: the words beside it change height from step to step, and a
+   rail that followed them would move under the finger sliding along it. */
+.stg-rail { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 34px; height: 268px; flex: none; align-self: flex-start; padding: 4px 0; border-radius: 8px; outline: none; }
 .stg-rail:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
-.stg-bars { flex: 1; min-height: 150px; width: 100%; display: flex; flex-direction: column; gap: 2px; cursor: ns-resize; touch-action: none; user-select: none; -webkit-user-select: none; }
-.stg-bars i { flex: 1 1 0; min-height: 3px; max-height: 14px; width: 14px; margin: 0 auto; border-radius: 3px; background: var(--bg-sunk); box-shadow: inset 0 0 0 1px var(--hair, rgba(128, 128, 128, 0.25)); transition: width 0.15s var(--ease), background 0.15s var(--ease); }
+.stg-bars { flex: 1; min-height: 0; overflow: hidden; width: 100%; display: flex; flex-direction: column; gap: 2px; cursor: ns-resize; touch-action: none; user-select: none; -webkit-user-select: none; }
+.stg-bars i { flex: 1 1 0; min-height: 2px; max-height: 14px; width: 14px; margin: 0 auto; border-radius: 3px; background: var(--bg-sunk); box-shadow: inset 0 0 0 1px var(--hair, rgba(128, 128, 128, 0.25)); transition: width 0.15s var(--ease), background 0.15s var(--ease); }
 .stg-bars i.m0:not(:first-child) { margin-top: 5px; }
 .stg-bars i.w { background: color-mix(in srgb, var(--warn) 55%, var(--bg-sunk)); }
 .stg-bars i.e { background: color-mix(in srgb, var(--issue) 60%, var(--bg-sunk)); }
@@ -320,8 +322,6 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .stg-bars i.cur { width: 26px; background: var(--stk-glow); opacity: 1; box-shadow: 0 0 6px var(--stk-glow); animation: none; }
 .stg-bars:hover i:not(.cur) { width: 18px; }
 @keyframes rail-live { to { opacity: 1; } }
-/* On phones the rail takes touches instead of scrolling, so it is kept short there. */
-@media (max-width: 860px) { .stg-rail { max-height: 260px; align-self: center; } }
 .stg-now { font: 600 10.5px var(--sans); letter-spacing: 0.03em; color: var(--text-2); background: none; border: 1px solid var(--hair, rgba(128, 128, 128, 0.35)); border-radius: 10px; padding: 2px 6px; cursor: pointer; }
 .stg-now.on { color: var(--accent-ink); border-color: var(--accent); }
 .stg-step-n { font-size: 12px; color: var(--text-2); margin-top: 6px; min-height: 1.3em; font-variant-numeric: tabular-nums; }

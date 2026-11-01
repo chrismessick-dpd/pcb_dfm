@@ -419,6 +419,10 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
     drawing, the layers it reads lit, and what it found. The run keeps going behind it. **Live** (or
     **Summary** once finished), Escape, or the bar of the step running goes back to following the run.
     The steps live only with the run in this tab; a run reopened from storage has no rail.
+    The rail has a fixed size at the top of its column, and a slide maps the finger to the bars as
+    measured at the press: when it followed the words beside it, a step that changed their height
+    moved the bars under the finger and the pick flickered between steps. While sliding, the stage
+    only grows, so the page below holds still.
 - **Findings.** Signoff-style sections with severity and category filters. Clicking a finding opens the
   inspector, with a preview of the finding on the board: a second `Fab.render.Viewer` on a copy of
   the board's layer list, set up the way the Board view will be (`jumpPlan`: the side, the finding's
