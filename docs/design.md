@@ -407,6 +407,13 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
   - Finished, each layer shows its error count (●) or warning count (▲) and keeps its pins.
     Selecting a layer shows its worst located finding on the board, as selecting the finding
     would; a layer with none opens alone.
+  - While the checks run, the stage holds one height, so it doesn't jump from step to step (Chris,
+    2026-11-01): at the start it writes the words of the tallest likely steps in turn (the DFM steps,
+    with this package's longest file names) and keeps the tallest, growing if a step still comes out
+    taller. On a phone the status line above the bar keeps room for two lines, as its text grows.
+    At the finish the stage starts at that height and eases down to the summary's (0.3 s pause,
+    0.7 s), driven a frame at a time: the save right after a run takes the stage node out of the page
+    and puts it back, which cancels a CSS transition.
   - As a run starts, the layers rise out of a closed stack. As it finishes, they draw together and
     spring back apart, faint rings in the board's plane open out from the stack, each at its own size
     and pace, and a white edge runs down it. The app sets `entry.live.fx` and the

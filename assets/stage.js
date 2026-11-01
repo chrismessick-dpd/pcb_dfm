@@ -97,6 +97,9 @@
   const lit = (f, r) => !!((f.file && r.file === f.file) || (f.kinds && f.kinds.includes(r.kind) && (!f.outer || outer(r))) ||
     (f.outer && !f.kinds && outer(r)));
 
+  // The DFM module's fixed steps, in order (dfm.js yields them).
+  const DFM_STEPS = ['Minimum trace width', 'Drills', 'Annular ring', 'Thermal reliefs', 'Copper to board edge', 'NPTH to copper',
+    'Solder mask expansion and dams', 'Silkscreen', 'Holes: spacing, board edge, castellations', 'Outline inside corners', 'BGA pads and vias in pads'];
   // Short explanations, with the profile's own limits.
   function explain(label, module, prof) {
     const L = Fab.fmtLen, l = label || '';
@@ -280,7 +283,8 @@
     if (f.raster) cls.push('raster-on');
     if (picked(e)) cls.push('picked');
     // The bar sits along the top, so the words changing height below it never move it.
-    return `<div class="${cls.join(' ')}" id="stage" data-key="${esc(e.id + ':' + e.status)}">${progHtml(e, fx)}<div class="stage-art">${svg}</div>` +
+    const from = done && fx === 'exit' && run.runH ? ` data-shrink="1" style="height:${run.runH}px"` : '';
+    return `<div class="${cls.join(' ')}" id="stage" data-key="${esc(e.id + ':' + e.status)}"${from}>${progHtml(e, fx)}<div class="stage-art">${svg}</div>` +
       `<div class="stage-side"><div class="stg-text" data-mode="${st ? 'step' : 'sum'}">${textHtml(e, prof, st, f)}</div>${done ? open : ''}</div></div>`;
   }
 
@@ -434,6 +438,13 @@
     // Worker patches stay while the raster pass runs, whatever step is shown.
     const now = e.status !== 'ready' && e.stage ? focus(e.stage.label, e.stage.module) : {};
     if (!now.raster) for (const j of root.querySelectorAll('.fx-job')) j.remove();
+    words(e, prof, root, st, f);
+    if (e.status === 'running') holdRun(e, prof, root);
+    else if (root.dataset.shrink) shrink(root);
+    barSync(e);
+  }
+  // The words beside the stack for the step shown, changed in place.
+  function words(e, prof, root, st, f) {
     const text = root.querySelector('.stg-text'), mode = st ? 'step' : 'sum';
     if (text && text.dataset.mode !== mode) { text.dataset.mode = mode; text.innerHTML = textHtml(e, prof, st, f); }
     else if (st) {
@@ -446,7 +457,49 @@
       const fig = document.getElementById('stg-detail');
       if (fig && fig.dataset.key !== (f.detail || '')) { fig.dataset.key = f.detail || ''; fig.innerHTML = detail(f.detail, prof); }
     }
-    barSync(e);
+  }
+
+  // While the checks run, the stage holds one height, so it doesn't jump from step to step: the
+  // tallest of the steps it will show, measured at the start by writing each one's words in turn
+  // (the DFM steps, which have drawings and the longest words; file names from this package), and
+  // grown if a step still comes out taller. At the finish it eases down to the summary (shrink).
+  function probes(pkg) {
+    const L = pkg.layers, cu = L.copper, mk = ['top', 'bottom'].map(s => L.mask[s]).filter(Boolean);
+    const long = a => a.reduce((x, l) => l.file.name.length > x.length ? l.file.name : x, '');
+    return DFM_STEPS.concat([`Raster analysis · ${cu.length} copper and ${mk.length} mask layers in parallel`,
+      `Spacing and slivers · ${long(cu)}`, `Isolated copper · ${long(cu)}`, mk.length ? `Mask dams (regions) · ${long(mk)}` : null])
+      .filter(Boolean).map(label => ({ module: 'dfm', label })).concat([{ module: 'assembly', label: 'Comments, footprints and size codes' }]);
+  }
+  function holdRun(e, prof, root) {
+    if (root._runH == null) {
+      let max = 0;
+      for (const st of probes(e.pkg)) { words(e, prof, root, st, focus(st.label, st.module)); max = Math.max(max, root.offsetHeight); }
+      const st = shown(e);
+      words(e, prof, root, st, st ? focus(st.label, st.module) : {});
+      root._runH = max;
+    }
+    root._runH = Math.max(root._runH, root.offsetHeight);
+    root.style.minHeight = root._runH + 'px';
+    if (e.live) e.live.runH = root._runH;
+  }
+  // The finished stage starts at the running one's height (html) and eases to its own. Driven a
+  // frame at a time: the save right after a run takes the stage out of the page and puts it back,
+  // which would cancel a CSS transition.
+  function shrink(root) {
+    delete root.dataset.shrink;
+    const from = root.offsetHeight;
+    root.style.height = '';
+    const to = root.offsetHeight;
+    if (from <= to || (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches)) return;
+    root.style.height = from + 'px';
+    const t0 = performance.now() + 300, ms = 700;
+    const step = now => {
+      const k = Math.min(1, Math.max(0, (now - t0) / ms)), ease = 1 - Math.pow(1 - k, 3);
+      if (k >= 1) { root.style.height = ''; return; }
+      root.style.height = (from + (to - from) * ease).toFixed(1) + 'px';
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
   }
 
   // The bar along the top: found so far on the left, jobs, percent and time on the right.

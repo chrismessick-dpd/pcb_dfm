@@ -241,7 +241,7 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .check-rules li { margin: 2px 0; }
 
 /* Inspection stage: the layer stack beside the run (assets/stage.js) */
-.stage { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(220px, 1fr); gap: 8px 28px; align-items: center; padding: 18px 22px 16px; overflow: hidden; }
+.stage { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(220px, 1fr); gap: 8px 28px; align-items: center; align-content: start; padding: 18px 22px 16px; overflow: hidden; }
 @media (max-width: 860px) { .stage { grid-template-columns: 1fr; } }
 .stage-art { min-width: 0; }
 .stk { width: 100%; max-width: 620px; height: auto; display: block; margin: 0 auto; overflow: visible; }
@@ -374,7 +374,11 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .stg-prog.steps .stg-bar:hover .stg-steps span:hover:not(.cur)::after { top: 0; height: 13px; opacity: 1; }
 .stg-now { font: inherit; color: var(--accent-ink); background: none; border: 0; padding: 0; cursor: pointer; }
 .stg-now:hover { text-decoration: underline; }
-.stg-meta { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-top: 7px; font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.stg-meta { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: baseline; gap: 0 12px; margin-top: 7px; font-size: 12px; line-height: 1.4; color: var(--text-2); font-variant-numeric: tabular-nums; }
+/* Each half on one line; on a phone, a running bar keeps room for two, so the text growing doesn't
+   change the stage's height. */
+.stg-prog:not(.done) .stg-meta > span { white-space: nowrap; }
+@media (max-width: 860px) { .stg-prog:not(.done) .stg-meta { min-height: 2.8em; } }
 .stg-meta .sep::before { content: "·"; margin: 0 7px; opacity: 0.6; }
 #stg-time { white-space: nowrap; }
 .stg-meta b { font-weight: 400; font-size: 9px; vertical-align: 1px; }
