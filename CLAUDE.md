@@ -106,6 +106,15 @@ detail drawings, progress bar and transitions; finding preview; board fly-to; wa
 and the `security` branch (trusted deep-link repos, `cleanFinding`, SRI, SheetJS 0.20.3, CSP).
 Findings identical to `961ae01` on the demo (all three profiles) and both Generator packages.
 
+Store-first Send (2026-11-01, committed to local `main`, not pushed): Send to Signoff confirms (names the private repo
+and size; Cancel keeps everything in the browser), stores the run, then writes the issues with
+`stored` set; if storing fails nothing is sent unless "Send without storing". The Send panel shows
+the target repo or why it can't store (`repoRuns.readiness`/`probe`), and lists the runs stored with
+the project (`listRuns`). Recent runs has "Store in project" (`storeKept`). Signoff EE shows "Open in
+Fabcheck" to contractors too (Chris, 2026-11-01). Verified with `tests/fake-github.js` (it now answers
+the repo-info GET). The two real projects' runs were never stored; Chris chose re-sending new runs
+over backfilling.
+
 Open:
 - Not built yet: acid traps (needs a trace graph), text-height check, microvia/HDI profile, revision
   Gerber diff beyond what `revisions.js` does, ODB++ archive vs folder equality.

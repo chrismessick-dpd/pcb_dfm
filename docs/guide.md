@@ -74,8 +74,15 @@ reads and an example finding.
 - **Runs** are kept in the browser's storage (IndexedDB `fabcheck`): the run record, the slimmed
   package and the findings.
 - **Send to Signoff EE** writes errors and warnings into a Signoff EE project as issues on the
-  Fab & Release checklist, with the run and board locations attached. It also uploads the slimmed
-  package and run to that project's repo under `fabcheck/<projectId>/`.
+  Fab & Release checklist, with the run and board locations attached. First it stores the slimmed
+  package and run in that project's private repo under `fabcheck/<projectId>/`, after a confirm
+  that names the repo (Cancel keeps everything in this browser).
+  - The panel says which repo the run will be stored in, or why it can't (for example no token in
+    this tab: tick "Remember the token" in Signoff EE's Settings, or open Fabcheck from Signoff EE).
+    If storing fails, nothing is sent; **Send without storing** sends the issues anyway, and
+    **Store in project** under Recent runs stores the run later.
+  - **Runs stored with this project** lists every run sent to the project, to reopen earlier
+    revisions.
   - **Details**, beside the Send button, lists each issue it would write: its title in Signoff,
     Major or Minor, the check, the checklist section, whether it's new or updates one sent before
     (with the reviewer's Fixed or Waived), and its findings under a fold. Untick an issue to leave

@@ -35,6 +35,7 @@
   const state = {
     pkgs: [], active: null, view: 'overview', filter: { error: true, warn: true, info: false }, cat: null, q: '',
     closed: new Set(), sel: null, showPnp: true, profile: 'standard', thickness: 1.6,
+    repoProbe: new Map(), repoRuns: new Map(), // per Signoff project id: write access, stored runs
   };
   let seq = 0;
   let viewer = null;
@@ -685,7 +686,7 @@
           `<td>${esc(new Date(run.at).toLocaleString())}<div class="muted">${esc(run.by || '')}${run.stored ? ' · stored in ' + esc(run.stored.repo) : ' · this browser only'}</div></td>` +
           `<td>${esc(runProfileName(run.settings))}<div class="muted">${Fab.fmtLen(run.settings.thickness)}</div></td>` +
           `<td>${pill(c.error, 'error')}${pill(c.warn, 'warn')}${pill(c.info, '')}${r.rerun && r.rerun.differs ? '<div class="muted">re-run differed</div>' : ''}</td>` +
-          `<td>${r.sentTo ? esc(r.sentTo.name || r.sentTo.projectId) : '<span class="muted">not sent</span>'}</td>` +
+          `<td>${r.sentTo ? esc(r.sentTo.name || r.sentTo.projectId) + (!run.stored && Fab.repoRuns ? `<div><button class="btn btn-plain" style="padding:0 4px;font-size:12px" data-act="store-run" data-id="${esc(run.id)}">Store in project</button></div>` : '') : '<span class="muted">not sent</span>'}</td>` +
           `<td><button class="btn btn-plain" data-act="delete-run" data-id="${esc(run.id)}">Delete</button></td></tr>`;
       }).join('') + '</tbody></table></div>';
     if (state.pendingTop != null) { jump($('#main'), state.pendingTop); state.pendingTop = null; }
@@ -962,12 +963,116 @@
     const news = [fresh && `${fresh} new`, picked.length - fresh && `${picked.length - fresh} updating ${picked.length - fresh === 1 ? 'an issue' : 'issues'} sent before`].filter(Boolean).join(', ');
     h += `<p style="margin:0 0 12px;color:var(--text-2)">${picked.length ? `Sends ${picked.length < groups.length ? picked.length + ' of ' : ''}${plural(groups.length, 'issue')} to the Fabrication &amp; Release checklist (${sevs}; ${news}).` : `No issues picked; ${plural(groups.length, 'issue')} available.`} Each issue is one Fabcheck check, with every location it found. Sending again updates the same issues and keeps the reviewer's status. ${Fab.DEMO ? 'In this demo they go to the Signoff EE demo in this browser.' : "Signoff's Sync then pushes them."}</p>
       <div class="filters" style="margin:0"><label class="tb-field" style="font-size:13px">Project <select data-act="signoff-project">${projects.map(p => `<option value="${esc(p.slug)}"${p.slug === e.signoffSlug ? ' selected' : ''}>${esc(p.meta.name)}${p.meta.board ? ' · ' + esc(p.meta.board) : ''}${(p.meta.checklists || []).includes('fab') ? '' : ' (no Fab checklist)'}</option>`).join('')}</select></label>
-      <button class="btn btn-primary" data-act="signoff-send"${picked.length ? '' : ' disabled'}>Send to Signoff EE</button><button class="btn so-toggle${e.signoffOpen ? ' open' : ''}" data-act="signoff-details" aria-expanded="${!!e.signoffOpen}">Details${ICON.chev}</button>${e.signoffResult ? `<a class="btn btn-plain" href="${Fab.demoHref('../ee_design_review/index.html')}">Open Signoff EE</a>` : ''}</div>`;
+      <button class="btn btn-primary" data-act="signoff-send"${picked.length && !e.signoffBusy ? '' : ' disabled'}>${e.signoffBusy ? 'Storing the run…' : 'Send to Signoff EE'}</button><button class="btn so-toggle${e.signoffOpen ? ' open' : ''}" data-act="signoff-details" aria-expanded="${!!e.signoffOpen}">Details${ICON.chev}</button>${e.signoffResult ? `<a class="btn btn-plain" href="${Fab.demoHref('../ee_design_review/index.html')}">Open Signoff EE</a>` : ''}</div>`;
     if (e.signoffOpen) h += signoffListHtml(e, pv, skip);
     const target = projects.find(p => p.slug === e.signoffSlug);
     if (target && !(target.meta.checklists || []).includes('fab')) h += `<p class="note">This project doesn't use the Fabrication &amp; Release checklist, so the issues won't show until you add it in the project's details in Signoff EE.</p>`;
+    if (target) h += storageHtml(e, target.id);
+    if (e.signoffBlocked) h += `<div class="note" style="color:var(--warn)">Not sent: the run couldn't be stored (${esc(e.signoffBlocked)}). Without it, Signoff's links need this package dropped in again.
+      <div style="margin-top:8px"><button class="btn" data-act="signoff-send">Try again</button> <button class="btn btn-plain" data-act="signoff-send-anyway">Send without storing</button></div></div>`;
     if (e.signoffResult) h += `<p class="note" style="color:var(--pass)">${esc(e.signoffResult)}</p>`;
+    if (target) h += repoRunsHtml(e, target.id);
     return h + '</div>';
+  }
+
+  // Send to Signoff stores the run and its package in the project's repo first, so every issue
+  // carries where the run is and Signoff's links reopen it for anyone with access. If it can't be
+  // stored, nothing is sent until the user picks "Send without storing".
+  async function sendToSignoff(e, anyway) {
+    if (e.signoffBusy) return;
+    const target = Fab.signoff.projects().find(p => p.slug === e.signoffSlug);
+    if (!target) { toast('That Signoff project is no longer in this browser'); return; }
+    e.signoffBlocked = null; e.signoffResult = null;
+    state.repoProbe.delete(target.id);
+    if (Fab.repoRuns && e.run && !anyway) {
+      if (!confirmStore(Fab.repoRuns.home(target.id).repo, e.pkgRec, 'store this run and send its issues')) return;
+      e.signoffBusy = true; renderAll();
+      const got = await Fab.repoRuns.upload(e, target.id, (cls, t) => log(e, cls, t));
+      e.signoffBusy = false;
+      if (!got.ok) { e.signoffBlocked = got.why; renderAll(); return; }
+    }
+    try {
+      const run = e.run ? Object.assign({}, e.run) : null;
+      // A run stored with another project isn't stored with this one.
+      if (run && run.stored && Fab.repoRuns) {
+        const h = Fab.repoRuns.home(target.id);
+        if (run.stored.repo !== h.repo || run.stored.dir !== h.dir) run.stored = null;
+      }
+      const r = Fab.signoff.send(e.signoffSlug, Fab.signoff.plan(e.findings), { label: e.label, sha: run ? run.package.sha256 : null, run, profileName: run ? run.settings.profileName : profileName(e) }, e.signoffSkip);
+      if (run) Fab.rules.remember(run.settings.profile, { projectId: r.projectId });
+      e.sentTo = { projectId: r.projectId, name: r.name };
+      if (run) await Fab.store.updateRun(run.id, { sentTo: e.sentTo });
+      e.signoffResult = `Sent to "${r.name}": ${r.created} new, ${r.updated} updated${r.skipped ? `, ${r.skipped} left out` : ''}${r.resolvedNotes ? `, ${r.resolvedNotes} earlier issue(s) noted as no longer found` : ''}. ${Fab.DEMO ? 'Open Signoff EE to see them.' : 'Sync in Signoff EE to push them.'}`;
+      log(e, 'ok', e.signoffResult);
+      if (anyway) log(e, 'warn', 'Sent without storing the run: Signoff\'s links need this package dropped in again until it is stored (send again, or "Store in project" under Recent runs).');
+      toast('Sent to Signoff EE');
+      state.repoRuns.delete(r.projectId);
+    } catch (err) { toast('Could not send: ' + err.message); }
+    renderAll();
+  }
+
+  // "Store in project" on a kept run that was sent without being stored.
+  async function storeKeptRun(id) {
+    if (!Fab.repoRuns) return;
+    const kept = await Fab.store.getRun(id);
+    if (!kept || !kept.sentTo) { toast('That run is no longer in this browser'); return; }
+    if (!confirmStore(Fab.repoRuns.home(kept.sentTo.projectId).repo, await Fab.store.getPackage(kept.run.package.key), 'store this run')) return;
+    toast('Storing the run…');
+    const open = state.pkgs.find(x => x.run && x.run.id === id);
+    const got = await Fab.repoRuns.storeKept(id, (cls, t) => { if (open) log(open, cls, t); });
+    if (got.ok) {
+      if (open) open.run = Object.assign({}, open.run, { stored: got.stored });
+      toast(`Stored in ${got.stored.repo}. Sync in Signoff EE so its issues link to it.`);
+    } else toast('Not stored: ' + got.why);
+    renderAll();
+  }
+
+  // Nothing leaves the browser without saying where it goes; Cancel keeps it all here.
+  function confirmStore(repo, pkgRec, what) {
+    const mb = pkgRec ? pkgRec.files.reduce((n, f) => n + f.bytes.length, 0) / 1048576 : 0;
+    return confirm(`This run, its findings and the package files Fabcheck reads (Gerbers, drill, pick-and-place, BOM; ${mb.toFixed(2)} MB) will be stored in the private repository ${repo}, where everyone with access to the project can open them.\n\nOK to ${what}. Cancel to keep everything in this browser.`);
+  }
+
+  // Where Send will store the run, or why it can't, from a cached check of the project's repo.
+  function storageHtml(e, projectId) {
+    if (!Fab.repoRuns) return '';
+    if (!e.run) return `<p class="note">This run wasn't kept in this browser, so it can't be stored with the issues.</p>`;
+    const pr = state.repoProbe.get(projectId);
+    if (!pr) {
+      state.repoProbe.set(projectId, { busy: true });
+      Fab.repoRuns.probe(projectId).then(r => { state.repoProbe.set(projectId, r); renderAll(); });
+    }
+    if (!pr || pr.busy) return `<p class="note">Checking access to ${esc(Fab.repoRuns.home(projectId).repo)}…</p>`;
+    if (!pr.ok) return `<p class="note" style="color:var(--warn)">Can't store the run in ${esc(pr.repo)}: ${esc(pr.text)}.</p>`;
+    if (e.run.stored && e.run.stored.repo === pr.repo) return `<p class="note">This run and its package are stored in ${esc(pr.repo)}.</p>`;
+    const mb = e.pkgRec ? e.pkgRec.files.reduce((n, f) => n + f.bytes.length, 0) / 1048576 : 0;
+    return `<p class="note">Sending also stores this run and the package files Fabcheck reads (${mb.toFixed(2)} MB) in ${esc(pr.repo)}, the project's private repository, so Signoff's links open it for everyone with access to the project.</p>`;
+  }
+
+  // The runs stored with the project (every revision sent to it), read from its repo when opened.
+  function repoRunsHtml(e, projectId) {
+    if (!Fab.repoRuns) return '';
+    const h = `<p class="note"><button class="btn btn-plain so-toggle${e.signoffRunsOpen ? ' open' : ''}" style="padding:0 4px;font-size:12.5px" data-act="signoff-runs" aria-expanded="${!!e.signoffRunsOpen}">Runs stored with this project${ICON.chev}</button></p>`;
+    if (!e.signoffRunsOpen) return h;
+    const got = state.repoRuns.get(projectId);
+    if (!got) {
+      state.repoRuns.set(projectId, { busy: true });
+      Fab.repoRuns.listRuns(projectId).catch(err => ({ error: err.message || String(err) })).then(r => { state.repoRuns.set(projectId, r); renderAll(); });
+    }
+    if (!got || got.busy) return h + `<p class="note">Reading ${esc(Fab.repoRuns.home(projectId).repo)}…</p>`;
+    if (got.error) return h + `<p class="note" style="color:var(--warn)">Couldn't read the stored runs: ${esc(got.error)}.</p>`;
+    if (!got.runs.length) return h + `<p class="note">No runs stored in ${esc(got.repo)} yet.</p>`;
+    // Run records come from the repo, which contractors can write to: numbers as numbers, text escaped.
+    const pill = (n, cls) => +n ? `<span class="pill ${cls}">${+n}</span>` : '';
+    return h + `<div class="table-wrap"><table class="table compact"><thead><tr><th>Package</th><th>Run</th><th>Findings</th><th></th></tr></thead><tbody>` +
+      got.runs.map(run => {
+        const c = run.summary || {};
+        const href = '#/board?' + new URLSearchParams({ run: run.id, project: projectId, repo: got.repo });
+        return `<tr><td><b style="font-weight:500">${esc(baseName(String(run.package.name || '')))}</b><div class="muted mono">${esc(String(run.package.sha256 || '').slice(0, 12))}…</div></td>` +
+          `<td>${esc(new Date(run.at).toLocaleString())}<div class="muted">${esc(String(run.by || ''))}</div></td>` +
+          `<td>${pill(c.error, 'error')}${pill(c.warn, 'warn')}${pill(c.info, '')}</td>` +
+          `<td>${e.run && e.run.id === run.id ? '<span class="muted">this run</span>' : `<a class="btn btn-plain" href="${esc(href)}">Open</a>`}</td></tr>`;
+      }).join('') + '</tbody></table></div>';
   }
 
   // The issues Send would write, one row each: what Signoff will show, where it goes, whether it's
@@ -1545,22 +1650,9 @@
       }
       case 'copy-log': copyText(e.log.map(l => `${(l.t / 1000).toFixed(2).padStart(7)}s  ${l.text}`).join('\n')); break;
       case 'copy': copyText(t.dataset.text); break;
-      case 'signoff-send': {
-        try {
-          const run = e.run ? Object.assign({}, e.run) : null;
-          const r = Fab.signoff.send(e.signoffSlug, Fab.signoff.plan(e.findings), { label: e.label, sha: run ? run.package.sha256 : null, run, profileName: run ? run.settings.profileName : profileName(e) }, e.signoffSkip);
-          if (run) Fab.rules.remember(run.settings.profile, { projectId: r.projectId });
-          const name = r.name;
-          e.sentTo = { projectId: r.projectId, name };
-          if (run) Fab.store.updateRun(run.id, { sentTo: e.sentTo });
-          e.signoffResult = `Sent to "${name}": ${r.created} new, ${r.updated} updated${r.skipped ? `, ${r.skipped} left out` : ''}${r.resolvedNotes ? `, ${r.resolvedNotes} earlier issue(s) noted as no longer found` : ''}. ${Fab.DEMO ? 'Open Signoff EE to see them.' : 'Sync in Signoff EE to push them.'}`;
-          log(e, 'ok', e.signoffResult);
-          toast('Sent to Signoff EE');
-          if (Fab.repoRuns && run) Fab.repoRuns.upload(e, r.projectId, (cls, t) => log(e, cls, t)).then(() => renderAll());
-        } catch (err) { toast('Could not send: ' + err.message); }
-        renderAll();
-        break;
-      }
+      case 'signoff-send': case 'signoff-send-anyway': sendToSignoff(e, t.dataset.act === 'signoff-send-anyway'); break;
+      case 'signoff-runs': e.signoffRunsOpen = !e.signoffRunsOpen; renderAll(); break;
+      case 'store-run': storeKeptRun(t.dataset.id); break;
       case 'signoff-details': e.signoffOpen = !e.signoffOpen; renderAll(); break;
       case 'back-signoff': {
         const pid = (e.sentTo && e.sentTo.projectId) || (e.link && e.link.project) || (e.need && e.need.link && e.need.link.project);
@@ -1653,6 +1745,10 @@
     const showPeople = () => { $('#people-link').hidden = !(Fab.repoRuns && Fab.repoRuns.isFte()); };
     showPeople();
     window.addEventListener('storage', showPeople);
+    // A token or project home set in Signoff EE meanwhile: check where runs can be stored again.
+    window.addEventListener('storage', ev => {
+      if (ev.key === 'signoff.token' || ev.key === Fab.signoffNs + 'settings' || ev.key === Fab.signoffNs + 'homes' || ev.key === Fab.signoffNs + 'roster') { state.repoProbe.clear(); state.repoRuns.clear(); renderAll(); }
+    });
     document.addEventListener('click', onClick);
     document.addEventListener('toggle', ev => {
       if (!ev.target.matches) return;

@@ -29,6 +29,7 @@
       const u = new URL(url), m = (opts && opts.method) || 'GET', body = opts && opts.body ? JSON.parse(opts.body) : null;
       const p = u.pathname.replace(/^\/repos\/[^/]+\/[^/]+/, '');
       if (gh.deny && m !== 'GET') return fail(403, 'Resource not accessible by personal access token');
+      if (m === 'GET' && p === '') return ok({ permissions: { pull: true, push: !gh.deny } });
       let r;
       if (m === 'GET' && (r = /^\/git\/ref\/heads\/(.+)$/.exec(p))) return ok({ object: { sha: head } });
       if (m === 'GET' && (r = /^\/git\/commits\/(\w+)$/.exec(p))) { const c = commits.get(r[1]); return c ? ok({ sha: r[1], tree: { sha: c.tree } }) : fail(404, 'Not Found'); }

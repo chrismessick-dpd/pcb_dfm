@@ -565,10 +565,16 @@ fabcheck/<projectId>/runs/<runId>.json
   `model.js` are vendored by `tools/sync_vendor.py`, with `--check`; that script also copies `suite.css`.
   - Files already in the repo are skipped.
   - The console shows progress and the commit link.
-  - Once stored, `stored: {repo, dir}` is set on the kept run and on every Signoff issue that carries it.
-    Those issues are stamped and marked dirty, so Signoff's Sync shares the location.
-- **When the run can't be stored** (no token, no write access, or a page opened from disk without
-  WebCrypto), it stays in this browser and the console says why. The issues are always sent.
+  - Send stores first, then writes the issues, so they carry `stored: {repo, dir}` from the start.
+    A confirm names the private repo, the files and their size; Cancel keeps everything in the browser.
+  - The Send panel shows where the run will be stored, or why it can't (`repoRuns.readiness` without a
+    request, then `probe`, which asks GitHub for the token's push permission and is cached per repo).
+- **When the run can't be stored** (no token in this tab, no write access, or a page opened from disk
+  without WebCrypto), nothing is sent; the panel offers Try again and **Send without storing**.
+  **Store in project** under Recent runs stores a sent run later (`repoRuns.storeKept`) and sets
+  `stored` on the issues that carry it (`markStored`: stamped and marked dirty, so Sync shares it).
+- **Runs stored with the project** (Send panel): `repoRuns.listRuns` reads `runs/*.json` from the
+  home repo, newest first, and each opens through the deep link.
 - **Deep links** with `repo` and `project` read the run and its package from the repo when this
   browser doesn't have them, then cache both in IndexedDB.
 - **Measured** with the fake GitHub in `tests/fake-github.js`:

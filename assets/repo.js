@@ -1,5 +1,5 @@
-// Stage 2 of the Fabcheck ↔ Signoff EE link (ee_design_review/docs/fabcheck-link.md): store a sent
-// run in the project's home repository, and read runs back from there for deep links.
+// Stage 2 of the Fabcheck ↔ Signoff EE link (ee_design_review/docs/fabcheck-link.md): store a run in
+// the project's home repository when it is sent, and read runs back from there for deep links.
 //
 //   <dataPath>fabcheck/<projectId>/packages/<key>/manifest.json
 //   <dataPath>fabcheck/<projectId>/packages/<key>/files/<path inside the package>
@@ -35,13 +35,41 @@
 
   const json = o => JSON.stringify(o, null, 1);
 
-  // Upload after Send to Signoff. Never throws: problems are logged and the run stays local.
+  // Whether a run sent to this project can be stored, from this browser alone: where it would go,
+  // or why it can't. `probe` then asks GitHub whether this token can write there.
+  function readiness(projectId) {
+    const h = home(projectId);
+    if (!window.Signoff || !window.Signoff.GitHubStore) return { ok: false, repo: h.repo, text: 'the GitHub engine did not load' };
+    if (!token()) return { ok: false, repo: h.repo, text: 'there is no GitHub token in this tab. Signoff EE keeps its token in its own tab unless "Remember the token" is ticked in its Settings: tick it there, or open Fabcheck from Signoff EE' };
+    if (!(window.crypto && crypto.subtle)) return { ok: false, repo: h.repo, text: 'storing needs a secure page (http://localhost or https), not a file opened from disk' };
+    return { ok: true, repo: h.repo };
+  }
+  const probes = new Map();
+  function probe(projectId) {
+    const r = readiness(projectId);
+    if (!r.ok) return Promise.resolve(r);
+    const M = window.Signoff.model;
+    const key = r.repo + ' ' + (M && M.tokenTag ? M.tokenTag(token()) : token().length);
+    if (!probes.has(key)) {
+      probes.set(key, storeFor(r.repo).api('').then(info => info && info.permissions && info.permissions.push === false
+        ? { ok: false, repo: r.repo, text: `this token can read ${r.repo} but not write to it` } : r,
+      err => {
+        if (!(err.status === 401 || err.status === 404 || err.status === 403)) probes.delete(key); // ask again next time
+        return { ok: false, repo: r.repo, text: err.status === 401 ? 'GitHub rejected the token (expired or revoked?); set a new one in Signoff EE\'s Settings'
+          : err.status === 404 || err.status === 403 ? `this token can't open ${r.repo}` : `GitHub didn't answer (${err.message || err})` };
+      }));
+    }
+    return probes.get(key);
+  }
+
+  // Store a run and its package in the project's home repo: done before Send writes the issues, so
+  // they carry where it is (and again from "Store in project" for a run sent without it). Never
+  // throws. Resolves { ok: true, stored, res } or { ok: false, why }.
   async function upload(entry, projectId, log) {
     const run = entry.run, pkgRec = entry.pkgRec;
-    if (!run || !pkgRec) return null;
-    if (!window.Signoff || !window.Signoff.GitHubStore) { log('warn', 'Run kept in this browser only: the GitHub engine did not load.'); return null; }
-    if (!token()) { log('warn', 'Run kept in this browser only: no GitHub token in Signoff EE (set one in its Settings). The issues were sent.'); return null; }
-    if (!(window.crypto && crypto.subtle)) { log('warn', 'Run kept in this browser only: storing needs a secure page (http://localhost or https), not a file opened from disk.'); return null; }
+    if (!run || !pkgRec) return { ok: false, why: 'the run was not kept in this browser' };
+    const ready = readiness(projectId);
+    if (!ready.ok) { log('warn', `Not stored: ${ready.text}.`); return { ok: false, why: ready.text }; }
     const h = home(projectId);
     const stored = { repo: h.repo, dir: h.dir };
     const runRec = Object.assign({}, run, { stored });
@@ -63,23 +91,50 @@
       log('ok', res.pushed ? `Stored in ${h.repo}: ${res.pushed} file(s) written, ${res.skipped} already there${res.commitUrl ? ' · ' + res.commitUrl : ''}` : `Already stored in ${h.repo}: all ${res.skipped} files were there; nothing uploaded`);
       entry.run = runRec;
       await Fab.store.updateRun(run.id, { run: runRec });
-      markStored(run.id, stored);
-      return res;
+      markStored(run.id, stored, projectId);
+      return { ok: true, stored, res };
     } catch (err) {
-      const why = err.status === 404 || err.status === 403 ? `no write access to ${h.repo} with this token` : (err.message || String(err));
-      log('warn', `Run kept in this browser only: could not store it in ${h.repo} (${why}). The issues were sent.`);
-      return null;
+      const why = err.status === 404 || err.status === 403 ? `this token can't write to ${h.repo}` : (err.message || String(err));
+      log('warn', `Not stored in ${h.repo}: ${why}.`);
+      return { ok: false, why };
     }
   }
 
-  // Put `stored` on the run record of every Signoff issue that carries this run, so others can open it.
-  function markStored(runId, stored) {
+  // "Store in project" for a kept run that was sent without being stored.
+  async function storeKept(runId, log) {
+    const kept = await Fab.store.getRun(runId);
+    const pkgRec = kept && await Fab.store.getPackage(kept.run.package.key);
+    if (!kept || !pkgRec) return { ok: false, why: 'that run is no longer in this browser' };
+    if (!kept.sentTo || !kept.sentTo.projectId) return { ok: false, why: 'that run was never sent to a Signoff EE project' };
+    return upload({ run: kept.run, pkgRec, findings: [] }, kept.sentTo.projectId, log);
+  }
+
+  // The runs stored for a project, newest first: run records only, read from its home repo.
+  async function listRuns(projectId) {
+    const h = home(projectId), ready = readiness(projectId);
+    if (!ready.ok) throw new Error(ready.text);
+    const store = storeFor(h.repo, h.branch);
+    const entries = (await store.listTree(h.dir + 'runs/')).filter(e => /\/r[a-z0-9]+\.json$/.test(e.path));
+    const td = new TextDecoder(), out = [];
+    for (const e of entries) {
+      try {
+        const run = JSON.parse(td.decode(await store.blobBytes(e.sha))).run;
+        if (run && /^r[a-z0-9]+$/.test(run.id) && run.package) out.push(run);
+      } catch (err) { /* skip unreadable */ }
+    }
+    return { repo: h.repo, runs: out.sort((a, b) => String(b.at).localeCompare(String(a.at))) };
+  }
+
+  // Put `stored` on the run record of the project's Signoff issues that carry this run, so others can
+  // open it. Only that project: the same run sent to another project is stored apart from it.
+  function markStored(runId, stored, projectId) {
     const all = load('projects', {});
     const dirty = load('dirty', {});
     const who = ((load('settings', {}) || {}).user) || 'Fabcheck';
     const t = new Date().toISOString();
     let changed = false;
     for (const p of Object.values(all)) for (const [id, c] of Object.entries(p.custom || {})) {
+      if (projectId && p.id !== projectId) continue;
       if (!c.source || !c.source.run || c.source.run.id !== runId || (c.source.run.stored && c.source.run.stored.repo === stored.repo)) continue;
       p.custom[id] = Object.assign({}, c, { source: Object.assign({}, c.source, { run: Object.assign({}, c.source.run, { stored }) }), updatedAt: t, updatedBy: who });
       dirty[p.id] = t;
@@ -180,5 +235,5 @@
     return (load('settings', {}) || {}).tokenTag === M.tokenTag(t) && load('dataAccess', '') === 'ok';
   }
 
-  Fab.repoRuns = Fab.DEMO ? null : { home, trusted, upload, fetchRun, markStored, dataRepo, syncProfiles, isFte, setFetch: f => { fetchImpl = f; } };
+  Fab.repoRuns = Fab.DEMO ? null : { home, trusted, readiness, probe, upload, storeKept, listRuns, fetchRun, markStored, dataRepo, syncProfiles, isFte, setFetch: f => { fetchImpl = f; } };
 })(window.Fab);
