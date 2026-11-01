@@ -31,8 +31,9 @@ is uploaded.
    amber pins, and a small drawing shows what the check measures. A bar along the bottom shows the
    progress and time. When the run is done, the pins stay, each layer shows its count, and selecting
    a layer shows it on the board. The full log is folded away under it.
-2. **Overview** shows the totals for each area. **Findings** lists every issue with its severity.
-   **Board** draws the board: click a finding and it zooms to the spot, fading the layers above it so
+2. **Overview** shows the totals for each area. **Findings** lists every issue with its severity;
+   select one to see it on a small preview of the board, and select the preview to zoom into it on
+   the **Board**, with its layer turned on. **Board** draws the board: click a finding and it zooms to the spot, fading the layers above it so
    inner-layer problems stay visible. **Realistic** shows the board as it will be built: green mask,
    gold pads and white silkscreen.
 3. Pick a **fab profile**: *Prototype*, *Standard* or *Advanced (HDI-lite)*. Each is a set of

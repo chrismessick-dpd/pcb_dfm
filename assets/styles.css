@@ -103,6 +103,19 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 
 /* Inspector extras */
 .insp-detail { font-size: 13.5px; color: var(--text-2); white-space: pre-wrap; word-break: break-word; margin-bottom: 14px; }
+/* The finding on the board, small; selecting it zooms into the Board view. */
+.insp-preview { position: relative; display: block; width: 100%; padding: 0; margin: 2px 0 16px; border: 0; border-radius: 10px; overflow: hidden; background: var(--canvas-bg); cursor: zoom-in; box-shadow: 0 0 0 1px var(--hair, rgba(128, 128, 128, 0.25)); transition: box-shadow 0.2s var(--ease), transform 0.2s var(--ease); }
+.insp-preview:hover, .insp-preview:focus-visible { box-shadow: 0 0 0 2px var(--accent); outline: none; }
+.insp-preview:active { transform: scale(0.985); }
+.insp-prev-slot { display: block; }
+.insp-canvas { width: 100%; height: 200px; }
+.insp-canvas canvas { display: block; pointer-events: none; }
+.insp-prev-layer:empty { display: none; }
+.insp-prev-layer, .insp-prev-go { position: absolute; font-size: 11.5px; line-height: 1; padding: 5px 8px; border-radius: 980px; color: #fff; background: rgba(0, 0, 0, 0.55); backdrop-filter: blur(6px); pointer-events: none; }
+.insp-prev-layer { top: 8px; left: 8px; max-width: calc(100% - 16px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.insp-prev-go { right: 8px; bottom: 8px; font-weight: 600; opacity: 0.85; transition: opacity 0.2s var(--ease), background 0.2s var(--ease); }
+.insp-preview:hover .insp-prev-go, .insp-preview:focus-visible .insp-prev-go { opacity: 1; background: var(--accent); color: var(--accent-contrast, #fff); }
+.zoom-shot { position: fixed; z-index: 60; pointer-events: none; transform-origin: center; will-change: transform, opacity; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13px; margin: 0 0 16px; }
 .kv dt { color: var(--text-3); }
 .kv dd { margin: 0; font-variant-numeric: tabular-nums; word-break: break-word; }

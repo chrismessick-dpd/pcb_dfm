@@ -933,11 +933,70 @@
     $('#inspector').innerHTML = `<div class="insp-head"><span class="insp-crumb">${esc(f.category)} · ${C.describe(f.category, f.check) ? `<a href="#" data-act="check-doc" data-key="${esc(f.category + '/' + f.check)}">${esc(f.check)}</a>` : esc(f.check)}</span><button class="icon-btn" data-act="close-insp" aria-label="Close">${ICON.close}</button></div>
       <div class="insp-body"><span class="pill ${f.severity === 'error' ? 'error' : f.severity === 'warn' ? 'warn' : 'accent'}">${{ error: 'Error', warn: 'Warning', info: 'Info' }[f.severity]}</span>
       <div class="insp-title">${esc(f.title)}</div>${f.detail ? `<div class="insp-detail">${esc(f.detail)}</div>` : ''}
-      ${kv.length ? `<dl class="kv">${kv.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}
-      ${f.at || f.bbox ? `<button class="btn btn-primary" data-act="show-on-board" data-id="${f.id}">Show on board</button>` : ''}</div>`;
+      ${located(f) ? `<button class="insp-preview" data-act="show-on-board" data-id="${f.id}" aria-label="Open on the board"><span class="insp-prev-slot"></span><span class="insp-prev-layer"></span><span class="insp-prev-go">Open on board →</span></button>` : ''}
+      ${kv.length ? `<dl class="kv">${kv.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}</div>`;
     $('#inspector').classList.add('open');
+    if (located(f)) showPreview(active(), f);
   }
   function closeInspector() { $('#inspector').classList.remove('open'); }
+  const located = f => !!(f && (f.at || f.bbox));
+
+  // The finding as the board will show it, small, in the inspector: the same layers, side, dimming
+  // and framing, drawn by its own viewer on a copy of the board's layer list.
+  let preview = null;
+  function showPreview(e, f) {
+    const slot = $('#inspector .insp-prev-slot');
+    if (!slot || !e || !e.pkg) return;
+    if (!preview) {
+      const box = document.createElement('div');
+      box.className = 'insp-canvas';
+      box.appendChild(document.createElement('canvas'));
+      preview = new Fab.render.Viewer(box.firstChild);
+      preview.box = box;
+      preview.overlays.push({ draw: drawPlacements }, { draw: drawFindingMarks });
+    }
+    const v = preview;
+    slot.appendChild(v.box);
+    v.layers = (e.layers || (e.layers = layerEntries(e.pkg))).map(l => Object.assign({}, l));
+    if (v.pkg !== e.pkg) v.setPackage(e.pkg);
+    v.view.flip = !!(viewer && viewer.pkg === e.pkg && viewer.view.flip);
+    const plan = jumpPlan(v.layers, f, v.view.flip);
+    if (plan.side) { v.view.flip = plan.side === 'bottom'; sideVisibility(v.layers, plan.side); }
+    for (const L of plan.on) L.visible = true;
+    v.focusLayer = plan.focusLayer;
+    v.photo = !!(viewer && viewer.pkg === e.pkg && viewer.photo) && !plan.inner;
+    v.highlight = highlightOf(f);
+    v.resize();
+    v.focus(focusBox(f), 2.5);
+    const tag = $('#inspector .insp-prev-layer');
+    if (tag) tag.textContent = plan.entry ? plan.entry.label + (plan.focusLayer && v.layers.some(L => L.visible && v._covers(L)) ? ' · covering layers dimmed' : '') : (v.view.flip ? 'Bottom side' : 'Top side');
+  }
+
+  // From the preview to the board: the preview's picture grows into the board's own framing of the
+  // finding (both are centered on it), then fades into the live board drawn underneath.
+  function openFromPreview(f) {
+    const v = preview, from = v && v.canvas.isConnected ? v.canvas.getBoundingClientRect() : null;
+    let shot = null;
+    if (from && from.width > 10 && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      shot = document.createElement('canvas');
+      shot.width = v.canvas.width; shot.height = v.canvas.height;
+      shot.getContext('2d').drawImage(v.canvas, 0, 0);
+    }
+    const pscale = v ? v.view.scale : 0;
+    focusFinding(f);
+    if (!shot || !viewer) return;
+    const to = $('#canvas').getBoundingClientRect(), k = viewer.view.scale / pscale;
+    shot.className = 'zoom-shot';
+    Object.assign(shot.style, { left: from.left + 'px', top: from.top + 'px', width: from.width + 'px', height: from.height + 'px' });
+    document.body.appendChild(shot);
+    const dx = to.left + to.width / 2 - (from.left + from.width / 2), dy = to.top + to.height / 2 - (from.top + from.height / 2);
+    const a = shot.animate([
+      { transform: 'none', opacity: 1, borderRadius: '10px' },
+      { opacity: 1, offset: 0.55 },
+      { transform: `translate(${dx}px, ${dy}px) scale(${k})`, opacity: 0, borderRadius: '0px' },
+    ], { duration: 560, easing: 'cubic-bezier(0.35, 0.7, 0.2, 1)', fill: 'forwards' });
+    a.onfinish = a.oncancel = () => shot.remove();
+  }
 
   // ── Board view ──
   function layerEntries(pkg) {
@@ -1016,34 +1075,58 @@
     viewer.view.flip = side === 'bottom';
     for (const b of $('#side-seg').children) b.classList.toggle('on', b.dataset.side === side);
     if (!quiet) {
-      for (const L of viewer.layers) if ((L.side === 'top' || L.side === 'bottom') && L.layer) {
-        if (L.layer.fn === 'copper' || L.layer.fn === 'silk') L.visible = L.side === side;
-        else L.visible = L.visible && L.side === side;
-      }
+      sideVisibility(viewer.layers, side);
       renderLayers(active());
     }
     viewer.draw();
   }
+  // Looking from one side: that side's copper and silkscreen on, the other side's outer layers off.
+  function sideVisibility(layers, side) {
+    for (const L of layers) if ((L.side === 'top' || L.side === 'bottom') && L.layer) {
+      if (L.layer.fn === 'copper' || L.layer.fn === 'silk') L.visible = L.side === side;
+      else L.visible = L.visible && L.side === side;
+    }
+  }
+
+  // What showing a finding takes, worked out on a layer list without changing it: the side to look
+  // from (null to stay), the layers to turn on (its own layer; for DFM checks without one, the holes
+  // or the outline they measure), the layer whose covering layers are dimmed, and whether it is on an
+  // inner layer (the realistic look shows only the outer side). The board and the preview both use it.
+  const HOLE_CHECKS = new Set(['drill', 'aspect', 'slot', 'hole-gap', 'hole-edge', 'castellation', 'npth', 'ring', 'via-in-pad']);
+  const EDGE_CHECKS = new Set(['outline-corner', 'edge', 'hole-edge', 'castellation']);
+  function jumpPlan(layers, f, flip) {
+    const entry = f.layer && layers.find(l => l.layer && l.layer.file.name === f.layer);
+    let side = f.side;
+    if (entry && (entry.side === 'top' || entry.side === 'bottom')) side = entry.side;
+    const on = entry ? [entry] : [];
+    if (!entry && f.category === 'DFM') {
+      if (HOLE_CHECKS.has(f.check)) on.push(...layers.filter(l => l.kind === 'pth' || l.kind === 'npth'));
+      if (EDGE_CHECKS.has(f.check)) on.push(...layers.filter(l => l.kind === 'outline'));
+    }
+    return {
+      entry, on, focusLayer: entry ? entry.layer : null,
+      side: side && (side === 'bottom') !== flip ? side : null,
+      inner: !!entry && entry.side !== 'top' && entry.side !== 'bottom',
+    };
+  }
+  const highlightOf = f => ({ at: f.at ? { x: f.at.x, y: f.at.y } : null, bbox: f.bbox || null });
+  const focusBox = f => Fab.bbox.grow(f.bbox || [f.at.x, f.at.y, f.at.x, f.at.y], Math.max(0.5, (f.at && f.at.dia) || 0));
 
   function focusFinding(f) {
     const e = active();
     state.sel = f.id;
     closeInspector();
     if (state.view !== 'board') go('board'); else renderBoard(e);
-    let side = f.side;
-    const entry = f.layer && viewer.layers.find(l => l.layer && l.layer.file.name === f.layer);
-    if (entry) { entry.visible = true; if (entry.side === 'top' || entry.side === 'bottom') side = entry.side; }
-    if (side && (side === 'bottom') !== viewer.view.flip) setSide(side);
-    if (entry) entry.visible = true;
-    // Layers between the viewer and the finding's layer are dimmed until the view is fitted again.
-    viewer.focusLayer = entry ? entry.layer : null;
-    // The realistic look shows only the outer side; a finding on an inner layer needs the layer view.
-    if (viewer.photo && entry && entry.side !== 'top' && entry.side !== 'bottom') { viewer.photo = false; const b = $('#photo-btn'); if (b) b.classList.remove('on'); }
+    const plan = jumpPlan(viewer.layers, f, viewer.view.flip);
+    if (plan.side) setSide(plan.side);
+    // Its layer is turned on if it was off; layers between the viewer and it are dimmed.
+    for (const L of plan.on) L.visible = true;
+    viewer.focusLayer = plan.focusLayer;
+    if (viewer.photo && plan.inner) { viewer.photo = false; const b = $('#photo-btn'); if (b) b.classList.remove('on'); }
     renderLayers(e);
     if (!selectRailRow(f.id)) renderRail(e);
-    const bb = f.bbox || [f.at.x, f.at.y, f.at.x, f.at.y];
-    viewer.highlight = { at: f.at ? { x: f.at.x, y: f.at.y } : null, bbox: f.bbox || null };
-    viewer.focus(Fab.bbox.grow(bb, Math.max(0.5, (f.at && f.at.dia) || 0)), 2.5);
+    viewer.highlight = highlightOf(f);
+    viewer.focus(focusBox(f), 2.5);
   }
 
   function drawPlacements(ctx, v) {
@@ -1286,7 +1369,7 @@
       case 'toggle-sec': { const s = t.closest('.sec'); s.classList.toggle('collapsed'); state.closed[s.classList.contains('collapsed') ? 'add' : 'delete'](s.dataset.cat); break; }
       case 'finding': openInspector(e.findings.find(f => f.id === t.dataset.id)); break;
       case 'close-insp': closeInspector(); break;
-      case 'show-on-board': closeInspector(); focusFinding(e.findings.find(f => f.id === t.dataset.id)); break;
+      case 'show-on-board': openFromPreview(e.findings.find(f => f.id === t.dataset.id)); break;
       case 'board-finding': focusFinding(e.findings.find(f => f.id === t.dataset.id)); break;
       case 'fit': viewer.highlight = null; viewer.focusLayer = null; viewer.fit(); break;
       case 'pnp': state.showPnp = !state.showPnp; t.classList.toggle('on', state.showPnp); viewer.draw(); break;

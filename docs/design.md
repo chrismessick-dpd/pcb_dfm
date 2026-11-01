@@ -406,7 +406,13 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
     the same, so the save right after a run doesn't restart the transition.
   - The run log is collapsed under the stage to its latest step line, and remembers being opened.
 - **Findings.** Signoff-style sections with severity and category filters. Clicking a finding opens the
-  inspector, and "Show on board" zooms to it.
+  inspector, with a preview of the finding on the board: a second `Fab.render.Viewer` on a copy of
+  the board's layer list, set up the way the Board view will be (`jumpPlan`: the side, the finding's
+  layer turned on, the covering layers dimmed, the realistic look off for inner layers) and framed
+  the same way. Selecting the preview opens the Board view; a snapshot of the preview grows from its
+  place into the board's framing (both are centered on the finding) and fades into the live board.
+  - Showing a finding turns on its layer if it was off. DFM findings without a layer turn on what
+    they measure: the plated and non-plated holes for hole checks, the outline for edge checks.
 - **Board.** Layer list, the canvas (pan/zoom, top/bottom, placements), and a findings rail.
   - Zooming to a finding dims every layer between the viewer and the finding's layer to 15%
     (stack depth: silkscreen, mask, paste, then copper by order; mirrored from the bottom), so an inner
