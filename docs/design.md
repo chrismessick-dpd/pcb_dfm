@@ -413,12 +413,13 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
     next stage render plays it once. A re-render keeps the stage's node while its run and status are
     the same, so the save right after a run doesn't restart the transition.
   - The run log is collapsed under the stage to its latest step line, and remembers being opened.
-  - **Step rail**, right of the words: one bar per step run (`entry.live.steps`, with what each
-    found), a gap between modules, red or amber where a step found errors or warnings. Pressing or
-    sliding along it (touch too), or the arrow keys on it, shows that step: its words, its detail
-    drawing, the layers it reads lit, and what it found. The run keeps going behind it. **Live** (or
-    **Summary** once finished), Escape, or the bar of the step running goes back to following the run.
-    The steps live only with the run in this tab; a run reopened from storage has no rail.
+  - **Step rail**, right of the words once the run is done: one bar per step run
+    (`entry.live.steps`, recorded during the run with what each found), a gap between modules, red or
+    amber where a step found errors or warnings. Pressing or sliding along it (touch too), or the arrow
+    keys on it, shows that step: its words, its detail drawing, the layers it reads lit, and what it
+    found. **Summary**, Escape, or Down past the last step goes back to the summary. It isn't shown
+    while running (Chris, 2026-11-01): the stage follows the run then. The steps live only with the
+    run in this tab; a run reopened from storage has no rail.
     The rail has a fixed size at the top of its column, and a slide maps the finger to the bars as
     measured at the press: when it followed the words beside it, a step that changed their height
     moved the bars under the finger and the pick flickered between steps. While sliding, the stage

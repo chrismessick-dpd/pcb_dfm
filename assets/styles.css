@@ -308,7 +308,8 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .stage.is-done .stk-layer:focus { outline: none; }
 .stage-side { min-width: 0; display: flex; gap: 18px; align-self: stretch; }
 .stg-main { flex: 1; min-width: 0; align-self: center; }
-/* The step rail: a bar per step run (a gap between modules), pressed or slid to go back to one. */
+/* The step rail, once a run is done: a bar per step (a gap between modules), pressed or slid to go
+   back to one. */
 /* A fixed size at the top of its column: the words beside it change height from step to step, and a
    rail that followed them would move under the finger sliding along it. */
 .stg-rail { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 34px; height: 268px; flex: none; align-self: flex-start; padding: 4px 0; border-radius: 8px; outline: none; }
@@ -318,10 +319,8 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .stg-bars i.m0:not(:first-child) { margin-top: 5px; }
 .stg-bars i.w { background: color-mix(in srgb, var(--warn) 55%, var(--bg-sunk)); }
 .stg-bars i.e { background: color-mix(in srgb, var(--issue) 60%, var(--bg-sunk)); }
-.stg-bars i.live { background: var(--stk-glow); opacity: 0.55; animation: rail-live 1.2s var(--ease) infinite alternate; }
-.stg-bars i.cur { width: 26px; background: var(--stk-glow); opacity: 1; box-shadow: 0 0 6px var(--stk-glow); animation: none; }
+.stg-bars i.cur { width: 26px; background: var(--stk-glow); box-shadow: 0 0 6px var(--stk-glow); }
 .stg-bars:hover i:not(.cur) { width: 18px; }
-@keyframes rail-live { to { opacity: 1; } }
 .stg-now { font: 600 10.5px var(--sans); letter-spacing: 0.03em; color: var(--text-2); background: none; border: 1px solid var(--hair, rgba(128, 128, 128, 0.35)); border-radius: 10px; padding: 2px 6px; cursor: pointer; }
 .stg-now.on { color: var(--accent-ink); border-color: var(--accent); }
 .stg-step-n { font-size: 12px; color: var(--text-2); margin-top: 6px; min-height: 1.3em; font-variant-numeric: tabular-nums; }
@@ -403,4 +402,4 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .logbox[open] > summary::before { transform: rotate(90deg); }
 .logbox > summary b { color: var(--text); font-weight: 600; }
 .log-last { font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
-@media (prefers-reduced-motion: reduce) { .stk-burst { display: none; } .stage.fx-enter .stk-layer, .stage.fx-exit .stk-layer, .stage.fx-exit .stk-layer .stk-face, .stage.fx-exit .stg-text > *, .stage.fx-exit .stg-actions, .stage.fx-exit .stg-bar i { animation: none !important; } .stk-layer.scan .stk-scan, .stage.edge-on .stk-outline, .fx-patch, .fx-sweep, .pin.new .pin-ring, .pin.new .pin-dot, .stg-bars i.live, .stg-run s::after, .stg-fig, .stk-drill, .stk-npth { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .stk-burst { display: none; } .stage.fx-enter .stk-layer, .stage.fx-exit .stk-layer, .stage.fx-exit .stk-layer .stk-face, .stage.fx-exit .stg-text > *, .stage.fx-exit .stg-actions, .stage.fx-exit .stg-bar i { animation: none !important; } .stk-layer.scan .stk-scan, .stage.edge-on .stk-outline, .fx-patch, .fx-sweep, .pin.new .pin-ring, .pin.new .pin-dot, .stg-run s::after, .stg-fig, .stk-drill, .stk-npth { animation: none !important; } }

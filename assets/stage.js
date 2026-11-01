@@ -293,9 +293,9 @@
       `<div class="stg-detail" id="stg-detail" data-key="${f.detail || ''}">${detail(f.detail, prof)}</div>`;
   }
 
-  // ---- the step rail: one bar per step run, to go back to steps that went by too fast to read ----
-  // run.pick is the index in run.steps of the step shown, or null to follow the run (and to show the
-  // summary once it is done).
+  // ---- the step rail: once the run is done, one bar per step it ran, to go back to the steps that
+  // went by too fast to read. run.pick is the index in run.steps of the step shown, or null for the
+  // summary. While running, the steps are only recorded (with what each found). ----
   let cur = null; // the entry and profile of the stage on the page
   const picked = e => { const run = e.live; return run && run.pick != null ? run.steps[run.pick] || null : null; };
   const shown = e => picked(e) || (e.status === 'ready' ? null : e.stage);
@@ -303,11 +303,10 @@
     const run = e.live;
     return picked(e) ? `${modTitle(st.module).split(' · ')[0]} · step ${run.pick + 1} of ${run.steps.length}` : modTitle(st.module);
   }
-  // What the picked step found; nothing while following the run (the bar has the totals).
+  // What the picked step found (the summary has the totals).
   function stepFound(e) {
-    const p = picked(e), run = e.live;
+    const p = picked(e);
     if (!p) return '';
-    if (e.status !== 'ready' && run.pick === run.steps.length - 1) return 'Running';
     if (!p.n.error && !p.n.warn) return '<b class="ok">✓</b> Nothing found in this step';
     return [p.n.error && `<b class="e">●</b> ${plural(p.n.error, 'error')}`, p.n.warn && `<b class="w">▲</b> ${plural(p.n.warn, 'warning')}`].filter(Boolean).join('<span class="sep"></span>') + ' in this step';
   }
@@ -315,48 +314,37 @@
     const sev = s.n.error ? ' e' : s.n.warn ? ' w' : '';
     return `<i data-i="${i}" class="${!prev || prev.module !== s.module ? 'm0' : ''}${sev}" title="${esc(s.label)}"></i>`;
   }
-  // Empty here; railSync fills it in once it is on the page.
+  // Only on a finished run of this tab (a run reopened from storage has no steps).
   function railHtml(e) {
     const run = e.live;
-    if (!run || !run.steps) return '';
+    if (e.status !== 'ready' || !run || !run.steps || !run.steps.length) return '';
+    const bars = run.steps.map((s, i) => barHtml(s, i, run.steps[i - 1])).join('');
     return `<div class="stg-rail" id="stg-rail" tabindex="0" role="slider" aria-orientation="vertical" aria-label="Step shown">` +
-      `<div class="stg-bars" id="stg-bars"></div><button type="button" class="stg-now" id="stg-now"></button></div>`;
+      `<div class="stg-bars" id="stg-bars">${bars}</div><button type="button" class="stg-now" id="stg-now">Summary</button></div>`;
   }
-  // Bring the rail up to date: new bars, their findings, the one shown.
+  // Mark the step shown, on the rail and for screen readers.
   function railSync(e) {
     const run = e.live, bars = document.getElementById('stg-bars');
     if (!run || !run.steps || !bars) return;
-    for (let i = bars.childElementCount; i < run.steps.length; i++) bars.insertAdjacentHTML('beforeend', barHtml(run.steps[i], i, run.steps[i - 1]));
-    const done = e.status === 'ready', at = run.pick != null ? run.pick : done ? -1 : run.steps.length - 1;
-    [...bars.children].forEach((b, i) => {
-      const n = run.steps[i].n;
-      b.classList.toggle('e', !!n.error);
-      b.classList.toggle('w', !n.error && !!n.warn);
-      b.classList.toggle('cur', i === at);
-      b.classList.toggle('live', !done && i === run.steps.length - 1);
-    });
-    const now = document.getElementById('stg-now'), rail = document.getElementById('stg-rail');
-    const label = done ? 'Summary' : 'Live';
-    if (now.textContent !== label) now.textContent = label;
-    now.classList.toggle('on', run.pick == null);
-    const st = shown(e);
+    const at = run.pick != null ? run.pick : -1;
+    [...bars.children].forEach((b, i) => b.classList.toggle('cur', i === at));
+    document.getElementById('stg-now').classList.toggle('on', at < 0);
+    const rail = document.getElementById('stg-rail'), st = shown(e);
     rail.setAttribute('aria-valuemin', 1);
-    rail.setAttribute('aria-valuemax', Math.max(1, run.steps.length));
+    rail.setAttribute('aria-valuemax', run.steps.length);
     rail.setAttribute('aria-valuenow', at < 0 ? run.steps.length : at + 1);
     rail.setAttribute('aria-valuetext', st ? st.label || '' : 'Summary');
   }
 
-  // Show the step picked on the rail (null: follow the run, or its summary once done).
+  // Show the step picked on the rail (null: the summary).
   function pick(i) {
     if (!cur || !cur.e.live || !cur.e.live.steps) return;
-    const e = cur.e, run = e.live, n = run.steps.length;
-    if (i != null) i = Math.max(0, Math.min(n - 1, i));
-    // The step running is what following the run shows anyway.
-    run.pick = i == null || (e.status !== 'ready' && i === n - 1) ? null : i;
+    const e = cur.e, run = e.live;
+    run.pick = i == null ? null : Math.max(0, Math.min(run.steps.length - 1, i));
     paint(e, cur.prof);
   }
-  // Where each bar was when the press began ([top, bottom, index]); measured again only when a new
-  // step adds a bar, so a step that changes the page's layout can't move the target under the finger.
+  // Where each bar was when the press began ([top, bottom, index]), so a step that changes the
+  // page's layout can't move the target under the finger.
   function barBoxes(bars) {
     return [...bars.children].map(b => { const r = b.getBoundingClientRect(); return [r.top, r.bottom, +b.dataset.i]; });
   }
@@ -374,11 +362,11 @@
     if (!bars || !cur) return;
     ev.preventDefault();
     bars.setPointerCapture(ev.pointerId);
-    let boxes = barBoxes(bars), last = null;
+    const boxes = barBoxes(bars);
+    let last = null;
     // While sliding, the stage only grows, so the page below doesn't bounce from step to step.
     const root = document.getElementById('stage');
     const go = y => {
-      if (boxes.length !== bars.childElementCount) boxes = barBoxes(bars);
       const i = barAt(boxes, y);
       if (i != null && i !== last) {
         last = i; pick(i);
@@ -393,9 +381,9 @@
   document.addEventListener('click', ev => { if (ev.target.closest && ev.target.closest('#stg-now')) pick(null); });
   document.addEventListener('keydown', ev => {
     if (!ev.target.closest || !ev.target.closest('#stg-rail') || !cur || !cur.e.live || !cur.e.live.steps) return;
-    const run = cur.e.live, n = run.steps.length, done = cur.e.status === 'ready';
-    const at = run.pick != null ? run.pick : done ? n : n - 1;
-    const to = { ArrowUp: at - 1, ArrowDown: at + 1 >= n ? null : at + 1, Home: 0, End: done ? n - 1 : null, Escape: null }[ev.key];
+    // The summary sits below the last step.
+    const run = cur.e.live, n = run.steps.length, at = run.pick != null ? run.pick : n;
+    const to = { ArrowUp: at - 1, ArrowDown: at + 1 >= n ? null : at + 1, Home: 0, End: n - 1, Escape: null }[ev.key];
     if (to === undefined) return;
     ev.preventDefault();
     pick(to);
