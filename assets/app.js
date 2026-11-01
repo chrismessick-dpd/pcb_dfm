@@ -707,9 +707,12 @@
     if (e.pinned) facts.push(`<span class="ov-note">${e.pinned.editedSince ? 'Profile edited since this run' : "Run's saved rules"}</span>`);
     const head = `<div class="page-head ov-head"><div class="page-head-text"><div class="ov-title"><span class="eyebrow">Fab package</span>` +
       `<h1 class="page-title" title="${esc(e.label)}">${esc(e.label)}</h1></div>${facts.length ? `<div class="ov-meta">${facts.join('<i class="sep">·</i>')}</div>` : ''}</div>`;
+    const stageOn = !!(Fab.stage && pkg && pkg.boardBBox && pkg.layers.copper.length && (e.status === 'running' || e.status === 'ready'));
     const back = signoffProject(e) ? `<button class="btn" data-act="back-signoff">Back to Signoff EE</button>` : '';
     // The fab profile sits with the button that re-checks with it.
-    const actions = back + profileSelect(e) + `<button class="btn" data-act="rerun"${busy || !pkg ? ' disabled' : ''}>Run checks again</button><button class="btn btn-primary" data-act="view" data-view="board"${!pkg ? ' disabled' : ''}>Open board</button>`;
+    const actions = back + profileSelect(e) + `<button class="btn" data-act="rerun"${busy || !pkg ? ' disabled' : ''}>Run checks again</button>` +
+      // "Open board" lives in the inspection stage; without one (no board drawn), it stays up here.
+      (stageOn ? '' : `<button class="btn btn-primary" data-act="view" data-view="board"${!pkg ? ' disabled' : ''}>Open board</button>`);
     let h = `<div class="page wide">` + head + `<div class="chips ov-actions">${actions}</div></div>`;
     const stat = (cls, n, label, sev) => `<button class="card stat ${cls}" style="border:none;text-align:left" data-act="sev" data-sev="${sev}"><div class="stat-num">${busy ? '–' : n}</div><div class="stat-label">${label}</div></button>`;
     // The inspection stage leads the page, with its log folded under it; the totals follow.
@@ -949,10 +952,14 @@
     if (f.bbox) return `${((f.bbox[0] + f.bbox[2]) / 2).toFixed(2)}, ${((f.bbox[1] + f.bbox[3]) / 2).toFixed(2)} mm`;
     return '';
   }
+  // The severity filter, the same on Findings and beside the board: symbol, name and count. In a
+  // narrow list "Warnings" becomes "Warn".
+  const sevButtons = c => ['error', 'warn', 'info'].map(s => `<button class="${state.filter[s] ? 'on' : ''}" data-act="sev-toggle" data-sev="${s}"><span class="dot ${s}"></span>${s === 'warn' ? '<span class="sev-long">Warnings</span><span class="sev-short">Warn</span>' : { error: 'Errors', info: 'Info' }[s]}<span class="count">${c[s]}</span></button>`).join('');
+
   function findingsHtml(e) {
     const c = counts(e.findings);
     const order = { error: 0, warn: 1, info: 2 };
-    const sevSeg = ['error', 'warn', 'info'].map(s => `<button class="${state.filter[s] ? 'on' : ''}" data-act="sev-toggle" data-sev="${s}"><span class="dot ${s}"></span>${{ error: 'Errors', warn: 'Warnings', info: 'Info' }[s]}<span class="count">${c[s]}</span></button>`).join('');
+    const sevSeg = sevButtons(c);
     const catSeg = [[null, 'All']].concat(CATS.map(x => [x[0], x[1]])).map(([k, l]) => `<button class="${state.cat === k ? 'on' : ''}" data-act="cat-filter" data-cat="${k || ''}">${l}</button>`).join('');
     let h = `<div class="page">` + pageHead(e, 'Findings', e.label, `${plural(c.error, 'error')}<span class="sep">·</span>${plural(c.warn, 'warning')}<span class="sep">·</span>${c.info} info`);
     h += `<div class="filters"><div class="search">${ICON.search}<input id="f-search" type="search" placeholder="Filter findings" value="${esc(state.q)}"></div><div class="seg sev-seg">${sevSeg}</div><div class="seg">${catSeg}</div></div>`;
@@ -1103,11 +1110,11 @@
 
   function renderRail(e) {
     const c = counts(e.findings);
-    const chips = ['error', 'warn', 'info'].map(s => `<button class="${state.filter[s] ? 'on' : ''}" data-act="sev-toggle" data-sev="${s}"><span class="dot ${s}"></span>${c[s]}</button>`).join('');
+    const chips = sevButtons(c);
     const fc = state.focusCheck;
     let h = `<div class="rail-head">${signoffProject(e) ? '<button class="btn btn-plain" style="align-self:flex-start;padding:2px 6px" data-act="back-signoff">← Back to Signoff EE</button>' : ''}` +
       (fc ? `<div class="chips"><span class="chip accent">Linked check: ${esc(fc)}</span><button class="btn btn-plain" style="padding:2px 6px;font-size:12px" data-act="clear-focus">Show all</button></div>` : '') +
-      `<div class="seg sev-seg">${chips}</div><div class="search" style="max-width:none">${ICON.search}<input id="rail-search" type="search" placeholder="Filter" value="${esc(state.q)}"></div></div><div class="rail-list">`;
+      `<div class="seg sev-seg full">${chips}</div><div class="search" style="max-width:none">${ICON.search}<input id="rail-search" type="search" placeholder="Filter" value="${esc(state.q)}"></div></div><div class="rail-list">`;
     const order = { error: 0, warn: 1, info: 2 };
     const fs = visibleFindings(e).filter(f => (f.at || f.bbox) && (!fc || f.check === fc));
     for (const [cat, title] of CATS) {

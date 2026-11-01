@@ -376,7 +376,8 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
 - **Sidebar.** Open packages, listed like Signoff's projects, with error/warning badges and a spinner
   while checks run. Several packages can be open at once, which is what the Revisions and Archive
   tabs compare.
-- **Overview.** The fab profile beside "Run checks again" in the header, the **inspection stage**
+- **Overview.** The fab profile beside "Run checks again" in the header, the **inspection stage** (with
+  "Open board" under its summary)
   with the run log under it, then stats and one card per check category. Fab rules is reached from
   its menu item only; its tab bar carries the open board's thickness on the right (overriding the
   profile's default thickness for the run, and re-checking when changed). The package build and every check module are generators that

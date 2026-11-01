@@ -274,12 +274,14 @@
       ? `<div class="stg-eyebrow">Inspection finished</div><div class="stg-title">${plural(nE, 'error')} · ${plural(nW, 'warning')}</div><div class="stg-desc">Each pin is a finding, on its layer. Select a layer to see it on the board.</div>`
       : `<div class="stg-eyebrow" id="stg-mod">${esc(modTitle(st.module))}</div><div class="stg-title" id="stg-title">${esc(st.label || 'Reading the package')}</div><div class="stg-desc" id="stg-desc">${esc(explain(st.label, st.module, prof))}</div>` +
         `<div class="stg-detail" id="stg-detail" data-key="${f.detail || ''}">${detail(f.detail, prof)}</div>`;
+    // The way into the board, under the summary once the run is done (it fades in with the finish).
+    const open = `<div class="stg-actions"><button class="btn btn-primary" data-act="view" data-view="board">Open board <span aria-hidden="true">→</span></button></div>`;
     const cls = ['card', 'stage', done ? 'is-done' : 'is-running'];
     if (fx) cls.push('fx-' + fx);
     if (f.holes) cls.push('holes-' + f.holes);
     if (f.edge) cls.push('edge-on');
     if (f.raster) cls.push('raster-on');
-    return `<div class="${cls.join(' ')}" id="stage" data-key="${esc(e.id + ':' + e.status)}"><div class="stage-art">${svg}</div><div class="stage-side">${right}</div>${progHtml(e)}</div>`;
+    return `<div class="${cls.join(' ')}" id="stage" data-key="${esc(e.id + ':' + e.status)}"><div class="stage-art">${svg}</div><div class="stage-side">${right}${done ? open : ''}</div>${progHtml(e)}</div>`;
   }
 
   // The bar along the bottom: found so far on the left, jobs, percent and time on the right.
