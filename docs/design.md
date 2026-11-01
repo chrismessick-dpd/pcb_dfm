@@ -247,7 +247,8 @@ Spacing-type checks need geometry on the union of shapes, so they run on a raste
   hairline slivers, not spacing.
   - A hairline is an error only when it is the only link between its two sides. Most sit between two
     via clearances that nearly touch, with the copper joined around them; those are warnings.
-  - Joined is tested on a whole-board raster after an opening by 0.75 × the minimum trace, so
+  - Joined is tested on a whole-board raster after an opening by 0.75 × the minimum trace (at least 3 px of that raster, which can't resolve
+    thinner copper; on Advanced's 0.075 mm a 0.032 mm neck otherwise still counted as a link), so
     neither the hairline nor a gap that closes up at that resolution counts as the link. Gaps with
     no net on a side use the same test: one connected copper area is one net.
 - **Slivers.** Ridge pixels of the inside distance transform, with background on both sides of the

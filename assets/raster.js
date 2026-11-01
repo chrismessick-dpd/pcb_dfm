@@ -360,14 +360,17 @@
     const W = Math.ceil((bb[2] - bb[0]) / res), H = Math.ceil((bb[3] - bb[1]) / res);
     const R = rasterize(pkg, layer, bb[0], bb[1], W, H, res);
     const { dist } = featureTransform(R.mask, W, H, 0);
-    const { lab, n } = label(opening(R.mask, dist, W, H, 0.75 * lim / res / 2), W, H);
+    // At least 1.5 px: this raster can't resolve copper under about 3 px, so a neck that narrow must
+    // not count as a connection even when the profile's minimum trace is finer (Advanced, 0.075 mm).
+    const { lab, n } = label(opening(R.mask, dist, W, H, Math.max(1.5, 0.75 * lim / res / 2)), W, H);
     return (layer._wide = { pkg, lim, bb, res, W, H, ytop: R.ytop, lab, n });
   }
 
   // Which necks are the only copper joining two areas: label the copper at least lim wide on a
   // whole-board raster (tiles are too small to see a plane's other connections) and look up each
-  // side of each neck. Sets s.split = { area, holes } for the smallest area cut off.
-  function splits(pkg, layer, lim, necks) {
+  // side of each neck. Sets s.split = { area, holes } for the smallest area cut off, when that is at
+  // least minArea (a few pixels of wide copper left over between clearances is not an area).
+  function splits(pkg, layer, lim, minArea, necks) {
     const { bb, res, W, H, ytop, lab, n } = wide(pkg, layer, lim);
     const px = (x, y) => [Math.floor((x - bb[0]) / res), Math.floor((ytop - y) / res)];
     const at = (x, y) => {
@@ -393,7 +396,7 @@
         for (const h of pkg.hits) if (h.plated) hit(h.x, h.y);
       }
       const l = ls.reduce((a, b) => area[a] <= area[b] ? a : b);
-      s.split = { area: area[l], holes: holes[l] };
+      if (area[l] >= minArea) s.split = { area: area[l], holes: holes[l] };
     }
   }
 
@@ -522,7 +525,7 @@
     const wedges = thin.filter(s => !s.neck && s.v < 2 * res);
     const necks = thin.filter(s => (s.neck || s.v >= 2 * res) && s.v < prof.minTrace - TOL);
     const through = necks.filter(s => s.neck);
-    if (through.length) splits(pkg, layer, prof.minTrace, through);
+    if (through.length) splits(pkg, layer, prof.minTrace, prof.isoMinArea, through);
     necks.sort((a, b) => (!!b.split - !!a.split) || a.v - b.v);
     for (const s of necks.slice(0, MAX)) {
       const at = { at: { x: s.x, y: s.y }, bbox: Fab.bbox.grow(s.bbox, 0.15), layer: name, value: s.v, limit: prof.minTrace };
