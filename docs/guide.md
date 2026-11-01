@@ -76,6 +76,11 @@ reads and an example finding.
 - **Send to Signoff EE** writes errors and warnings into a Signoff EE project as issues on the
   Fab & Release checklist, with the run and board locations attached. It also uploads the slimmed
   package and run to that project's repo under `fabcheck/<projectId>/`.
+  - **Details**, beside the Send button, lists each issue it would write: its title in Signoff,
+    Major or Minor, the check, the checklist section, whether it's new or updates one sent before
+    (with the reviewer's Fixed or Waived), and its findings under a fold. Untick an issue to leave
+    it out. A left-out issue stays as it is in Signoff and never gets a "no longer found" note. The
+    list also names earlier issues that will get that note.
   - Re-sending identical files uploads nothing.
   - Moving a project into a shared repo carries these files along.
   - Signoff's **Open in Fabcheck** links reopen the run zoomed to the spot. They load it from this

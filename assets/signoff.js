@@ -27,7 +27,8 @@
     return 'xfc' + (h >>> 0).toString(36);
   }
 
-  // Fab checklist section for a finding (fab.json section ids).
+  // Fab checklist section for a finding (fab.json section ids and titles).
+  const SECTIONS = { 'g-fil': 'Fab Package & Gerber Files', 'f-drl': 'Drill, Vias & Plating', 'f-msk': 'Solder Mask & Silkscreen', 'g-drc': 'Final DRC & DFM', 'g-rel': 'Release & Version Control' };
   function sectionFor(f) {
     if (f.category === 'Package') return 'g-fil';
     if (f.category === 'Assembly' || f.category === 'BOM') return 'g-rel';
@@ -42,16 +43,48 @@
       .sort((a, b) => (b.meta.updatedAt || '').localeCompare(a.meta.updatedAt || ''));
   }
 
-  // Group errors and warnings by check and severity.
+  // Group errors and warnings by check and severity. `key` (check|severity) names a group across
+  // re-runs, the way stableId does in a project.
   function plan(findings) {
     const groups = new Map();
     for (const f of findings) {
       if (f.severity === 'info' || f.check === 'internal') continue;
       const k = f.check + '|' + f.severity;
-      if (!groups.has(k)) groups.set(k, { check: f.check, severity: f.severity, category: f.category, list: [] });
+      if (!groups.has(k)) groups.set(k, { key: k, check: f.check, severity: f.severity, category: f.category, list: [] });
       groups.get(k).list.push(f);
     }
     return [...groups.values()].sort((a, b) => (a.severity === 'error' ? 0 : 1) - (b.severity === 'error' ? 0 : 1) || b.list.length - a.list.length);
+  }
+
+  // The Signoff issue's title for a group.
+  function issueText(g) {
+    const n = g.list.length;
+    return `Fabcheck: ${g.list[0].title.replace(/^…/, '')}${n > 1 ? ` (+${n - 1} more)` : ''}`;
+  }
+
+  // What sending would do in a project, without writing: per group, whether its issue is new,
+  // updates one sent before (keeping the reviewer's resolution) or re-raises a deleted one; and the
+  // earlier Fabcheck issues that would be noted as no longer found. Groups left out still count as
+  // found, so they never get that note.
+  function preview(slug, groups) {
+    const p = load('projects', {})[slug];
+    if (!p) return null;
+    const custom = p.custom || {}, items = p.items || {};
+    const rows = groups.map(g => {
+      const id = stableId(p.id, g.check, g.severity), c = custom[id];
+      return { group: g, id, text: issueText(g), section: SECTIONS[sectionFor(g.list[0])], severity: g.severity === 'error' ? 'major' : 'minor',
+        state: !c ? 'new' : c.deleted ? 'deleted' : 'update', resolution: c && !c.deleted ? (items[id] || {}).resolution || '' : '' };
+    });
+    return { rows, gone: goneIds(p, new Set(rows.map(r => r.id))).map(id => custom[id].text) };
+  }
+
+  // Earlier Fabcheck issues, still open, that this run didn't find (`seen` holds the ids it did).
+  function goneIds(p, seen) {
+    const custom = p.custom || {}, items = p.items || {};
+    return Object.keys(custom).filter(id => {
+      const c = custom[id], st = items[id] || {};
+      return c.source && c.source.tool === 'fabcheck' && !c.deleted && !seen.has(id) && st.status === 'issue' && !st.resolution && !c.source.gone;
+    });
   }
 
   function where(f) {
@@ -59,23 +92,24 @@
     return c ? ` (${c.x.toFixed(2)}, ${c.y.toFixed(2)} mm${f.layer ? ', ' + f.layer : ''})` : '';
   }
 
-  // Write the groups into the project. Returns {created, updated, resolvedNotes}.
-  function send(slug, groups, source) {
+  // Write the groups into the project, except those whose key is in `skip`: they are left as they
+  // are in Signoff and still count as found. Returns {created, updated, resolvedNotes, skipped}.
+  function send(slug, groups, source, skip) {
     const all = load('projects', {});
     const p = all[slug];
     if (!p) throw new Error('That Signoff project is no longer in this browser.');
     const dirty = load('dirty', {});
     const who = user(), t = now();
     p.custom = p.custom || {}; p.items = p.items || {}; p.comments = p.comments || {};
-    const seen = new Set();
+    const seen = new Set(groups.map(g => stableId(p.id, g.check, g.severity)));
+    const picked = groups.filter(g => !(skip && skip.has(g.key)));
     let created = 0, updated = 0, resolvedNotes = 0;
     const comment = (item, text) => { const id = uid('c'); p.comments[id] = stamp({ id, item, author: who, at: t, text }, who); };
-    for (const g of groups) {
+    for (const g of picked) {
       const id = stableId(p.id, g.check, g.severity);
-      seen.add(id);
       const first = g.list[0];
       const n = g.list.length;
-      const text = `Fabcheck: ${first.title.replace(/^…/, '')}${n > 1 ? ` (+${n - 1} more)` : ''}`;
+      const text = issueText(g);
       const lines = g.list.slice(0, 25).map(f => `• ${f.title}${where(f)}`);
       if (n > 25) lines.push(`• … ${n - 25} more`);
       const hint = `${n} ${g.severity === 'error' ? 'error' : 'warning'}${n === 1 ? '' : 's'} from Fabcheck check "${g.check}" on ${source.label}${source.sha ? ' (SHA-256 ' + source.sha.slice(0, 12) + '…)' : ''}${source.profileName ? ', fab profile "' + source.profileName + '"' : ''}.\n${first.detail || ''}\n\n${lines.join('\n')}`;
@@ -100,11 +134,8 @@
       }
     }
     // Issues Fabcheck raised before that this run no longer finds.
-    for (const id of Object.keys(p.custom)) {
+    for (const id of goneIds(p, seen)) {
       const c = p.custom[id];
-      if (!c.source || c.source.tool !== 'fabcheck' || c.deleted || seen.has(id)) continue;
-      const st = p.items[id] || {};
-      if (st.status !== 'issue' || st.resolution || c.source.gone) continue;
       comment(id, `Fabcheck re-run on ${source.label}: no longer found. Mark it Fixed if that is expected.`);
       p.custom[id] = stamp(Object.assign({}, c, { source: Object.assign({}, c.source, { gone: true }) }), who);
       resolvedNotes++;
@@ -116,7 +147,7 @@
     // Open the project's Findings page next time Signoff loads.
     const ui = load('ui', {}) || {};
     save('ui', Object.assign(ui, { slug, view: 'findings' }));
-    return { created, updated, resolvedNotes, projectId: p.id, slug, name: (p.meta || {}).name };
+    return { created, updated, resolvedNotes, skipped: groups.length - picked.length, projectId: p.id, slug, name: (p.meta || {}).name };
   }
 
   // Show a project's Findings in Signoff EE, reusing its named window (an open Signoff tab also
@@ -130,5 +161,5 @@
   }
   function projectById(id) { const all = load('projects', {}); const slug = Object.keys(all).find(k => all[k].id === id); return slug ? Object.assign({ slug }, all[slug]) : null; }
 
-  Fab.signoff = { projects, plan, send, sectionFor, stableId, openFindings, projectById };
+  Fab.signoff = { projects, plan, preview, send, sectionFor, stableId, openFindings, projectById };
 })(window.Fab);

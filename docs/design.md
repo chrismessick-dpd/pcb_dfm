@@ -504,6 +504,13 @@ when both are served from the tools folder.
 - **Stable ids** per project and check (`xfc…`). Sending again updates the same issue (the reviewer's
   status and resolution are kept) and adds a comment with the new count. Issues that a later run no
   longer finds get one "no longer found" comment.
+- **Picking issues.** Details beside the Send button lists `Fab.signoff.preview(slug, groups)`: per
+  group, the issue title, severity, section, and whether it is new, an update (with the reviewer's
+  resolution) or re-raises a deleted issue; plus the earlier issues that will be noted as no longer
+  found. Each row has a checkbox. Unticked groups are kept by key (`check|severity`, so they
+  survive a re-run) in `entry.signoffSkip` and passed to `send(slug, groups, source, skip)`. Send
+  doesn't write a skipped group but still counts it as found, so it never gets the "no longer
+  found" note.
 - **Records are stamped** (`updatedAt`/`updatedBy` = Signoff's user name) and the project is marked
   dirty. Signoff is set to open the project's Findings page next.
 - **Open Signoff tabs:** Signoff EE merges `signoff.v1.projects` and `dirty` written by another tab

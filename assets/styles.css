@@ -122,6 +122,22 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .rail { container-type: inline-size; }
 @container (max-width: 330px) { .sev-seg .sev-long { display: none; } .sev-seg .sev-short { display: inline; } }
 
+/* Send to Signoff: the issues it would write, each with a checkbox */
+.so-toggle .sec-chev { margin-left: 4px; transition: transform 0.2s var(--ease); }
+.so-toggle.open .sec-chev { transform: rotate(180deg); }
+.so-list { margin-top: 14px; border-top: 1px solid var(--hair); }
+.so-all { display: flex; align-items: center; gap: 10px; padding: 10px 2px; font-size: 13px; color: var(--text-2); border-bottom: 1px solid var(--hair); cursor: pointer; }
+.so-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; padding: 10px 2px; border-bottom: 1px solid var(--hair); }
+.so-row input, .so-all input { margin: 3px 0 0; accent-color: var(--accent); }
+.so-row label.item-text { display: block; cursor: pointer; word-break: break-word; }
+.so-row.off .item-text, .so-row.off .item-sub { color: var(--text-3); }
+.so-row.off .item-text { text-decoration: line-through; }
+.so-locs { margin-top: 6px; font-size: 12.5px; color: var(--text-2); }
+.so-locs summary { cursor: pointer; color: var(--accent); width: max-content; }
+.so-locs ul { margin: 6px 0 0; padding-left: 18px; }
+.so-locs li { margin: 2px 0; word-break: break-word; }
+.so-gone { padding: 10px 2px 0; font-size: 12.5px; color: var(--text-3); }
+
 /* Inspector extras */
 .insp-detail { font-size: 13.5px; color: var(--text-2); white-space: pre-wrap; word-break: break-word; margin-bottom: 14px; }
 /* The finding on the board, small; selecting it zooms into the Board view. */

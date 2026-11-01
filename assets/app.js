@@ -937,10 +937,12 @@
   }
 
   // ── Send to Signoff ──
+  // One issue per check and severity. Details lists them, each with a checkbox; the keys left out
+  // (check|severity, so they survive a re-run) are in e.signoffSkip.
   function signoffHtml(e) {
     const groups = Fab.signoff.plan(e.findings);
-    const errs = groups.filter(g => g.severity === 'error').length, warns = groups.length - errs;
-    let h = `<div class="section-title">Send to Signoff EE</div><div class="card" style="padding:18px 20px">`;
+    const skip = e.signoffSkip || (e.signoffSkip = new Set());
+    let h =`<div class="section-title">Send to Signoff EE</div><div class="card" style="padding:18px 20px">`;
     const projects = Fab.signoff.projects();
     if (!projects.length) {
       return h + `<p style="margin:0 0 12px;color:var(--text-2)">${Fab.DEMO ? 'No Signoff EE demo projects in this browser yet. Open the <a href="' + Fab.demoHref('../ee_design_review/index.html') + '" style="color:var(--accent)">Signoff EE demo</a> once (it sets up its sample projects in this browser), then come back.' : 'No Signoff EE projects in this browser yet. Open <a href="../ee_design_review/index.html" style="color:var(--accent)">Signoff EE</a> once at this same address (it keeps its projects in this browser), then come back.'}</p></div>`;
@@ -953,12 +955,37 @@
         projects.find(p => (p.meta.checklists || []).includes('fab')) || projects[0];
       e.signoffSlug = guess.slug;
     }
-    h += `<p style="margin:0 0 12px;color:var(--text-2)">Adds ${plural(groups.length, 'issue')} (${errs} from errors as Major, ${warns} from warnings as Minor) to the Fabrication &amp; Release checklist, one per check with every location listed. Sending again updates the same issues and notes what changed. ${Fab.DEMO ? 'In this demo they go to the Signoff EE demo in this browser.' : "Signoff's Sync then pushes them."}</p>
+    const pv = Fab.signoff.preview(e.signoffSlug, groups);
+    const picked = pv.rows.filter(r => !skip.has(r.group.key));
+    const major = picked.filter(r => r.severity === 'major').length, fresh = picked.filter(r => r.state !== 'update').length;
+    const sevs = [major && `${major} Major from errors`, picked.length - major && `${picked.length - major} Minor from warnings`].filter(Boolean).join(', ');
+    const news = [fresh && `${fresh} new`, picked.length - fresh && `${picked.length - fresh} updating ${picked.length - fresh === 1 ? 'an issue' : 'issues'} sent before`].filter(Boolean).join(', ');
+    h += `<p style="margin:0 0 12px;color:var(--text-2)">${picked.length ? `Sends ${picked.length < groups.length ? picked.length + ' of ' : ''}${plural(groups.length, 'issue')} to the Fabrication &amp; Release checklist (${sevs}; ${news}).` : `No issues picked; ${plural(groups.length, 'issue')} available.`} Each issue is one Fabcheck check, with every location it found. Sending again updates the same issues and keeps the reviewer's status. ${Fab.DEMO ? 'In this demo they go to the Signoff EE demo in this browser.' : "Signoff's Sync then pushes them."}</p>
       <div class="filters" style="margin:0"><label class="tb-field" style="font-size:13px">Project <select data-act="signoff-project">${projects.map(p => `<option value="${esc(p.slug)}"${p.slug === e.signoffSlug ? ' selected' : ''}>${esc(p.meta.name)}${p.meta.board ? ' · ' + esc(p.meta.board) : ''}${(p.meta.checklists || []).includes('fab') ? '' : ' (no Fab checklist)'}</option>`).join('')}</select></label>
-      <button class="btn btn-primary" data-act="signoff-send">Send to Signoff EE</button>${e.signoffResult ? `<a class="btn btn-plain" href="${Fab.demoHref('../ee_design_review/index.html')}">Open Signoff EE</a>` : ''}</div>`;
+      <button class="btn btn-primary" data-act="signoff-send"${picked.length ? '' : ' disabled'}>Send to Signoff EE</button><button class="btn so-toggle${e.signoffOpen ? ' open' : ''}" data-act="signoff-details" aria-expanded="${!!e.signoffOpen}">Details${ICON.chev}</button>${e.signoffResult ? `<a class="btn btn-plain" href="${Fab.demoHref('../ee_design_review/index.html')}">Open Signoff EE</a>` : ''}</div>`;
+    if (e.signoffOpen) h += signoffListHtml(e, pv, skip);
     const target = projects.find(p => p.slug === e.signoffSlug);
     if (target && !(target.meta.checklists || []).includes('fab')) h += `<p class="note">This project doesn't use the Fabrication &amp; Release checklist, so the issues won't show until you add it in the project's details in Signoff EE.</p>`;
     if (e.signoffResult) h += `<p class="note" style="color:var(--pass)">${esc(e.signoffResult)}</p>`;
+    return h + '</div>';
+  }
+
+  // The issues Send would write, one row each: what Signoff will show, where it goes, whether it's
+  // new, and its findings (the first 25, as in the issue's hint) under a fold.
+  function signoffListHtml(e, pv, skip) {
+    const says = { new: 'New issue', deleted: 'Re-raises a deleted issue', update: 'Updates the issue sent before' };
+    const all = pv.rows.every(r => !skip.has(r.group.key));
+    let h = `<div class="so-list"><label class="so-all"><input type="checkbox" id="so-all" data-act="signoff-all"${all ? ' checked' : ''}> All issues</label>`;
+    pv.rows.forEach((r, i) => {
+      const g = r.group, n = g.list.length, on = !skip.has(g.key);
+      h += `<div class="so-row${on ? '' : ' off'}"><input type="checkbox" id="so-${i}" data-act="signoff-pick" data-key="${esc(g.key)}"${on ? ' checked' : ''}>` +
+        `<div><label class="item-text" for="so-${i}">${esc(r.text)}</label>` +
+        `<div class="item-sub"><span class="sev ${r.severity}">${r.severity === 'major' ? 'Major' : 'Minor'}</span>${checkTag(g.list[0])}<span>${esc(r.section)}</span><span>${says[r.state]}${r.resolution ? ` <span class="res ${r.resolution}">${r.resolution === 'fixed' ? 'Fixed' : 'Waived'}</span>` : ''}</span></div>` +
+        `<details class="so-locs" data-key="${esc(g.key)}"${e.signoffShown && e.signoffShown.has(g.key) ? ' open' : ''}><summary>${plural(n, g.severity === 'error' ? 'error' : 'warning')}</summary><ul>` +
+        g.list.slice(0, 25).map(f => { const w = whereText(f); return `<li>${esc(f.title)}${w || f.layer ? `<span class="muted"> · ${[w, f.layer].filter(Boolean).map(esc).join(', ')}</span>` : ''}</li>`; }).join('') +
+        (n > 25 ? `<li class="muted">… ${n - 25} more</li>` : '') + `</ul></details></div></div>`;
+    });
+    if (pv.gone.length) h += `<div class="so-gone">Sent before and not found by this run, so each gets a "no longer found" note: ${pv.gone.map(t => `<b>${esc(t)}</b>`).join(', ')}.</div>`;
     return h + '</div>';
   }
 
@@ -1521,12 +1548,12 @@
       case 'signoff-send': {
         try {
           const run = e.run ? Object.assign({}, e.run) : null;
-          const r = Fab.signoff.send(e.signoffSlug, Fab.signoff.plan(e.findings), { label: e.label, sha: run ? run.package.sha256 : null, run, profileName: run ? run.settings.profileName : profileName(e) });
+          const r = Fab.signoff.send(e.signoffSlug, Fab.signoff.plan(e.findings), { label: e.label, sha: run ? run.package.sha256 : null, run, profileName: run ? run.settings.profileName : profileName(e) }, e.signoffSkip);
           if (run) Fab.rules.remember(run.settings.profile, { projectId: r.projectId });
           const name = r.name;
           e.sentTo = { projectId: r.projectId, name };
           if (run) Fab.store.updateRun(run.id, { sentTo: e.sentTo });
-          e.signoffResult = `Sent to "${name}": ${r.created} new, ${r.updated} updated${r.resolvedNotes ? `, ${r.resolvedNotes} earlier issue(s) noted as no longer found` : ''}. ${Fab.DEMO ? 'Open Signoff EE to see them.' : 'Sync in Signoff EE to push them.'}`;
+          e.signoffResult = `Sent to "${name}": ${r.created} new, ${r.updated} updated${r.skipped ? `, ${r.skipped} left out` : ''}${r.resolvedNotes ? `, ${r.resolvedNotes} earlier issue(s) noted as no longer found` : ''}. ${Fab.DEMO ? 'Open Signoff EE to see them.' : 'Sync in Signoff EE to push them.'}`;
           log(e, 'ok', e.signoffResult);
           toast('Sent to Signoff EE');
           if (Fab.repoRuns && run) Fab.repoRuns.upload(e, r.projectId, (cls, t) => log(e, cls, t)).then(() => renderAll());
@@ -1534,6 +1561,7 @@
         renderAll();
         break;
       }
+      case 'signoff-details': e.signoffOpen = !e.signoffOpen; renderAll(); break;
       case 'back-signoff': {
         const pid = (e.sentTo && e.sentTo.projectId) || (e.link && e.link.project) || (e.need && e.need.link && e.need.link.project);
         if (!Fab.signoff.openFindings(pid)) toast('That project is not in Signoff EE in this browser');
@@ -1626,7 +1654,13 @@
     showPeople();
     window.addEventListener('storage', showPeople);
     document.addEventListener('click', onClick);
-    document.addEventListener('toggle', ev => { if (ev.target.matches && ev.target.matches('details.logbox')) state.logOpen = ev.target.open; }, true);
+    document.addEventListener('toggle', ev => {
+      if (!ev.target.matches) return;
+      if (ev.target.matches('details.logbox')) state.logOpen = ev.target.open;
+      // Keep a Send to Signoff issue's findings open across re-renders.
+      const e = active();
+      if (ev.target.matches('details.so-locs') && e) (e.signoffShown || (e.signoffShown = new Set()))[ev.target.open ? 'add' : 'delete'](ev.target.dataset.key);
+    }, true);
     document.addEventListener('change', ev => {
       const e = active();
       if (ev.target.matches('[data-act="profile"]')) useProfile(ev.target.value);
@@ -1648,6 +1682,14 @@
         if (e && e.status === 'ready') runChecks(e, `Board thickness set to ${Fab.fmtLen(state.thickness)}`);
       }
       if (ev.target.matches('[data-act="signoff-project"]')) { e.signoffSlug = ev.target.value; e.signoffResult = null; renderAll(); }
+      if (ev.target.matches('[data-act="signoff-pick"], [data-act="signoff-all"]')) {
+        if (ev.target.dataset.act === 'signoff-all') e.signoffSkip = new Set(ev.target.checked ? [] : Fab.signoff.plan(e.findings).map(g => g.key));
+        else e.signoffSkip[ev.target.checked ? 'delete' : 'add'](ev.target.dataset.key);
+        // Keep focus on the box, so the next one is a Tab away.
+        const id = ev.target.id;
+        renderAll();
+        const el = document.getElementById(id); if (el) el.focus({ preventScroll: true });
+      }
       if (ev.target.matches('[data-act="baseline"]')) { e.baseline = ev.target.value; e.revCache = null; renderAll(); }
       if (ev.target.matches('[data-layer]')) { viewer.layers[+ev.target.dataset.layer].visible = ev.target.checked; viewer.draw(); }
     });
