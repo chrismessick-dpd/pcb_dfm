@@ -275,7 +275,8 @@
     svg += `<polygon class="stk-outline" points="${poly(s.uv, R[0].y)}"/>${fx === 'exit' ? burst(R) : ''}</svg>`;
 
     // The way into the board, under the summary once the run is done (it fades in with the finish).
-    const open = `<div class="stg-actions"><button class="btn btn-primary" data-act="view" data-view="board">Open board <span aria-hidden="true">→</span></button></div>`;
+    // With a step picked, it opens on that step's first error or warning (the app's 'stage-open').
+    const open = `<div class="stg-actions"><button class="btn btn-primary" data-act="stage-open">Open board <span aria-hidden="true">→</span></button></div>`;
     const cls = ['card', 'stage', done ? 'is-done' : 'is-running'];
     if (fx) cls.push('fx-' + fx);
     if (f.holes) cls.push('holes-' + f.holes);
@@ -562,7 +563,10 @@
     const step = e.stage && e.stage.label && run.steps ? run.steps[run.steps.length - 1] : null;
     const R = rows(e.pkg), hit = new Map(), add = [];
     for (const f of fresh) {
-      if (f.severity === 'error' || f.severity === 'warn') { run.n[f.severity]++; if (step) step.n[f.severity]++; }
+      if (f.severity === 'error' || f.severity === 'warn') {
+        run.n[f.severity]++;
+        if (step) { step.n[f.severity]++; (step.f || (step.f = [])).push(f); }
+      }
       const p = pinOf(e.pkg, R, f);
       if (!p) continue;
       run.pins.push(p); add.push(p);
@@ -641,5 +645,8 @@
     if (b && b.innerHTML !== tb) b.innerHTML = tb;
   }
 
-  Fab.stage = { html, update, paint, focus, job, found, progress, detail };
+  // The errors and warnings the picked step found, in the order found (none with the summary shown).
+  const stepFindings = e => { const p = picked(e); return p ? p.f || [] : []; };
+
+  Fab.stage = { html, update, paint, focus, job, found, progress, detail, stepFindings };
 })(window.Fab);

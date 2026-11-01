@@ -1494,6 +1494,14 @@
       case 'part': { const p = state.asmRows[+t.dataset.i].part; focusFinding({ id: 'part-' + p.des, at: { x: p.gx, y: p.gy }, side: p.side }); break; }
       case 'rev-at': focusFinding({ id: 'rev', at: { x: +t.dataset.x, y: +t.dataset.y } }); break;
       case 'rev-layer': { const g = e.revCache.res.gerber[+t.dataset.i]; focusFinding({ id: 'rev', bbox: g.bbox, layer: g.layerRef.file.name }); break; }
+      case 'stage-open': {
+        // With a step picked on the stage: its first error with a place (else its first warning),
+        // shown the way a selected finding is. Otherwise, or with none placed, the board as it is.
+        const fs = Fab.stage.stepFindings(e).filter(located);
+        const best = fs.find(f => f.severity === 'error') || fs[0];
+        if (best) focusFinding(best); else go('board');
+        break;
+      }
       case 'stage-layer': {
         const file = t.dataset.file;
         // The layer's worst finding with a place, shown the way a selected finding is; a layer

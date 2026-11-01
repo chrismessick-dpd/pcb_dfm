@@ -434,7 +434,10 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
     a dropdown), shows that step: its words, its detail drawing, the layers it reads lit, and what it
     found. The arrows go round through the summary, between the last step and the first; **← Summary**
     under the bar, or Escape on it, goes straight back. Home and End on the bar go to the first and
-    last step. Under the bar, "Select DFM step details" says it can be used. On the time-weighted bar the raster pass is about half
+    last step. Under the bar, "Select DFM step details" says it can be used.
+    With a step shown, **Open board** opens on that step's first error with a place (else its first
+    warning), as selecting it would; each step keeps the findings it produced (`steps[i].f`). A step
+    with none, or the summary, opens the board as it is. On the time-weighted bar the raster pass is about half
     the width and the quick steps about 3 px each on a phone, too small to land on, hence even
     spacing once the bar no longer shows progress. A slide maps the finger to the steps as
     measured at the press. The bar sits along the top of the stage, so the words below changing
