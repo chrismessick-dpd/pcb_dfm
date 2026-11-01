@@ -26,9 +26,11 @@ is uploaded.
 **Using it**
 
 1. Drop a package on the page. Checks run straight away. The **Inspection** panel draws your board's
-   layer stack and lights up the layer or feature each check is measuring; when the run is done, it
-   shows the errors and warnings on each layer, and selecting a layer shows it on the board. The full
-   log is folded away under it.
+   layer stack and lights up the layers each check is reading. During the long raster pass you can
+   watch each part of each layer glow as it's analyzed. Findings drop onto their layer as red or
+   amber pins, and a small drawing shows what the check measures. A bar along the bottom shows the
+   progress and time. When the run is done, the pins stay, each layer shows its count, and selecting
+   a layer shows it on the board. The full log is folded away under it.
 2. **Overview** shows the totals for each area. **Findings** lists every issue with its severity.
    **Board** draws the board: click a finding and it zooms to the spot, fading the layers above it so
    inner-layer problems stay visible. **Realistic** shows the board as it will be built: green mask,

@@ -381,12 +381,24 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
   yield a label before each step. The pipeline runs one step, prints its result (errors and warnings,
   plus the first few hits) with timings, and repaints before the next.
   - The stage (`assets/stage.js`) draws the package's own stack, exploded: silkscreen, mask and each
-    copper layer (planes marked), on the board outline, with dielectric between copper and a cutaway
-    via at a real via near the center. While running it lights up what the step measures: one layer
-    with a scan sweep, all copper and mask for the parallel raster pass, the pads and ring for annular
-    ring, the barrel for drills, the outline for edge checks. Beside it: the step, a one-line
-    explanation with the profile's limits, and the modules done so far.
-  - Finished, each layer shows its error or warning count and opens alone on the board.
+    copper layer (planes marked), on the board outline, with dielectric between copper and a sample
+    of the board's real drill hits on the copper. While running, the layers a step reads glow, and
+    hole checks light the drill hits in a ripple. Edge checks run a glowing line around the outline.
+    - In the parallel raster pass, each worker job shows as a glowing patch over the area of its
+      layer it is analyzing, with a line sweeping it, and a faint tint once done. `prepareRaster`
+      reports the jobs through an optional `watch(event, job)` (`plan`, `start` when a worker takes
+      one, `done`), passed as `out.watch` like `out.sync`. It carries only layer, kind, box and pixel
+      count, never touches the jobs sent to workers, and findings are identical with it.
+    - A step's errors and warnings drop onto their layer as pins (`at` or `bbox` center; layerless
+      ones on their side's copper, assembly ones on the silkscreen) and flash the layer red or amber.
+  - Beside the stack: the module, the step, a one-line explanation with the profile's limits, and a
+    small dimensioned drawing of what the step measures at those limits (`Fab.stage.detail`).
+  - A bar along the bottom shows progress in weighted units: 1 per step, 3 per copper layer's
+    spacing step, and the raster pass about as much as everything else, filled by the pixel area of
+    its finished jobs. Beside it: errors and warnings so far, raster jobs done, percent and time.
+    It moves by `transform`, and a highlight runs along it on the compositor, so it keeps moving
+    while a synchronous step blocks the page (the SVG effects pause then).
+  - Finished, each layer shows its error or warning count, keeps its pins and opens alone on the board.
   - The run log is collapsed under the stage to its latest step line, and remembers being opened.
 - **Findings.** Signoff-style sections with severity and category filters. Clicking a finding opens the
   inspector, and "Show on board" zooms to it.

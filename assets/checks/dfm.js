@@ -460,7 +460,7 @@
       // synchronous runner gets everything on the main thread. Findings are the same either way.
       let pre = null;
       if (!out.sync && Fab.raster.prepareRaster) {
-        const p = Fab.raster.prepareRaster(pkg, L, prof).then(m => { pre = m; });
+        const p = Fab.raster.prepareRaster(pkg, L, prof, out.watch).then(m => { pre = m; });
         yield { label: `Raster analysis · ${L.copper.length} copper and ${['top', 'bottom'].filter(s => L.mask[s]).length} mask layers in parallel`, wait: p };
       }
       for (const lay of L.copper) {

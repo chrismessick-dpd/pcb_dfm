@@ -125,7 +125,11 @@
   function lineHtml(l) { return `<div class="ln ${l.cls}"><span class="t">${(l.t / 1000).toFixed(2)}s</span><span class="x">${esc(l.text)}</span></div>`; }
   function setProgress(entry, p) {
     entry.progress = p;
-    if (entry.id === state.active) { const bar = $('#console-progress'); if (bar) bar.style.width = Math.round(p * 100) + '%'; }
+    if (entry.id === state.active) {
+      const bar = $('#console-progress');
+      if (bar) bar.style.width = Math.round(p * 100) + '%';
+      if (entry.live && Fab.stage) Fab.stage.progress(entry);
+    }
   }
 
   function describe(f) {
@@ -216,6 +220,8 @@
     entry.findings = [];
     if (reason) log(entry, 'step', reason);
     entry.stage = { module: 'package', label: null };
+    const t0 = performance.now();
+    const run = entry.live = { t0, frac: 0, jobs: [], pins: [], n: { error: 0, warn: 0 } };
     renderAll();
     const modules = [
       ['Package', C.package.steps, [pkg], 'package'],
@@ -226,17 +232,35 @@
       [`Fabrication DFM (${profileName(entry)}${entry.pinned ? ", run's saved rules" : ''}, ${Fab.fmtLen(prof.thickness)})`, C.dfm.steps, [pkg, prof], 'dfm'],
     ];
     // The inspection stage follows the step being run.
-    const stage = (module, label) => { entry.stage = { module, label }; if (entry.id === state.active && Fab.stage) Fab.stage.update(entry, prof); };
-    const totalSteps = 34 + 2 * pkg.layers.copper.length; // fixed steps + raster steps per copper layer
-    let done = 0;
-    const t0 = performance.now();
+    const live = () => entry.id === state.active && Fab.stage;
+    const stage = (module, label) => { entry.stage = { module, label }; if (live()) Fab.stage.update(entry, prof); };
+    // Progress in work units, weighted by how long steps take: 1 per step, 3 per copper layer's
+    // spacing step, and the raster pass about as much as everything else, filled by the area of
+    // its finished jobs. A module that returns early jumps to its end.
+    const nCu = pkg.layers.copper.length, nMask = ['top', 'bottom'].filter(s => pkg.layers.mask[s]).length;
+    const most = { package: 7, assembly: 6, build: 3, pins: 3, bom: 1, dfm: 11 + 4 * nCu + nMask };
+    const other = Object.values(most).reduce((a, b) => a + b, 0), rasterUnits = Math.round(1.2 * other);
+    most.dfm += rasterUnits;
+    const total = other + rasterUnits;
+    let base = 0, units = 0;
+    const advance = u => { units = Math.min(u, base); run.frac = units / total; setProgress(entry, 0.3 + 0.7 * run.frac); };
+    // Ticks the bar's clock; stops itself once the run ends, however it ends.
+    const clock = setInterval(() => { if (entry.status !== 'running' || entry.live !== run) clearInterval(clock); else if (live()) Fab.stage.progress(entry); }, 500);
     for (const [name, gen, args, key] of modules) {
       log(entry, 'step', name);
       stage(key, null);
       await tick();
-      const out = [];
+      const out = [], start = base;
+      base += most[key];
+      // Raster jobs as the workers take them and finish them, for the stage and the bar.
+      out.watch = (ev, job) => {
+        if (ev === 'plan') { job.jobs.forEach((j, i) => { j._i = i; }); run.jobs = job.jobs; run.px = job.jobs.reduce((t, j) => t + j.px, 0); run.pxDone = 0; }
+        else if (ev === 'start') job.state = 'on';
+        else { job.state = 'done'; run.pxDone += job.px; advance(run.rasterAt + rasterUnits * run.pxDone / run.px); }
+        if (live()) Fab.stage.job(entry, ev, job);
+      };
       const g = gen(...args, out);
-      let label = null, seen = 0, ts = performance.now();
+      let label = null, seen = 0, ts = performance.now(), weight = 0;
       for (;;) {
         let r;
         try { r = g.next(); } catch (e) {
@@ -247,17 +271,30 @@
         const fresh = out.slice(seen);
         seen = out.length;
         if (label || fresh.length) reportStep(entry, label || 'Summary', fresh, performance.now() - ts);
+        if (fresh.length && Fab.stage) Fab.stage.found(entry, fresh, live());
         if (r.done) break;
         ts = performance.now();
-        done++;
-        setProgress(entry, 0.3 + 0.7 * Math.min(1, done / totalSteps));
+        // The step before this one is done.
+        advance(units + weight);
         // A step may hand back work running elsewhere (raster tiles in workers) to wait for.
-        if (r.value && r.value.wait) { label = r.value.label; stage(key, label); await r.value.wait; } else { label = r.value; stage(key, label); }
+        if (r.value && r.value.wait) {
+          label = r.value.label; weight = 0; run.rasterAt = units;
+          stage(key, label);
+          await r.value.wait;
+          advance(run.rasterAt + rasterUnits);
+          run.jobs = [];
+        } else {
+          label = r.value; weight = /^Spacing and slivers/.test(label) ? 3 : 1;
+          stage(key, label);
+        }
         await tick();
       }
+      advance(start + most[key]);
       C.audit(out);
       entry.findings.push(...out);
     }
+    clearInterval(clock);
+    run.ms = performance.now() - t0;
     entry.stage = null;
     attachLocations(pkg, entry.findings);
     const n = s => entry.findings.filter(f => f.severity === s).length;

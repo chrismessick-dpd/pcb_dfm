@@ -546,21 +546,38 @@ onmessage = e => {
       q.job.id = w._job = ++pool.id;
       pool.cb.set(q.job.id, q.res);
       w.postMessage(q.job, q.transfer);
+      if (q.meta) q.meta.watch('start', q.meta);
     }
   }
-  const runJob = (job, transfer) => new Promise(res => { pool.queue.push({ job, transfer, res }); pump(); });
+  // meta (optional): { watch, ... } told when a worker takes the job; never sent to the worker.
+  const runJob = (job, transfer, meta) => new Promise(res => { pool.queue.push({ job, transfer, res, meta }); pump(); });
 
   // Paint every raster job of the DFM pass (copper spacing and sliver tiles, whole-board islands
   // rasters, mask dam tiles) and analyze them in the workers, all at once. Resolves to
   // { copper, islands, mask }, each a Map(layer -> results), or null without workers. A job that
   // failed is left empty, and its check runs it on the main thread.
-  async function prepareRaster(pkg, L, prof) {
+  // watch (optional) follows the jobs for the inspection stage: watch('plan', { jobs }) first, then
+  // watch('start' | 'done', job) with job = { layer (file name), kind, box (mm), px }.
+  async function prepareRaster(pkg, L, prof, watch) {
     if (!getPool()) return null;
     const out = { copper: new Map(), islands: new Map(), mask: new Map() }, waits = [];
+    let metas = null, mi = 0;
+    if (watch) {
+      // The same jobs, in the same order, as the loops below submit them.
+      metas = [];
+      const tileMeta = (layer, kind, t) => ({ watch, layer: layer.file.name, kind, box: t.interior, px: t.W * t.H });
+      for (const layer of L.copper) for (const t of copperPlan(pkg, layer, prof).tiles) metas.push(tileMeta(layer, 'copper', t));
+      for (const layer of L.copper) { const p = islandPlan(pkg, layer); metas.push({ watch, layer: layer.file.name, kind: 'islands', box: p.bb, px: p.W * p.H }); }
+      const mt = maskPlan(pkg, prof).tiles;
+      for (const side of ['top', 'bottom']) if (L.mask[side]) for (const t of mt) metas.push(tileMeta(L.mask[side], 'mask', t));
+      watch('plan', { jobs: metas });
+    }
     const submit = async (job, transfer, done) => {
-      waits.push(runJob(job, transfer).then(r => {
+      const meta = metas && metas[mi++];
+      waits.push(runJob(job, transfer, meta).then(r => {
         if (r.error) console.warn('Fabcheck worker failed; this job runs on the main thread.', r.error);
         else done(r);
+        if (meta) watch('done', meta);
       }));
       // Keep only a few painted rasters waiting, so their buffers don't pile up in memory.
       if (waits.length > 2 * pool.ws.length) await waits[waits.length - 1 - 2 * pool.ws.length];
