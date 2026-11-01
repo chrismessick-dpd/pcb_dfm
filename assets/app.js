@@ -221,7 +221,7 @@
     if (reason) log(entry, 'step', reason);
     entry.stage = { module: 'package', label: null };
     const t0 = performance.now();
-    const run = entry.live = { t0, frac: 0, jobs: [], pins: [], n: { error: 0, warn: 0 } };
+    const run = entry.live = { t0, frac: 0, jobs: [], pins: [], n: { error: 0, warn: 0 }, fx: 'enter' };
     renderAll();
     const modules = [
       ['Package', C.package.steps, [pkg], 'package'],
@@ -301,6 +301,7 @@
     setProgress(entry, 1);
     log(entry, 'done', `Done in ${((performance.now() - t0) / 1000).toFixed(1)} s: ${plural(n('error'), 'error')}, ${plural(n('warn'), 'warning')}, ${n('info')} info`);
     entry.status = 'ready';
+    run.fx = 'exit';
     entry.revCache = null;
     renderAll();
     await saveRun(entry);
@@ -542,7 +543,12 @@
         overview: overviewHtml, findings: findingsHtml, assembly: assemblyHtml, bom: bomHtml, files: filesHtml,
         revisions: revisionsHtml, archive: archiveHtml, board: overviewHtml,
       }[state.view];
+      // The stage keeps its own node while it shows the same run in the same state, so a re-render
+      // (the save after a run, say) doesn't restart its transitions or drop live effects.
+      const kept = $('#stage');
       pageEl.innerHTML = page(e);
+      const fresh = $('#stage');
+      if (kept && fresh && kept.dataset.key === fresh.dataset.key) fresh.replaceWith(kept);
     });
     if (e && e.stage && Fab.stage && state.view === 'overview') Fab.stage.update(e, profile(e));
     if (!e && state.view !== 'rules') loadRecent();
@@ -663,9 +669,10 @@
     const actions = back + `<button class="btn" data-act="rerun"${busy || !pkg ? ' disabled' : ''}>Run checks again</button><button class="btn btn-primary" data-act="view" data-view="board"${!pkg ? ' disabled' : ''}>Open board</button>`;
     let h = `<div class="page wide">` + pageHead(e, 'Fab package', e.label, sub, actions);
     const stat = (cls, n, label, sev) => `<button class="card stat ${cls}" style="border:none;text-align:left" data-act="sev" data-sev="${sev}"><div class="stat-num">${busy ? '–' : n}</div><div class="stat-label">${label}</div></button>`;
-    h += `<div class="grid grid-4">${stat('issue', c.error, 'Errors', 'error')}${stat('warn', c.warn, 'Warnings', 'warn')}${stat('info', c.info, 'Info', 'info')}<div class="card stat"><div class="stat-num">${pkg ? pkg.files.length : '–'}</div><div class="stat-label">Files in package</div></div></div>`;
+    // The inspection stage leads the page, with its log folded under it; the totals follow.
     const stageHtml = Fab.stage && pkg && (e.status === 'running' || e.status === 'ready') ? Fab.stage.html(e, profile(e)) : '';
-    if (stageHtml) h += `<div class="section-title">Inspection</div>` + stageHtml + logHtml(e, busy);
+    if (stageHtml) h += stageHtml + logHtml(e, busy);
+    h += `<div class="grid grid-4${stageHtml ? ' after-stage' : ''}">${stat('issue', c.error, 'Errors', 'error')}${stat('warn', c.warn, 'Warnings', 'warn')}${stat('info', c.info, 'Info', 'info')}<div class="card stat"><div class="stat-num">${pkg ? pkg.files.length : '–'}</div><div class="stat-label">Files in package</div></div></div>`;
     h += `<div class="section-title">Checks<span class="chips">` +
       profileSelect(e) + `<button class="btn btn-plain" data-view="rules">Edit rules</button>` +
       `<label class="tb-field">Board thickness <input data-act="thickness" type="number" step="0.1" min="0.2" max="6" value="${e.pinned ? e.pinned.thickness : state.thickness}"> mm</label></span></div><div class="grid grid-3">`;

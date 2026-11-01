@@ -6,9 +6,10 @@
   --console-bg: #101214;
   --console-text: #d6d9de;
   --stk-glow: #1e9bff;
+  --stk-ring: #1e9bff;
 }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --canvas-bg: #0b0c0e; --board: #18302f; --console-bg: #0b0c0e; --stk-glow: #4cc2ff; } }
-:root[data-theme="dark"] { --canvas-bg: #0b0c0e; --board: #18302f; --console-bg: #0b0c0e; --stk-glow: #4cc2ff; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --canvas-bg: #0b0c0e; --board: #18302f; --console-bg: #0b0c0e; --stk-glow: #4cc2ff; --stk-ring: #ffffff; } }
+:root[data-theme="dark"] { --canvas-bg: #0b0c0e; --board: #18302f; --console-bg: #0b0c0e; --stk-glow: #4cc2ff; --stk-ring: #ffffff; }
 
 .main { display: flex; flex-direction: column; }
 #page { flex: 1; }
@@ -292,6 +293,29 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .stg-meta b { font-weight: 400; font-size: 9px; vertical-align: 1px; }
 .stg-meta b.e { color: var(--issue); }
 .stg-meta b.w { color: var(--warn); }
+/* Entering and leaving the inspection: as a run starts the layers rise out of a closed stack; as it
+   finishes they draw together and spring back apart, rings in the board's plane open out from the
+   stack at their own pace, and a white edge runs down it, layer by layer. */
+.grid.after-stage { margin-top: 18px; }
+.stk-burst { pointer-events: none; }
+.stk-burst ellipse { fill: none; stroke: var(--stk-ring); stroke-width: 0.9; opacity: 0; transform-box: fill-box; transform-origin: center;
+  filter: drop-shadow(0 0 3px var(--stk-glow)); animation: ring-out 1.2s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.stk-burst ellipse.in { animation-name: ring-in; }
+.stk-burst ellipse.core { fill: var(--stk-ring); stroke: none; filter: blur(6px); animation: ring-core 0.9s ease-out both; }
+@keyframes ring-out { 0% { opacity: 0; transform: scale(0.12); } 18% { opacity: 0.63; } 100% { opacity: 0; transform: scale(1); } }
+@keyframes ring-in { 0% { opacity: 0; transform: scale(1.05); } 30% { opacity: 0.56; } 100% { opacity: 0; transform: scale(0.1); } }
+@keyframes ring-core { 0% { opacity: 0; transform: scale(0.3); } 25% { opacity: 0.38; } 100% { opacity: 0; transform: scale(1.6); } }
+.stage.fx-enter .stk-layer { animation: stk-open 0.9s cubic-bezier(0.25, 1.3, 0.5, 1) both; }
+@keyframes stk-open { from { transform: translateY(calc(var(--sq) * 3)); opacity: 0; } }
+.stage.fx-exit .stk-layer { animation: stk-settle 0.9s cubic-bezier(0.3, 1.5, 0.5, 1); }
+@keyframes stk-settle { 35% { transform: translateY(var(--sq)); } }
+.stage.fx-exit .stk-layer .stk-face { animation: stk-edge 0.8s ease-out; animation-delay: calc(var(--i) * 70ms + 120ms); }
+@keyframes stk-edge { 0% { stroke: var(--stk-ring); stroke-width: 2.2; filter: drop-shadow(0 0 6px var(--stk-ring)); } }
+.stage.fx-exit .stage-side > * { animation: fig-in 0.5s var(--ease) both; }
+.stage.fx-exit .stage-side > :nth-child(2) { animation-delay: 0.08s; }
+.stage.fx-exit .stage-side > :nth-child(3) { animation-delay: 0.16s; }
+.stage.fx-exit .stg-bar i { animation: bar-done 1s ease-out; }
+@keyframes bar-done { 0% { filter: brightness(1.8) drop-shadow(0 0 6px var(--pass)); } }
 /* The run log, collapsed to its latest line under the stage. */
 .logbox { margin-top: 12px; }
 .logbox > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 8px 4px; font-size: 13px; color: var(--text-2); }
@@ -300,4 +324,4 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .logbox[open] > summary::before { transform: rotate(90deg); }
 .logbox > summary b { color: var(--text); font-weight: 600; }
 .log-last { font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
-@media (prefers-reduced-motion: reduce) { .stk-layer.scan .stk-scan, .stage.edge-on .stk-outline, .fx-patch, .fx-sweep, .pin.new .pin-ring, .pin.new .pin-dot, .stg-bar::after, .stg-fig, .stk-drill, .stk-npth { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .stk-burst { display: none; } .stage.fx-enter .stk-layer, .stage.fx-exit .stk-layer, .stage.fx-exit .stk-layer .stk-face, .stage.fx-exit .stage-side > *, .stage.fx-exit .stg-bar i { animation: none !important; } .stk-layer.scan .stk-scan, .stage.edge-on .stk-outline, .fx-patch, .fx-sweep, .pin.new .pin-ring, .pin.new .pin-dot, .stg-bar::after, .stg-fig, .stk-drill, .stk-npth { animation: none !important; } }

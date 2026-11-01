@@ -213,6 +213,16 @@
   const clock = ms => { const s = Math.floor(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
   const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
+  // At the finish: rings in the board's plane open out from the middle of the stack, each at its own
+  // size and pace (one closes in instead), with a soft flash at the center.
+  function burst(R) {
+    const [cx, cy] = proj(0.5, 0.5, (R[0].y + R[R.length - 1].y) / 2);
+    const rings = [[95, 0, 0.9], [150, 0.08, 1.25], [205, 0.2, 1.6], [125, 0.32, 1.05]];
+    return `<g class="stk-burst" transform="translate(${cx.toFixed(1)} ${cy.toFixed(1)})">` +
+      rings.map(([rx, d, t], i) => `<ellipse class="${i === 3 ? 'in' : 'out'}" rx="${rx}" ry="${(rx * 0.42).toFixed(1)}" style="animation-duration:${t}s;animation-delay:${d}s"/>`).join('') +
+      `<ellipse class="core" rx="36" ry="15"/></g>`;
+  }
+
   // The whole stage. e.stage = { module, label } while running; e.live holds the live state.
   function html(e, prof) {
     const pkg = e.pkg;
@@ -226,6 +236,10 @@
       c[f.severity]++; per.set(f.layer, c);
     }
     const pins = pinsByLayer(done ? e.findings.map(f => pinOf(pkg, R, f)).filter(Boolean) : (run ? run.pins : []));
+    // The run's opening or closing transition plays once, on the render that asks for it.
+    const fx = run && run.fx;
+    if (run) run.fx = null;
+    const mid = (R.length - 1) / 2;
     const cu = R.filter(r => r.kind === 'copper' || r.kind === 'plane');
     const f = !done && e.stage ? focus(e.stage.label, e.stage.module) : {};
     let svg = `<svg class="stk" viewBox="0 0 ${VW} ${H}" role="img" aria-label="Layer stack">`;
@@ -236,7 +250,7 @@
     for (let i = R.length - 1; i >= 0; i--) {
       const r = R[i], c = per.get(r.file), on = !done && lit(f, r);
       const sev = c ? (c.error ? 'error' : c.warn ? 'warn' : '') : '';
-      svg += `<g class="stk-layer k-${r.kind}${sev ? ' sev-' + sev : ''}${on ? ' on' : ''}${on && f.scan ? ' scan' : ''}${done ? ' done' : ''}" data-file="${esc(r.file)}" data-kind="${r.kind}" data-side="${r.side || ''}"${done ? ` data-act="stage-layer" tabindex="0"` : ''}>`;
+      svg += `<g class="stk-layer k-${r.kind}${sev ? ' sev-' + sev : ''}${on ? ' on' : ''}${on && f.scan ? ' scan' : ''}${done ? ' done' : ''}" data-file="${esc(r.file)}" data-kind="${r.kind}" data-side="${r.side || ''}"${done ? ` data-act="stage-layer" tabindex="0"` : ''}${fx ? ` style="--i:${i};--sq:${((mid - i) * 4).toFixed(1)}px"` : ''}>`;
       svg += `<polygon class="stk-edge" points="${poly(s.uv, r.y, r.kind === 'silk' ? 1.5 : 3)}"/><polygon class="stk-face" points="${poly(s.uv, r.y)}"/>`;
       svg += `<clipPath id="stk-clip-${i}"><polygon points="${poly(s.uv, r.y)}"/></clipPath>`;
       svg += `<g clip-path="url(#stk-clip-${i})"><rect class="stk-scan" x="${-FACE_W}" y="${r.y - 4}" width="${FACE_W}" height="${DEPTH + 8}" fill="url(#stk-scan)"/>`;
@@ -250,7 +264,7 @@
       else if (done) svg += `<text class="stk-n ok" x="${LBL_X}" y="${ly.toFixed(1)}">✓</text>`;
       svg += `<text class="stk-lbl" x="${LBL_X + (done ? 30 : 0)}" y="${ly.toFixed(1)}">${esc(r.label)}</text></g>`;
     }
-    svg += `<polygon class="stk-outline" points="${poly(s.uv, R[0].y)}"/></svg>`;
+    svg += `<polygon class="stk-outline" points="${poly(s.uv, R[0].y)}"/>${fx === 'exit' ? burst(R) : ''}</svg>`;
 
     const st = e.stage || {};
     const nE = e.findings.filter(x => x.severity === 'error').length, nW = e.findings.filter(x => x.severity === 'warn').length;
@@ -259,10 +273,11 @@
       : `<div class="stg-eyebrow" id="stg-mod">${esc(modTitle(st.module))}</div><div class="stg-title" id="stg-title">${esc(st.label || 'Reading the package')}</div><div class="stg-desc" id="stg-desc">${esc(explain(st.label, st.module, prof))}</div>` +
         `<div class="stg-detail" id="stg-detail" data-key="${f.detail || ''}">${detail(f.detail, prof)}</div>`;
     const cls = ['card', 'stage', done ? 'is-done' : 'is-running'];
+    if (fx) cls.push('fx-' + fx);
     if (f.holes) cls.push('holes-' + f.holes);
     if (f.edge) cls.push('edge-on');
     if (f.raster) cls.push('raster-on');
-    return `<div class="${cls.join(' ')}" id="stage"><div class="stage-art">${svg}</div><div class="stage-side">${right}</div>${progHtml(e)}</div>`;
+    return `<div class="${cls.join(' ')}" id="stage" data-key="${esc(e.id + ':' + e.status)}"><div class="stage-art">${svg}</div><div class="stage-side">${right}</div>${progHtml(e)}</div>`;
   }
 
   // The bar along the bottom: found so far on the left, jobs, percent and time on the right.

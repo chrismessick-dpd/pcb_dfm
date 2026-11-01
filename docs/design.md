@@ -376,7 +376,7 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
 - **Sidebar.** Open packages, listed like Signoff's projects, with error/warning badges and a spinner
   while checks run. Several packages can be open at once, which is what the Revisions and Archive
   tabs compare.
-- **Overview.** Stats, the **inspection stage**, one card per check category, the fab profile and
+- **Overview.** The **inspection stage** at the top, then stats, one card per check category, the fab profile and
   thickness controls, and the run log. The package build and every check module are generators that
   yield a label before each step. The pipeline runs one step, prints its result (errors and warnings,
   plus the first few hits) with timings, and repaints before the next.
@@ -399,6 +399,11 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
     It moves by `transform`, and a highlight runs along it on the compositor, so it keeps moving
     while a synchronous step blocks the page (the SVG effects pause then).
   - Finished, each layer shows its error or warning count, keeps its pins and opens alone on the board.
+  - As a run starts, the layers rise out of a closed stack. As it finishes, they draw together and
+    spring back apart, faint rings in the board's plane open out from the stack, each at its own size
+    and pace, and a white edge runs down it. The app sets `entry.live.fx` and the
+    next stage render plays it once. A re-render keeps the stage's node while its run and status are
+    the same, so the save right after a run doesn't restart the transition.
   - The run log is collapsed under the stage to its latest step line, and remembers being opened.
 - **Findings.** Signoff-style sections with severity and category filters. Clicking a finding opens the
   inspector, and "Show on board" zooms to it.
