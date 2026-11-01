@@ -288,7 +288,7 @@
   function progHtml(e) {
     const run = e.live, done = e.status === 'ready';
     if (!run || (done && run.ms == null)) return '';
-    return `<div class="stg-prog${done ? ' done' : ''}" id="stg-prog"><div class="stg-bar"><i id="stg-fill" style="transform:scaleX(${done ? 1 : run.frac.toFixed(4)})"></i></div>` +
+    return `<div class="stg-prog${done ? ' done' : ''}" id="stg-prog"><div class="stg-bar"><i id="stg-fill" style="transform:scaleX(${done ? 1 : run.frac.toFixed(4)})"></i>${done ? '' : `<b class="stg-run" id="stg-run" style="width:${(run.frac * 100).toFixed(2)}%"><s></s></b>`}</div>` +
       `<div class="stg-meta"><span id="stg-found">${foundText(e)}</span><span id="stg-time">${timeText(e)}</span></div></div>`;
   }
   // Running totals; once done the title has the counts, so the bar only keeps its time.
@@ -396,6 +396,8 @@
     const fill = document.getElementById('stg-fill');
     if (!fill) return;
     fill.style.transform = `scaleX(${run.frac.toFixed(4)})`;
+    const head = document.getElementById('stg-run');
+    if (head) head.style.width = (run.frac * 100).toFixed(2) + '%';
     const a = document.getElementById('stg-found'), b = document.getElementById('stg-time');
     const fa = foundText(e), tb = timeText(e);
     if (a && a.innerHTML !== fa) a.innerHTML = fa;

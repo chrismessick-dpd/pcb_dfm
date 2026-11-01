@@ -399,8 +399,10 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
   - A bar along the bottom shows progress in weighted units: 1 per step, 3 per copper layer's
     spacing step, and the raster pass about as much as everything else, filled by the pixel area of
     its finished jobs. Beside it: errors and warnings so far, raster jobs done, percent and time.
-    It moves by `transform`, and a highlight runs along it on the compositor, so it keeps moving
-    while a synchronous step blocks the page (the SVG effects pause then).
+    It moves by `transform`. While running, a soft light sweeps along the filled part only
+    (`.stg-run`, sized to the fill), by transform on the compositor, so it keeps moving while a
+    synchronous step blocks the page (the SVG effects pause then). A brighter streak with a pulsing
+    head at the leading edge was tried and dropped as too loud.
   - Finished, each layer shows its error count (●) or warning count (▲) and keeps its pins.
     Selecting a layer shows its worst located finding on the board, as selecting the finding
     would; a layer with none opens alone.

@@ -331,15 +331,17 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .stg-fig .d-cap { font: 500 10.5px var(--sans); fill: var(--text-2); text-anchor: middle; }
 /* The run's progress, along the bottom of the stage. */
 .stg-prog { grid-column: 1 / -1; margin: 6px -22px 0; padding: 10px 22px 12px; border-top: 1px solid var(--hair, rgba(128, 128, 128, 0.18)); }
-.stg-bar { position: relative; height: 4px; border-radius: 4px; background: var(--bg-sunk); overflow: hidden; }
+.stg-bar { position: relative; height: 5px; border-radius: 5px; background: var(--bg-sunk); }
 .stg-bar i { position: absolute; inset: 0; transform-origin: left; background: linear-gradient(90deg, var(--accent), var(--stk-glow)); border-radius: inherit; transition: transform 0.5s var(--ease); }
-/* A highlight running along the fill, so the bar visibly lives between updates. It moves by
-   transform, which the browser keeps animating even while a check blocks the page. */
-.stg-bar { isolation: isolate; }
-.stg-bar::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 30%; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent); animation: bar-run 1.6s linear infinite; mix-blend-mode: overlay; }
-@keyframes bar-run { from { transform: translateX(-100%); } to { transform: translateX(340%); } }
+/* While running, a soft light sweeps along the filled part (only), so the bar reads as alive
+   between updates. It moves by transform, which the browser keeps animating while a check blocks
+   the page. */
+.stg-run { position: absolute; left: 0; top: 0; bottom: 0; border-radius: inherit; transition: width 0.5s var(--ease); pointer-events: none; }
+.stg-run s { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; }
+.stg-run s::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 35%; min-width: 24px; background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent); animation: bar-run 1.8s cubic-bezier(0.45, 0, 0.55, 1) infinite; }
+@keyframes bar-run { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
 .stg-prog.done .stg-bar i { background: var(--pass); }
-.stg-prog.done .stg-bar::after { display: none; }
+.stg-prog.done .stg-run { display: none; }
 .stg-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 7px; font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .stg-meta .sep::before { content: "·"; margin: 0 7px; opacity: 0.6; }
 .stg-meta b { font-weight: 400; font-size: 9px; vertical-align: 1px; }
@@ -378,4 +380,4 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .logbox[open] > summary::before { transform: rotate(90deg); }
 .logbox > summary b { color: var(--text); font-weight: 600; }
 .log-last { font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
-@media (prefers-reduced-motion: reduce) { .stk-burst { display: none; } .stage.fx-enter .stk-layer, .stage.fx-exit .stk-layer, .stage.fx-exit .stk-layer .stk-face, .stage.fx-exit .stage-side > *, .stage.fx-exit .stg-bar i { animation: none !important; } .stk-layer.scan .stk-scan, .stage.edge-on .stk-outline, .fx-patch, .fx-sweep, .pin.new .pin-ring, .pin.new .pin-dot, .stg-bar::after, .stg-fig, .stk-drill, .stk-npth { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .stk-burst { display: none; } .stage.fx-enter .stk-layer, .stage.fx-exit .stk-layer, .stage.fx-exit .stk-layer .stk-face, .stage.fx-exit .stage-side > *, .stage.fx-exit .stg-bar i { animation: none !important; } .stk-layer.scan .stk-scan, .stage.edge-on .stk-outline, .fx-patch, .fx-sweep, .pin.new .pin-ring, .pin.new .pin-dot, .stg-run s::after, .stg-fig, .stk-drill, .stk-npth { animation: none !important; } }
