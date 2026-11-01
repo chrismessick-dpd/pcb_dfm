@@ -204,8 +204,8 @@ data.
 | Sharp inside corners of the outline and cutouts (router radius) | vector | audit 2026-10 |
 | BGA pad size (X2 BGAPad) | vector | audit 2026-10 |
 | Solder mask dam involving region openings | raster gap between openings | 2 (shipped) |
-| Copper-to-copper spacing (separate copper areas) | raster feature transform, sub-pixel measurement | 2 (shipped) |
-| Copper necks, wedges and sub-pixel hairlines in pours, pads and planes | raster ridge analysis | 2 (shipped) |
+| Copper-to-copper spacing (separate copper areas); same net is a warning, different nets an error | raster feature transform, sub-pixel measurement, IPC-356 nets | 2 (shipped) |
+| Copper necks, wedges and sub-pixel hairlines in pours, pads and planes; necks that cut off part of a plane | raster ridge analysis, opening and whole-board connectivity | 2 (shipped) |
 | Acid traps (acute internal angle < 90° at copper junctions) | vector on track graph | 2 |
 | Via in pad (via hit inside a pasted SMD/BGA pad; checked against the profile's fill/cap setting) | vector | audit 2026-10 |
 | Isolated / unconnected copper (islands without drill or pad) | raster connected components | 2 (shipped) |
@@ -227,16 +227,43 @@ Spacing-type checks need geometry on the union of shapes, so they run on a raste
   on the medial line of a gap.
   - The gap is measured **sub-pixel**: integrate the uncovered fraction (1 − alpha) along the line
     between the two copper points.
-  - Calibrated on synthetic Gerbers it is within about ±3 µm at 25 µm/px. Findings within 5 µm of
-    the limit count as passing.
+  - The line between the two copper points is extended past each of them until the coverage is full
+    copper. Until 2026-10-31 it stopped at their pixel centers. Those pixels can be up to half empty,
+    so real gaps read up to about 15 µm short: a board drawn at exactly 0.127 mm (5 mil) showed
+    hundreds of 0.112 mm findings.
+  - Even so, the 25 µm reading depends on the gap's angle to the grid (up to about 6 µm low). Every
+    gap below the limit is re-measured on a small 4 µm patch, which agrees with the Gerber geometry
+    to about 1 µm. If the patch shows the two sides connected, it is a hairline, not a gap. Findings
+    within 5 µm of the limit count as passing.
+  - **Nets** (2026-10-31). With an IPC-356 netlist that lines up (`Fab.ipc356.points`), each copper
+    area in a tile takes the net of the pads and vias that land on it: through-hole pads and vias on
+    every layer, SMD pads on their side. Gaps between different nets are errors, since a bridge
+    shorts them. Gaps within one net (a ground thermal pad and its ring, a dense via field in a pour)
+    are warnings. Areas with no netlist point, or with two nets on one area, keep the width rule:
+    an error below 0.8 × the limit, a warning above it. Different-net gaps are listed first.
 - **Hairlines.** Copper thinner than a pixel (for example, where an edge pull-back and a via clearance
   almost meet on a plane) splits one area in two on the raster. The coverage profile across the
   "gap" gives it away: it never drops to background, or it shows a bump. These are reported as
   hairline slivers, not spacing.
+  - A hairline is an error only when it is the only link between its two sides. Most sit between two
+    via clearances that nearly touch, with the copper joined around them; those are warnings.
+  - Joined is tested on a whole-board raster after an opening by 0.75 × the minimum trace, so
+    neither the hairline nor a gap that closes up at that resolution counts as the link. Gaps with
+    no net on a side use the same test: one connected copper area is one net.
 - **Slivers.** Ridge pixels of the inside distance transform, with background on both sides of the
-  ridge, narrower than the minimum trace.
-  - **Necks:** narrowest point wider than 2 px. Reported one by one.
-  - **Wedges:** copper tapering to a point. Summarized per layer.
+  ridge, narrower than the minimum trace. They are classified by shape, not width. A morphological
+  opening by the minimum trace keeps the wide copper; the copper it removes is thin.
+  - **Necks:** thin copper that meets wide copper in two or more separate places, so copper runs
+    through it. Any width counts. Until 2026-10-31 necks narrower than 2 px were taken for wedges,
+    which hid a 32 µm neck that a fab caught on a plane. Also thin fingers wider than 2 px that
+    dead-end. Reported one by one, measured sub-pixel as the shortest of 16 chords through the
+    narrowest ridge pixel. Findings within 5 µm of the limit pass, as for spacing.
+  - **Plane cut-offs:** a neck whose two sides are different areas of wide copper on a whole-board
+    raster (tiles are too small to see a plane's other connections). It is the only link to that
+    area, so the finding is an error and gives the cut-off area and its plated holes.
+  - Other necks are warnings at any width: in dense via fields they are common, and the copper
+    around them stays connected.
+  - **Wedges:** thin copper that meets wide copper once and tapers to a point. Summarized per layer.
   - Narrow *drawn traces* are left to the exact vector check.
 - **Isolated copper.** A whole-board raster at ≥ 25 µm/px. Components with no plated hole, no flashed
   pad and no pad region are islands; those over 0.05 mm² are reported.
@@ -246,6 +273,13 @@ Spacing-type checks need geometry on the union of shapes, so they run on a raste
 Cost is about 0.4 s per copper layer on a 43 × 67 mm board, and about 2 s per layer on a
 100 × 100 mm board, on the main thread with the console updating per layer. A Blob-URL Web Worker is
 the next step if boards get bigger.
+
+Neck shape analysis, the whole-board connectivity map and the fine re-measure of near-limit gaps add
+about 40% on a dense 100 × 100 mm 6-layer board (2026-10-31): plane layers about 5.8 s instead of
+3.9 s, and the outer layer with the most near-limit gaps 8 s instead of 6.3 s, measured with the
+browser pane hidden. The shape analysis runs only on tiles that have thin copper. The opening grows
+the wide copper back with a small disc instead of a second distance transform. Re-measure patches
+are 1 mm squares shared by nearby gaps, painted with only the primitives that reach them.
 
 ### Fab rules and capability profiles (`assets/profiles.js`, Fab rules page)
 

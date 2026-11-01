@@ -61,7 +61,8 @@ Serves the tools folder; open `http://127.0.0.1:8767/pcb_dfm/?pkg=/__sample/<pat
 Generator) and the samples folder are listed in the local hand-over notes, not here. Verify changes
 by running the checks in the browser and comparing per-check counts
 (script: load with `Fab.loader.fromUrl`, `Fab.classify.build`, then `Fab.checks.package/assembly/
-build/pins/bom/dfm`). The demo sample shows exactly one finding per check (16 non-info).
+build/pins/bom/dfm`). The demo sample shows one finding per check except `sliver`, which has 14 real plane necks (29
+non-info; 16 before neck classification by shape, 2026-10-31).
 
 Before every commit: `python tools/stamp_version.py` (writes `assets/version.js`) and
 `python tools/sync_vendor.py --check`. Commit and push to `main` when the task says so.

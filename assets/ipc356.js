@@ -46,5 +46,18 @@
     return best;
   }
 
-  Fab.ipc356 = { parse, calibrate };
+  // Every netlist point (pads and vias) in board mm with its net, or null when there is no netlist
+  // or it doesn't line up with the Gerbers. access 0 = through all layers, 1 = top, more = bottom.
+  function points(pkg) {
+    if (pkg._netPoints !== undefined) return pkg._netPoints;
+    let out = null;
+    if (pkg.ipc356) {
+      const net = parse(pkg.ipc356.text());
+      const cal = net.recs.length ? calibrate(net, pkg) : null;
+      if (cal && cal.hit >= cal.of * 0.5) out = net.recs.filter(r => r.net && r.net !== 'N/C').map(r => ({ x: r.xr * cal.k, y: r.yr * cal.k, net: r.net, side: r.access === 0 ? null : r.access === 1 ? 'top' : 'bottom' }));
+    }
+    return (pkg._netPoints = out);
+  }
+
+  Fab.ipc356 = { parse, calibrate, points };
 })(window.Fab);
