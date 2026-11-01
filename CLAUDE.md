@@ -106,7 +106,7 @@ detail drawings, progress bar and transitions; finding preview; board fly-to; wa
 and the `security` branch (trusted deep-link repos, `cleanFinding`, SRI, SheetJS 0.20.3, CSP).
 Findings identical to `961ae01` on the demo (all three profiles) and both Generator packages.
 
-Store-first Send (2026-11-01, committed to local `main`, not pushed): Send to Signoff confirms (names the private repo
+Store-first Send (2026-11-01, pushed to `main` as `3a132d9`): Send to Signoff confirms (names the private repo
 and size; Cancel keeps everything in the browser), stores the run, then writes the issues with
 `stored` set; if storing fails nothing is sent unless "Send without storing". The Send panel shows
 the target repo or why it can't store (`repoRuns.readiness`/`probe`), and lists the runs stored with
@@ -114,6 +114,12 @@ the project (`listRuns`). Recent runs has "Store in project" (`storeKept`). Sign
 Fabcheck" to contractors too (Chris, 2026-11-01). Verified with `tests/fake-github.js` (it now answers
 the repo-info GET). The two real projects' runs were never stored; Chris chose re-sending new runs
 over backfilling.
+
+Board previews (2026-11-01): storing a run also writes `preview/top.webp`, `bottom.webp` and
+`index.json` beside the runs (`boardPreviews` in `app.js`, drawn off screen with the viewer's `bare`
+flag: realistic look, transparent, no scale bar; written in `repo.js` `upload`). Signoff PL shows
+them on its tiles. Contract: EE's `docs/fabcheck-link.md`, *Board previews*. "Store in project" for a
+kept run has no parsed board, so it leaves the previews alone.
 
 Open:
 - Not built yet: acid traps (needs a trace graph), text-height check, microvia/HDI profile, revision

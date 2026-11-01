@@ -103,6 +103,7 @@
       this.scratch2 = document.createElement('canvas');
       this.scratch3 = document.createElement('canvas');
       this.photo = false; // realistic look: substrate, mask, finish and silkscreen in their real colors
+      this.bare = false;  // a picture to save (board previews): no background or scale bar
       this.layers = []; // {id, label, layer|null, kind, color, alpha, visible}
       this.view = { cx: 0, cy: 0, scale: 10, flip: false };
       this.markers = [];
@@ -238,9 +239,10 @@
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       const css = getComputedStyle(document.documentElement);
       ctx.fillStyle = css.getPropertyValue('--canvas-bg').trim() || '#1c1c1e';
-      ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      if (this.bare) ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+      else ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
       if (!this.pkg) return;
-      if (this.photo) { this._drawPhoto(ctx, css); this._drawOverlays(ctx); ctx.setTransform(d, 0, 0, d, 0, 0); this._drawMarkers(ctx); this._drawScale(ctx); return; }
+      if (this.photo) { this._drawPhoto(ctx, css); this._drawOverlays(ctx); ctx.setTransform(d, 0, 0, d, 0, 0); this._drawMarkers(ctx); if (!this.bare) this._drawScale(ctx); return; }
       // Substrate
       ctx.save(); this._applyModel(ctx);
       ctx.fillStyle = css.getPropertyValue('--board').trim() || '#16302f';

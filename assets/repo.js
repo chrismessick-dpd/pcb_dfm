@@ -78,6 +78,17 @@
     files.push({ path: pdir + 'manifest.json', text: json(pkgRec.manifest) });
     const stored1 = await Fab.store.getRun(run.id);
     files.push({ path: h.dir + 'runs/' + run.id + '.json', text: json({ run: runRec, findings: (stored1 && stored1.findings) || Fab.store.compactFindings(entry.findings) }) });
+    // The latest run's board pictures, for Signoff PL. Only a run open in this tab has the parsed
+    // board to draw, so "Store in project" for a kept run leaves the previews as they were.
+    const shots = Fab.boardPreviews ? await Fab.boardPreviews(entry).catch(() => []) : [];
+    if (shots.length) {
+      const images = shots.map(s => {
+        const file = s.key + (s.type === 'image/webp' ? '.webp' : '.png');
+        files.push({ path: h.dir + 'preview/' + file, bytes: s.bytes });
+        return { key: s.key, file, type: s.type, w: s.w, h: s.h };
+      });
+      files.push({ path: h.dir + 'preview/index.json', text: json({ v: 1, tool: 'fabcheck', runId: run.id, at: run.at || '', hero: images[0].key, images }) });
+    }
     const bytes = files.reduce((n, f) => n + (f.bytes ? f.bytes.length : f.text.length), 0);
     log('step', `Storing run ${run.id} in ${h.repo}/${h.dir}`);
     log('dim', `         ${files.length} files (${(bytes / 1048576).toFixed(2)} MB before compression); files already there are skipped`);

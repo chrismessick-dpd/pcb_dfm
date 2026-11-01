@@ -1030,7 +1030,7 @@
   // Nothing leaves the browser without saying where it goes; Cancel keeps it all here.
   function confirmStore(repo, pkgRec, what) {
     const mb = pkgRec ? pkgRec.files.reduce((n, f) => n + f.bytes.length, 0) / 1048576 : 0;
-    return confirm(`This run, its findings and the package files Fabcheck reads (Gerbers, drill, pick-and-place, BOM; ${mb.toFixed(2)} MB) will be stored in the private repository ${repo}, where everyone with access to the project can open them.\n\nOK to ${what}. Cancel to keep everything in this browser.`);
+    return confirm(`This run, its findings and the package files Fabcheck reads (Gerbers, drill, pick-and-place, BOM; ${mb.toFixed(2)} MB), plus top and bottom pictures of the board (about 50 kB), will be stored in the private repository ${repo}, where everyone with access to the project can open them.\n\nOK to ${what}. Cancel to keep everything in this browser.`);
   }
 
   // Where Send will store the run, or why it can't, from a cached check of the project's repo.
@@ -1202,6 +1202,36 @@
     const tag = $('#inspector .insp-prev-layer');
     if (tag) tag.textContent = plan.entry ? plan.entry.label + (plan.focusLayer && v.layers.some(L => L.visible && v._covers(L)) ? ' · covering layers dimmed' : '') : (v.view.flip ? 'Bottom side' : 'Top side');
   }
+
+  // Pictures of the board for Signoff PL, stored with a run (ee_design_review/docs/fabcheck-link.md,
+  // "Board previews"): the realistic look of each outer side, 640 px wide, transparent around the
+  // board, drawn off screen by a viewer of its own. Resolves [] when there's no outline to frame.
+  async function boardPreviews(e) {
+    if (!e || !e.pkg || !Fab.bbox.valid(e.pkg.boardBBox)) return [];
+    const bb = e.pkg.boardBBox, W = 640, H = Math.max(160, Math.min(640, Math.round(W * (bb[3] - bb[1]) / (bb[2] - bb[0] || 1))));
+    const box = document.createElement('div');
+    box.style.cssText = `position:fixed;left:-10000px;top:0;width:${W}px;height:${H}px;pointer-events:none`;
+    box.appendChild(document.createElement('canvas'));
+    document.body.appendChild(box);
+    try {
+      const v = new Fab.render.Viewer(box.firstChild), out = [];
+      v.photo = true; v.bare = true;
+      v.setPackage(e.pkg);
+      for (const side of ['top', 'bottom']) {
+        v.layers = layerEntries(e.pkg);
+        sideVisibility(v.layers, side);
+        v.view.flip = side === 'bottom';
+        v.resize(); v.fit(); v._draw();
+        const c = document.createElement('canvas');
+        c.width = W; c.height = H;
+        c.getContext('2d').drawImage(v.canvas, 0, 0, W, H);
+        const blob = await new Promise(r => c.toBlob(r, 'image/webp', 0.86));
+        if (blob) out.push({ key: side, type: blob.type, bytes: new Uint8Array(await blob.arrayBuffer()), w: W, h: H });
+      }
+      return out;
+    } finally { box.remove(); }
+  }
+  Fab.boardPreviews = boardPreviews;
 
   // From the preview to the board: the preview's picture grows into the board's own framing of the
   // finding (both are centered on it), then fades into the live board drawn underneath.
