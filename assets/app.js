@@ -664,11 +664,15 @@
       chips.push(v ? 'Variant ' + v.variant : (pkg.variants || []).length ? 'No variant' : null);
       if (pkg.odb) chips.push('ODB++');
     }
-    const sub = `<div class="chips">${chips.filter(Boolean).map(t => `<span class="chip">${esc(t)}</span>`).join('')}${e.pinned ? `<span class="chip">${e.pinned.editedSince ? 'Profile edited since this run' : "Run's saved rules"}</span>` : ''}</div>`;
+    // A compact head: "Fab package" and the name on one line, the package's facts on one line below.
+    const facts = chips.filter(Boolean).map(t => `<span>${esc(t)}</span>`);
+    if (e.pinned) facts.push(`<span class="ov-note">${e.pinned.editedSince ? 'Profile edited since this run' : "Run's saved rules"}</span>`);
+    const head = `<div class="page-head ov-head"><div class="page-head-text"><div class="ov-title"><span class="eyebrow">Fab package</span>` +
+      `<h1 class="page-title" title="${esc(e.label)}">${esc(e.label)}</h1></div>${facts.length ? `<div class="ov-meta">${facts.join('<i class="sep">·</i>')}</div>` : ''}</div>`;
     const back = signoffProject(e) ? `<button class="btn" data-act="back-signoff">Back to Signoff EE</button>` : '';
     // The fab profile sits with the button that re-checks with it.
     const actions = back + profileSelect(e) + `<button class="btn" data-act="rerun"${busy || !pkg ? ' disabled' : ''}>Run checks again</button><button class="btn btn-primary" data-act="view" data-view="board"${!pkg ? ' disabled' : ''}>Open board</button>`;
-    let h = `<div class="page wide">` + pageHead(e, 'Fab package', e.label, sub, actions);
+    let h = `<div class="page wide">` + head + `<div class="chips ov-actions">${actions}</div></div>`;
     const stat = (cls, n, label, sev) => `<button class="card stat ${cls}" style="border:none;text-align:left" data-act="sev" data-sev="${sev}"><div class="stat-num">${busy ? '–' : n}</div><div class="stat-label">${label}</div></button>`;
     // The inspection stage leads the page, with its log folded under it; the totals follow.
     const stageHtml = Fab.stage && pkg && (e.status === 'running' || e.status === 'ready') ? Fab.stage.html(e, profile(e)) : '';

@@ -37,6 +37,16 @@
 .tb-field { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-3); }
 .tb-field select, .tb-field input { border: none; border-radius: 8px; background: var(--bg-sunk); padding: 5px 8px; font-size: 12.5px; outline: none; }
 .tb-field input { width: 58px; text-align: right; }
+/* Overview head, compact: label and name on one line, the package's facts on a muted line below. */
+.ov-head { align-items: center; gap: 12px 20px; margin-bottom: 16px; }
+.ov-title { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.ov-title .eyebrow { margin: 0; flex: none; }
+.ov-head .page-title { font-size: 22px; line-height: 1.2; margin: 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov-meta { margin-top: 3px; font-size: 12.5px; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov-meta .sep { font-style: normal; margin: 0 6px; opacity: 0.6; }
+.ov-meta .ov-note { color: var(--accent-ink); }
+.ov-actions { flex: none; align-items: center; }
+@media (max-width: 860px) { .ov-head { align-items: stretch; } .ov-meta { white-space: normal; } .ov-head .page-title { font-size: 20px; } }
 /* In the page head, beside the buttons: their height, so the row lines up. */
 .page-head .tb-field { margin-right: 4px; }
 .page-head .tb-field select { padding: 8px 10px; font-size: 13px; color: var(--text); }
