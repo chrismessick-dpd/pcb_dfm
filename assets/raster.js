@@ -68,21 +68,33 @@
   }
 
   // ---- 8-connected component labeling (union-find) ----
+  // Neighbors are visited left, up-left, up, up-right with no per-pixel allocation; labels are
+  // renumbered in scan order, so the result depends only on the mask.
   function label(mask, W, H) {
     const lab = new Int32Array(W * H);
-    const parent = [0];
+    let parent = new Int32Array(1024), np = 1;
     const find = a => { while (parent[a] !== a) { parent[a] = parent[parent[a]]; a = parent[a]; } return a; };
     const union = (a, b) => { a = find(a); b = find(b); if (a !== b) { if (a < b) parent[b] = a; else parent[a] = b; } };
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-      const i = y * W + x;
-      if (!mask[i]) continue;
-      let l = 0;
-      const nb = [x > 0 ? i - 1 : -1, y > 0 && x > 0 ? i - W - 1 : -1, y > 0 ? i - W : -1, y > 0 && x < W - 1 ? i - W + 1 : -1];
-      for (const j of nb) if (j >= 0 && lab[j]) { if (!l) l = lab[j]; else if (lab[j] !== l) union(l, lab[j]); }
-      if (!l) { l = parent.length; parent.push(l); }
-      lab[i] = l;
+    for (let y = 0; y < H; y++) {
+      const row = y * W;
+      for (let x = 0; x < W; x++) {
+        const i = row + x;
+        if (!mask[i]) continue;
+        let l = 0, j;
+        if (x > 0 && (j = lab[i - 1])) l = j;
+        if (y > 0) {
+          if (x > 0 && (j = lab[i - W - 1])) { if (!l) l = j; else if (j !== l) union(l, j); }
+          if ((j = lab[i - W])) { if (!l) l = j; else if (j !== l) union(l, j); }
+          if (x < W - 1 && (j = lab[i - W + 1])) { if (!l) l = j; else if (j !== l) union(l, j); }
+        }
+        if (!l) {
+          if (np === parent.length) { const p2 = new Int32Array(np * 2); p2.set(parent); parent = p2; }
+          l = np; parent[np] = np; np++;
+        }
+        lab[i] = l;
+      }
     }
-    const remap = new Int32Array(parent.length);
+    const remap = new Int32Array(np);
     let n = 0;
     for (let i = 0; i < lab.length; i++) if (lab[i]) {
       const r = find(lab[i]);
@@ -107,16 +119,28 @@
   }
   const inside = (b, x, y) => x >= b[0] && x < b[2] && y >= b[1] && y < b[3];
 
-  // Group points into clusters no farther than r apart (greedy), keeping the smallest value.
+  // Group points into clusters no farther than r apart (greedy), keeping the smallest value. Each point
+  // joins the earliest-made cluster of its key within r. Cluster centers sit in a grid of r-sized cells
+  // (re-binned when a center moves), so long runs of points don't compare against every cluster.
   function cluster(points, r) {
-    const out = [];
+    const out = [], cells = new Map();
+    const put = c => { c._k = Math.floor(c.x / r) + ',' + Math.floor(c.y / r); let a = cells.get(c._k); if (!a) cells.set(c._k, a = []); a.push(c); };
     for (const p of points) {
       let c = null;
-      for (const q of out) if (q.key === p.key && Math.hypot(q.x - p.x, q.y - p.y) < r) { c = q; break; }
-      if (!c) { out.push(Object.assign({ n: 1, bbox: [p.x, p.y, p.x, p.y] }, p)); continue; }
+      const cx = Math.floor(p.x / r), cy = Math.floor(p.y / r);
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const a = cells.get((cx + dx) + ',' + (cy + dy));
+        if (a) for (const q of a) if (q.key === p.key && (!c || q._n < c._n) && Math.hypot(q.x - p.x, q.y - p.y) < r) c = q;
+      }
+      if (!c) { const n = Object.assign({ n: 1, bbox: [p.x, p.y, p.x, p.y] }, p); n._n = out.length; out.push(n); put(n); continue; }
       c.n++; Fab.bbox.addPt(c.bbox, p.x, p.y);
-      if (p.v < c.v) { c.v = p.v; c.x = p.x; c.y = p.y; c.a = p.a; c.b = p.b; }
+      if (p.v < c.v) {
+        const a = cells.get(c._k); a.splice(a.indexOf(c), 1);
+        c.v = p.v; c.x = p.x; c.y = p.y; c.a = p.a; c.b = p.b;
+        put(c);
+      }
     }
+    for (const c of out) { delete c._n; delete c._k; }
     return out;
   }
 
@@ -186,17 +210,19 @@
     for (let y = 0; y < H - 1; y++) for (let x = 0; x < W - 1; x++) {
       const p = y * W + x;
       if (mask[p] || dist[p] > band) continue;
-      for (const q of [p + 1, p + W]) {
+      for (let s = 0; s < 2; s++) {
+        const q = s ? p + W : p + 1;
         const a = near[p], b = near[q];
         const la = lab[a], lb = lab[b];
         if (!la || !lb || la === lb) continue;
         // Cheap pre-filter on pixel centres (can be one pixel off), then a sub-pixel measurement.
         if (Math.hypot((a % W) - (b % W), Math.floor(a / W) - Math.floor(b / W)) - 1 >= limPx + 1) continue;
-        const m = subpixelGap(R, a, b), gpx = m.gap;
-        if (gpx >= limPx) continue;
+        // The midpoint is known before measuring: gaps in the tile margin belong to the next tile.
         const [ax, ay] = R.mm(a), [bx, by] = R.mm(b);
         const mx = (ax + bx) / 2, my = (ay + by) / 2;
         if (!inside(interior, mx, my)) continue;
+        const m = subpixelGap(R, a, b), gpx = m.gap;
+        if (gpx >= limPx) continue;
         pts.push({ key: Math.min(la, lb) + ':' + Math.max(la, lb), x: mx, y: my, v: gpx * res, hair: m.hair, a: [ax, ay], b: [bx, by], na: netOf(la), nb: netOf(lb) });
       }
     }
@@ -205,19 +231,47 @@
 
   // Morphological opening of the copper by a disc of radius rho px: the copper at least 2·rho wide.
   // Returns the opened mask; dist is the inside distance transform of mask (px²).
+  // dist may be null: the core (copper with no background within rho, i.e. dist > rho²) is then found
+  // by testing the few pixels within rho directly. Squared pixel distances are integers, so this is the
+  // same set the distance transform gives, without computing one.
   function opening(mask, dist, W, H, rho) {
     const r2 = rho * rho, g = rho + 0.5, R = Math.ceil(g), offs = [];
     for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) if (dx * dx + dy * dy <= g * g) offs.push([dx, dy]);
+    const core = new Uint8Array(W * H);
+    if (dist) { for (let i = 0; i < core.length; i++) if (mask[i] && dist[i] > r2) core[i] = 1; }
+    else {
+      // Background count per row prefix, so each row of the disc is one window lookup (clipped to the
+      // image: pixels outside it are not background, as in the distance transform).
+      const Rc = Math.floor(rho), half = [];
+      for (let dy = -Rc; dy <= Rc; dy++) half.push(Math.floor(Math.sqrt(r2 - dy * dy)));
+      const pre = new Int32Array((W + 1) * H);
+      for (let y = 0; y < H; y++) {
+        const o = y * (W + 1), m = y * W;
+        for (let x = 0; x < W; x++) pre[o + x + 1] = pre[o + x] + (mask[m + x] ? 0 : 1);
+      }
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const i = y * W + x;
+        if (!mask[i]) continue;
+        let c = 1;
+        for (let k = 0; k < half.length; k++) {
+          const yy = y + k - Rc;
+          if (yy < 0 || yy >= H) continue;
+          const h = half[k], o = yy * (W + 1);
+          if (pre[o + Math.min(W, x + h + 1)] - pre[o + Math.max(0, x - h)]) { c = 0; break; }
+        }
+        core[i] = c;
+      }
+    }
     // Grow the core back by rho with a disc: rho is a few pixels, so this is much cheaper than a
     // second distance transform. Pixels in the core are open already.
     const open = new Uint8Array(W * H);
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       const i = y * W + x;
       if (!mask[i]) continue;
-      if (dist[i] > r2) { open[i] = 1; continue; }
+      if (core[i]) { open[i] = 1; continue; }
       for (const [dx, dy] of offs) {
         const xx = x + dx, yy = y + dy;
-        if (xx >= 0 && yy >= 0 && xx < W && yy < H && dist[yy * W + xx] > r2) { open[i] = 1; break; }
+        if (xx >= 0 && yy >= 0 && xx < W && yy < H && core[yy * W + xx]) { open[i] = 1; break; }
       }
     }
     return open;
@@ -258,9 +312,12 @@
   // Each sliver is then classified by shape, not width: thin copper (outside the opening by lim) that
   // meets wide copper in two or more places is a neck that carries copper through, however narrow;
   // thin copper that meets it once is a wedge or finger that dead-ends.
-  function slivers(R, interior, lim) {
+  // keep(cluster), when given, drops leftover clusters before they are measured (drawn traces, which
+  // the caller drops anyway); necks are kept regardless.
+  function slivers(R, interior, lim, keep) {
     const { mask, W, H, res } = R;
     const { dist, near } = featureTransform(mask, W, H, 0);
+    const N8 = [-1, 1, -W, W, -W - 1, -W + 1, W - 1, W + 1];
     const bgNear = (x, y) => {
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
         const xx = x + dx, yy = y + dy;
@@ -276,7 +333,7 @@
       const w = (2 * Math.sqrt(dp) - 1) * res;
       if (w >= lim || w <= 0) continue;
       let ridge = true;
-      for (const q of [p - 1, p + 1, p - W, p + W, p - W - 1, p - W + 1, p + W - 1, p + W + 1]) if (dist[q] > dp) { ridge = false; break; }
+      for (let k = 0; k < 8; k++) if (dist[p + N8[k]] > dp) { ridge = false; break; }
       if (!ridge) continue;
       const nb = near[p];
       if (!bgNear(2 * x - (nb % W), 2 * y - Math.floor(nb / W))) continue;
@@ -295,7 +352,7 @@
     for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
       const p = y * W + x;
       if (!thin[p]) continue;
-      for (const q of [p - 1, p + 1, p - W, p + W, p - W - 1, p - W + 1, p + W - 1, p + W + 1]) if (open[q]) { touch[p] = 1; side.set(p, q); break; }
+      for (let k = 0; k < 8; k++) { const q = p + N8[k]; if (open[q]) { touch[p] = 1; side.set(p, q); break; } }
     }
     const cl = label(touch, W, H).lab, contacts = new Map(); // thin component -> Map(contact -> wide pixel)
     for (const [p, q] of side) {
@@ -342,7 +399,7 @@
       out.push(n);
     }
     for (const c of cluster(rest, 0.5)) {
-      if (c.n < 3) continue;
+      if (c.n < 3 || (keep && !keep(c))) continue;
       if (c.v >= 2 * res) { const sw = crossWidth(R, c.p, maxPx); if (sw != null) c.v = sw * res; }
       out.push(c);
     }
@@ -359,10 +416,9 @@
     const res = Math.max(0.025, Math.sqrt((bb[2] - bb[0]) * (bb[3] - bb[1]) / 12e6));
     const W = Math.ceil((bb[2] - bb[0]) / res), H = Math.ceil((bb[3] - bb[1]) / res);
     const R = rasterize(pkg, layer, bb[0], bb[1], W, H, res);
-    const { dist } = featureTransform(R.mask, W, H, 0);
     // At least 1.5 px: this raster can't resolve copper under about 3 px, so a neck that narrow must
     // not count as a connection even when the profile's minimum trace is finer (Advanced, 0.075 mm).
-    const { lab, n } = label(opening(R.mask, dist, W, H, Math.max(1.5, 0.75 * lim / res / 2)), W, H);
+    const { lab, n } = label(opening(R.mask, null, W, H, Math.max(1.5, 0.75 * lim / res / 2)), W, H);
     return (layer._wide = { pkg, lim, bb, res, W, H, ytop: R.ytop, lab, n });
   }
 
@@ -430,21 +486,132 @@
     return Math.max(want, Math.sqrt(Math.max(1, (bb[2] - bb[0]) * (bb[3] - bb[1])) / 60e6));
   }
 
-  function copperSpacing(pkg, layer, prof, add, MAX) {
+  // Tiles, raster resolution and netlist seeds for one copper layer's spacing and sliver pass.
+  function copperPlan(pkg, layer, prof) {
     const bb = Fab.bbox.grow(pkg.boardBBox, 0.5);
     const res = pickRes(prof, bb);
     const margin = Math.max(prof.minSpace, prof.minTrace) + 20 * res;
-    const name = layer.file.name;
-    const neg = layer.polarity === 'negative';
     // Netlist points on this layer: through-hole pads and vias reach every layer, SMD pads one side.
     const pts = Fab.ipc356 && Fab.ipc356.points(pkg);
     const seeds = pts && pts.filter(p => !p.side || p.side === layer.side);
+    return { res, tiles: tiles(bb, res, margin), seeds };
+  }
+
+  // ---- worker pool ----
+  // The per-tile kernels (labeling, distance transforms, gaps, slivers) are pure functions of the
+  // painted tile, so they run in Blob-URL workers built from these same functions; painting stays on
+  // the main thread (it needs the canvas). Without workers, everything runs here as before.
+  let pool = null;
+  function workerSource() {
+    const fns = [edt1d, featureTransform, label, cluster, subpixelGap, netsOf, gaps, opening, crossWidth, slivers, islandKernel];
+    return `'use strict';
+const INF = ${INF};
+const inside = ${inside.toString()};
+const Fab = { bbox: { ${Fab.bbox.addPt.toString()} } };
+${fns.map(f => f.toString()).join('\n')}
+onmessage = e => {
+  const j = e.data;
+  try {
+    if (j.kind === 'islands') { postMessage(Object.assign({ id: j.id }, islandKernel(j.mask, j.W, j.H, j.x0, j.ytop, j.res, j.seeds))); return; }
+    const R = { mask: j.mask, alpha: j.alpha, W: j.W, H: j.H, x0: j.x0, ytop: j.ytop, res: j.res };
+    R.mm = i => [R.x0 + ((i % R.W) + 0.5) * R.res, R.ytop - (Math.floor(i / R.W) + 0.5) * R.res];
+    const out = { id: j.id };
+    if (j.gapLim) out.gaps = gaps(R, j.interior, j.gapLim, j.seeds);
+    if (j.sliverLim) out.thin = slivers(R, j.interior, j.sliverLim);
+    postMessage(out);
+  } catch (err) { postMessage({ id: j.id, error: String(err && err.stack || err) }); }
+};`;
+  }
+  function getPool() {
+    if (pool !== null) return pool;
+    try {
+      if (typeof Worker === 'undefined' || typeof Blob === 'undefined') throw new Error('no workers');
+      // Each busy worker holds about 100 MB of distance-transform arrays for a 2048 px tile.
+      const n = Math.max(2, Math.min(6, (navigator.hardwareConcurrency || 4) - 1));
+      const url = URL.createObjectURL(new Blob([workerSource()], { type: 'text/javascript' }));
+      const ws = [];
+      for (let i = 0; i < n; i++) ws.push(new Worker(url));
+      pool = { ws, free: ws.slice(), queue: [], cb: new Map(), id: 0 };
+      for (const w of ws) {
+        const done = data => { const f = pool.cb.get(w._job); pool.cb.delete(w._job); w._job = 0; pool.free.push(w); if (f) f(data); pump(); };
+        w.onmessage = e => done(e.data);
+        w.onerror = e => { e.preventDefault(); done({ error: e.message || 'worker error' }); };
+      }
+    } catch (e) { pool = false; }
+    return pool;
+  }
+  function pump() {
+    while (pool.free.length && pool.queue.length) {
+      const w = pool.free.pop(), q = pool.queue.shift();
+      q.job.id = w._job = ++pool.id;
+      pool.cb.set(q.job.id, q.res);
+      w.postMessage(q.job, q.transfer);
+    }
+  }
+  const runJob = (job, transfer) => new Promise(res => { pool.queue.push({ job, transfer, res }); pump(); });
+
+  // Paint every raster job of the DFM pass (copper spacing and sliver tiles, whole-board islands
+  // rasters, mask dam tiles) and analyze them in the workers, all at once. Resolves to
+  // { copper, islands, mask }, each a Map(layer -> results), or null without workers. A job that
+  // failed is left empty, and its check runs it on the main thread.
+  async function prepareRaster(pkg, L, prof) {
+    if (!getPool()) return null;
+    const out = { copper: new Map(), islands: new Map(), mask: new Map() }, waits = [];
+    const submit = async (job, transfer, done) => {
+      waits.push(runJob(job, transfer).then(r => {
+        if (r.error) console.warn('Fabcheck worker failed; this job runs on the main thread.', r.error);
+        else done(r);
+      }));
+      // Keep only a few painted rasters waiting, so their buffers don't pile up in memory.
+      if (waits.length > 2 * pool.ws.length) await waits[waits.length - 1 - 2 * pool.ws.length];
+    };
+    for (const layer of L.copper) {
+      const plan = copperPlan(pkg, layer, prof), arr = [];
+      out.copper.set(layer, arr);
+      for (let k = 0; k < plan.tiles.length; k++) {
+        const t = plan.tiles[k];
+        const R = rasterize(pkg, layer, t.x0, t.y0, t.W, t.H, plan.res);
+        await submit({ mask: R.mask, alpha: R.alpha, W: R.W, H: R.H, x0: R.x0, ytop: R.ytop, res: R.res, interior: t.interior, gapLim: prof.minSpace, sliverLim: prof.minTrace, seeds: plan.seeds },
+          [R.mask.buffer, R.alpha.buffer], r => { arr[k] = r; });
+      }
+    }
+    for (const layer of L.copper) {
+      const p = islandPlan(pkg, layer);
+      const R = rasterize(pkg, layer, p.bb[0], p.bb[1], p.W, p.H, p.res);
+      await submit({ kind: 'islands', mask: R.mask, W: p.W, H: p.H, x0: p.bb[0], ytop: R.ytop, res: p.res, seeds: p.seeds }, [R.mask.buffer], r => out.islands.set(layer, r));
+    }
+    const mp = maskPlan(pkg, prof);
+    for (const side of ['top', 'bottom']) {
+      const layer = L.mask[side];
+      if (!layer) continue;
+      const arr = [];
+      out.mask.set(layer, arr);
+      for (let k = 0; k < mp.tiles.length; k++) {
+        const t = mp.tiles[k];
+        const R = rasterize(pkg, layer, t.x0, t.y0, t.W, t.H, mp.res);
+        await submit({ mask: R.mask, alpha: R.alpha, W: R.W, H: R.H, x0: R.x0, ytop: R.ytop, res: R.res, interior: t.interior, gapLim: prof.minMaskDam },
+          [R.mask.buffer, R.alpha.buffer], r => { arr[k] = r; });
+      }
+    }
+    await Promise.all(waits);
+    return out;
+  }
+
+  // done: this layer's per-tile results from prepareRaster, if any.
+  function copperSpacing(pkg, layer, prof, add, MAX, done) {
+    const { res, tiles: plan, seeds } = copperPlan(pkg, layer, prof);
+    const name = layer.file.name;
+    const neg = layer.polarity === 'negative';
+    // Narrow drawn traces are reported by the vector trace check; the sliver check skips them.
+    const onTrace = neg ? null : s => Fab.checks.primsAt(layer, s.x, s.y, p => p.k === 'L' || p.k === 'A').length > 0;
     let gapsAll = [], thin = [];
-    for (const t of tiles(bb, res, margin)) {
+    plan.forEach((t, k) => {
+      const r = done && done[k];
+      if (r) { gapsAll = gapsAll.concat(r.gaps); thin = thin.concat(r.thin); return; }
       const R = rasterize(pkg, layer, t.x0, t.y0, t.W, t.H, res);
       gapsAll = gapsAll.concat(gaps(R, t.interior, prof.minSpace, seeds));
-      thin = thin.concat(slivers(R, t.interior, prof.minTrace));
-    }
+      thin = thin.concat(slivers(R, t.interior, prof.minTrace, onTrace && (s => !onTrace(s))));
+    });
     const tol = `measured on a ${Math.round(res * 1000)} µm raster with sub-pixel edges, about ±5 µm`;
     gapsAll = gapsAll.filter(g => g.v < prof.minSpace - TOL);
     // Near the limit the coarse reading depends on the gap's angle to the pixel grid and runs up to
@@ -518,7 +685,7 @@
       add('spacing', 'warn', `…${rest.length} more spacing findings on ${name}`, same ? `${same} of them between copper on the same net.` : '');
     }
     // Narrow drawn traces are already reported by the vector trace check; keep pours, pads and planes.
-    if (!neg) thin = thin.filter(s => !Fab.checks.primsAt(layer, s.x, s.y, p => p.k === 'L' || p.k === 'A').length);
+    if (!neg) thin = thin.filter(s => !onTrace(s));
     // A wedge (copper tapering to a point, e.g. where a round clearance meets a straight one) dead-ends
     // and narrows to about one pixel. A neck carries copper through (it meets wide copper on two sides),
     // or is a finger wider than that. Report necks one by one, wedges as a summary.
@@ -547,15 +714,20 @@
     return { res, gaps: gapsAll.length, slivers: necks.length };
   }
 
-  function maskDams(pkg, layer, prof, add, MAX) {
+  function maskPlan(pkg, prof) {
     const bb = Fab.bbox.grow(pkg.boardBBox, 0.5);
     const res = pickRes(prof, bb);
-    const margin = prof.minMaskDam + 20 * res;
+    return { res, tiles: tiles(bb, res, prof.minMaskDam + 20 * res) };
+  }
+  // done: this mask layer's per-tile gap results from prepareRaster, if any.
+  function maskDams(pkg, layer, prof, add, MAX, done) {
+    const { res, tiles: plan } = maskPlan(pkg, prof);
     let all = [];
-    for (const t of tiles(bb, res, margin)) {
+    plan.forEach((t, k) => {
+      if (done && done[k]) { all = all.concat(done[k].gaps); return; }
       const R = rasterize(pkg, layer, t.x0, t.y0, t.W, t.H, res);
       all = all.concat(gaps(R, t.interior, prof.minMaskDam));
-    }
+    });
     all = all.filter(g => g.v < prof.minMaskDam - TOL);
     // Dams between two flashed openings are measured exactly by the vector check already.
     const flashAt = (x, y) => Fab.checks.primsAt(layer, x, y, p => p.k === 'F').length > 0;
@@ -569,33 +741,48 @@
     return { res, count: all.length };
   }
 
-  // Copper areas not connected to any pad, via or plated hole on this layer.
-  function islands(pkg, layer, prof, add, MAX) {
+  // Whole-board raster and seed points (plated holes, flashed pads, pad regions) for islands().
+  function islandPlan(pkg, layer) {
     const bb = Fab.bbox.grow(pkg.boardBBox, 0.2);
     const res = Math.max(0.025, Math.sqrt((bb[2] - bb[0]) * (bb[3] - bb[1]) / 12e6));
     const W = Math.ceil((bb[2] - bb[0]) / res), H = Math.ceil((bb[3] - bb[1]) / res);
-    const R = rasterize(pkg, layer, bb[0], bb[1], W, H, res);
-    const { lab, n } = label(R.mask, W, H);
-    const seeded = new Uint8Array(n + 1);
-    const seed = (x, y) => {
-      const i = Math.floor((R.ytop - y) / res) * W + Math.floor((x - bb[0]) / res);
-      if (i >= 0 && i < lab.length && lab[i]) seeded[lab[i]] = 1;
-    };
-    for (const h of pkg.hits) if (h.plated) seed(h.x, h.y);
-    for (const s of pkg.slots) if (s.plated) { seed(s.x1, s.y1); seed(s.x2, s.y2); }
-    if (layer.polarity !== 'negative') for (const p of layer.prims) if (p.dark && p.k === 'F') seed(p.x, p.y);
+    const xy = [];
+    for (const h of pkg.hits) if (h.plated) xy.push(h.x, h.y);
+    for (const s of pkg.slots) if (s.plated) xy.push(s.x1, s.y1, s.x2, s.y2);
+    if (layer.polarity !== 'negative') for (const p of layer.prims) if (p.dark && p.k === 'F') xy.push(p.x, p.y);
     // Component pads drawn as regions (X2 AperFunction …Pad)
-    if (layer.polarity !== 'negative') for (const p of layer.prims) if (p.dark && p.k === 'R' && /Pad/i.test(p.fn || '')) { const c = Fab.bbox.center(p.bbox); seed(c.x, c.y); }
+    if (layer.polarity !== 'negative') for (const p of layer.prims) if (p.dark && p.k === 'R' && /Pad/i.test(p.fn || '')) { const c = Fab.bbox.center(p.bbox); xy.push(c.x, c.y); }
+    return { bb, res, W, H, seeds: new Float64Array(xy) };
+  }
+  // Unseeded copper areas of a whole-board mask, in scan order, and the copper pixel count.
+  function islandKernel(mask, W, H, x0, ytop, res, seeds) {
+    const { lab, n } = label(mask, W, H);
+    const seeded = new Uint8Array(n + 1);
+    for (let k = 0; k < seeds.length; k += 2) {
+      const i = Math.floor((ytop - seeds[k + 1]) / res) * W + Math.floor((seeds[k] - x0) / res);
+      if (i >= 0 && i < lab.length && lab[i]) seeded[lab[i]] = 1;
+    }
     const area = new Float64Array(n + 1), box = new Map();
+    let cu = 0;
     for (let i = 0; i < lab.length; i++) {
       const l = lab[i];
+      if (l) cu++;
       if (!l || seeded[l]) continue;
       area[l] += res * res;
-      const x = bb[0] + ((i % W) + 0.5) * res, y = R.ytop - (Math.floor(i / W) + 0.5) * res;
+      const x = x0 + ((i % W) + 0.5) * res, y = ytop - (Math.floor(i / W) + 0.5) * res;
       const b = box.get(l);
       if (!b) box.set(l, [x, y, x, y]); else Fab.bbox.addPt(b, x, y);
     }
-    const found = [...box.entries()].map(([l, b]) => ({ l, b, a: area[l] })).filter(x => x.a >= prof.isoMinArea).sort((x, y) => y.a - x.a);
+    return { areas: [...box.entries()].map(([l, b]) => ({ l, b, a: area[l] })), cu };
+  }
+
+  // Copper areas not connected to any pad, via or plated hole on this layer. done: the worker's
+  // islandKernel result for this layer, if any.
+  function islands(pkg, layer, prof, add, MAX, done) {
+    const { bb, res, W, H, seeds } = islandPlan(pkg, layer);
+    let k = done;
+    if (!k) { const R = rasterize(pkg, layer, bb[0], bb[1], W, H, res); k = islandKernel(R.mask, W, H, bb[0], R.ytop, res, seeds); }
+    const found = k.areas.filter(x => x.a >= prof.isoMinArea).sort((x, y) => y.a - x.a);
     const name = layer.file.name;
     for (const f of found.slice(0, MAX)) {
       const c = Fab.bbox.center(f.b);
@@ -604,10 +791,8 @@
         { at: { x: c.x, y: c.y }, bbox: Fab.bbox.grow(f.b, 0.2), layer: name, value: f.a });
     }
     if (found.length > MAX) add('isolated', 'warn', `…${found.length - MAX} more isolated copper areas on ${name}`, '');
-    let cu = 0;
-    for (let i = 0; i < R.mask.length; i++) if (R.mask[i]) cu++;
-    return { res, count: found.length, copperArea: cu * res * res };
+    return { res, count: found.length, copperArea: k.cu * res * res };
   }
 
-  Fab.raster = { rasterize, featureTransform, label, gaps, slivers, copperSpacing, maskDams, islands, edt1d };
+  Fab.raster = { rasterize, featureTransform, label, opening, gaps, slivers, copperSpacing, prepareRaster, maskDams, islands, edt1d };
 })(window.Fab);

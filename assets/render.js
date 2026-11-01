@@ -100,6 +100,9 @@
       this.ctx = canvas.getContext('2d');
       this.scratch = document.createElement('canvas');
       this.knockC = document.createElement('canvas');
+      this.scratch2 = document.createElement('canvas');
+      this.scratch3 = document.createElement('canvas');
+      this.photo = false; // realistic look: substrate, mask, finish and silkscreen in their real colors
       this.layers = []; // {id, label, layer|null, kind, color, alpha, visible}
       this.view = { cx: 0, cy: 0, scale: 10, flip: false };
       this.markers = [];
@@ -113,6 +116,7 @@
 
     setPackage(pkg) {
       this.pkg = pkg;
+      this.focusLayer = null;
       this.boardPath = outlinePath(pkg.layers.outline);
       this._fitted = false;
       this.fit();
@@ -123,7 +127,7 @@
       const dpr = window.devicePixelRatio || 1;
       this.dpr = dpr;
       this.W = Math.max(1, r.width); this.H = Math.max(1, r.height);
-      for (const c of [this.canvas, this.scratch, this.knockC]) { c.width = Math.round(this.W * dpr); c.height = Math.round(this.H * dpr); }
+      for (const c of [this.canvas, this.scratch, this.knockC, this.scratch2, this.scratch3]) { c.width = Math.round(this.W * dpr); c.height = Math.round(this.H * dpr); }
       this.canvas.style.width = this.W + 'px'; this.canvas.style.height = this.H + 'px';
       // The board pane may have been hidden when the package loaded; fit once it has a size.
       if (this.pkg && !this._fitted && r.width > 10 && r.height > 10) { this.fit(); return; }
@@ -206,6 +210,7 @@
       ctx.fillStyle = css.getPropertyValue('--canvas-bg').trim() || '#1c1c1e';
       ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
       if (!this.pkg) return;
+      if (this.photo) { this._drawPhoto(ctx, css); this._drawOverlays(ctx); ctx.setTransform(d, 0, 0, d, 0, 0); this._drawMarkers(ctx); this._drawScale(ctx); return; }
       // Substrate
       ctx.save(); this._applyModel(ctx);
       ctx.fillStyle = css.getPropertyValue('--board').trim() || '#16302f';
@@ -216,6 +221,7 @@
       // Draw far side first so the near side sits on top.
       order.sort((a, b) => this._z(a) - this._z(b));
       for (const L of order) {
+        const dim = this._covers(L);
         sc.setTransform(1, 0, 0, 1, 0, 0);
         sc.globalCompositeOperation = 'source-over';
         sc.clearRect(0, 0, this.scratch.width, this.scratch.height);
@@ -228,7 +234,7 @@
         sc.globalCompositeOperation = 'source-in';
         sc.fillStyle = L.color;
         sc.fillRect(0, 0, this.scratch.width, this.scratch.height);
-        ctx.globalAlpha = L.alpha;
+        ctx.globalAlpha = L.alpha * (dim ? 0.15 : 1);
         ctx.drawImage(this.scratch, 0, 0);
         ctx.globalAlpha = 1;
       }
@@ -247,6 +253,65 @@
       if (L.kind === 'outline') return 60;
       const l = L.layer;
       return sideZ(l.side) * 10 + (typeZ[l.fn] != null ? typeZ[l.fn] : 0.5);
+    }
+
+    // The visible side as a fab builds it: substrate, copper under green solder mask, the exposed copper
+    // (mask openings over copper) in a gold finish, white silkscreen clipped at the openings, and the
+    // holes. Painted with the same painter as the checks, so the geometry is the checked geometry.
+    _drawPhoto(ctx, css) {
+      const L = this.pkg.layers, side = this.view.flip ? 'bottom' : 'top';
+      const cu = side === 'top' ? L.top : L.bottom, mask = L.mask[side], silk = L.silk[side];
+      const d = this.dpr, W = this.canvas.width, H = this.canvas.height;
+      const a = this.scratch.getContext('2d'), b = this.scratch2.getContext('2d');
+      const clear = c => { c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'source-over'; c.clearRect(0, 0, W, H); };
+      const tint = (c, color) => { c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = 'source-in'; c.fillStyle = color; c.fillRect(0, 0, W, H); c.globalCompositeOperation = 'source-over'; };
+      const put = (c, alpha) => { ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = alpha; ctx.drawImage(c.canvas, 0, 0); ctx.globalAlpha = 1; };
+      const board = c => { c.save(); this._applyModel(c); c.fillStyle = '#000'; c.fill(this.boardPath); c.restore(); };
+      // paintLayer sets its own compositing per primitive, so a layer used as a stencil is painted on
+      // its own canvas first and then combined with the operation wanted.
+      const z = this.scratch3.getContext('2d');
+      const combine = (c, layer, op) => { clear(z); this._drawGerber(z, layer); c.setTransform(1, 0, 0, 1, 0, 0); c.globalCompositeOperation = op; c.drawImage(this.scratch3, 0, 0); c.globalCompositeOperation = 'source-over'; };
+      // Board with a soft shadow, then bare laminate.
+      ctx.save(); this._applyModel(ctx);
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.55)'; ctx.shadowBlur = 24 * d; ctx.shadowOffsetY = 6 * d;
+      ctx.fillStyle = '#8a7f4a'; ctx.fill(this.boardPath);
+      ctx.restore();
+      // Copper.
+      if (cu) { clear(a); this._drawGerber(a, cu); tint(a, '#c47f43'); put(a, 1); }
+      // Solder mask: the board minus its openings, translucent so copper shows lighter beneath it.
+      if (mask) {
+        clear(b); board(b); combine(b, mask, 'destination-out');
+        tint(b, '#11683a'); put(b, 0.86);
+        // Exposed copper in the openings gets the finish.
+        if (cu) { clear(a); this._drawGerber(a, cu); combine(a, mask, 'destination-in'); tint(a, '#d8b45a'); put(a, 1); }
+      }
+      // Silkscreen, clipped where the mask is open (fabs clip legend ink off pads).
+      if (silk) {
+        clear(a); this._drawGerber(a, silk);
+        if (mask) combine(a, mask, 'destination-out');
+        tint(a, '#f3f3ee'); put(a, 0.95);
+      }
+      // Holes go through everything.
+      clear(a); this._drawDrills(a, true); this._drawDrills(a, false); tint(a, css.getPropertyValue('--canvas-bg').trim() || '#0b0c0e'); put(a, 1);
+    }
+
+    // Physical position in the stack: copper by its order (1..n); on each side silkscreen is outermost,
+    // then mask, then paste next to the copper.
+    _depth(l) {
+      const n = this.pkg.layers.copper.length, k = { silk: 0, mask: 0.3, paste: 0.6 }[l.fn];
+      if (l.fn === 'copper') return l.cuOrder;
+      if (k == null) return null;
+      return l.side === 'top' ? k : l.side === 'bottom' ? n + 1 - k : null;
+    }
+
+    // Does layer entry L sit between the viewer and focusLayer (the layer of the finding being shown)?
+    // Those layers are dimmed so they don't hide it. Holes and the outline are never dimmed.
+    _covers(L) {
+      const f = this.focusLayer;
+      if (!f || L.kind !== 'gerber' || !L.layer || L.layer === f) return false;
+      const a = this._depth(L.layer), b = this._depth(f);
+      if (a == null || b == null) return false;
+      return this.view.flip ? a > b : a < b;
     }
 
     _drawOverlays(ctx) {

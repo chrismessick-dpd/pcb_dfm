@@ -185,3 +185,72 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .check-sev .pill { min-width: 64px; text-align: center; }
 .check-rules { margin: 4px 0 6px; padding-left: 18px; font-size: 12.5px; color: var(--text-2); }
 .check-rules li { margin: 2px 0; }
+
+/* Inspection stage: the layer stack beside the run (assets/stage.js) */
+.stage { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(220px, 1fr); gap: 8px 24px; align-items: center; padding: 18px 22px; overflow: hidden; }
+@media (max-width: 860px) { .stage { grid-template-columns: 1fr; } }
+.stage-art { min-width: 0; }
+.stk { width: 100%; height: auto; display: block; overflow: visible; }
+.stk-core { fill: #6f7f5c; opacity: 0.18; }
+.stk-layer .stk-face { stroke: rgba(0, 0, 0, 0.18); stroke-width: 0.6; transition: fill 0.3s var(--ease), opacity 0.3s var(--ease); }
+.stk-layer .stk-edge { opacity: 0.55; }
+.k-copper .stk-face, .k-copper .stk-edge { fill: #c98a4b; }
+.k-plane .stk-face, .k-plane .stk-edge { fill: #b37a42; }
+.k-mask .stk-face, .k-mask .stk-edge { fill: #2f8f5b; opacity: 0.55; }
+.k-silk .stk-face, .k-silk .stk-edge { fill: #e8e8ea; opacity: 0.8; }
+.stk-layer .stk-edge { filter: brightness(0.7); }
+.stk-pad { fill: #e7b06e; stroke: rgba(0, 0, 0, 0.25); stroke-width: 0.5; }
+.stk-hole, .stk-npth { fill: #15181b; }
+.stk-npth { opacity: 0; transition: opacity 0.3s var(--ease); }
+.stk-antipad { fill: #3b2a1c; }
+.stk-open { fill: #c98a4b; opacity: 0.85; }
+.stk-barrel { fill: #d9a467; stroke: rgba(0, 0, 0, 0.3); stroke-width: 0.5; transition: fill 0.3s var(--ease); }
+.stk-ring { fill: none; stroke: var(--accent); stroke-width: 2.4; opacity: 0; transition: opacity 0.3s var(--ease); }
+.stk-outline { fill: none; stroke: #ffd60a; stroke-width: 1.4; opacity: 0; transition: opacity 0.3s var(--ease); }
+.stk-lbl { font: 500 11px var(--sans); fill: var(--text-2); }
+.stk-n { font-weight: 600; }
+.stk-n.e { fill: var(--issue); }
+.stk-n.w { fill: var(--warn); }
+.stk-n.ok { fill: var(--pass); }
+.stk-scan { opacity: 0; pointer-events: none; }
+/* While running, the layers not being checked step back and the checked one lights up. */
+.stage.is-running .stk-layer:not(.on) { opacity: 0.45; }
+.stage.is-running .stk-layer.on .stk-face { stroke: var(--accent); stroke-width: 1.6; }
+.stage.is-running .stk-layer.on .stk-lbl { fill: var(--accent-ink); font-weight: 600; }
+.stk-layer.scan .stk-scan { opacity: 1; animation: stk-sweep 1.6s linear infinite; }
+@keyframes stk-sweep { from { transform: translateX(0); } to { transform: translateX(660px); } }
+.stk-via.barrel-on .stk-barrel { fill: var(--accent); }
+.stk-via.ring-on .stk-ring { opacity: 1; animation: stk-pulse 1.2s var(--ease) infinite alternate; }
+.stage.pad-on .stk-pad, .stage.pad-on .stk-open { fill: var(--accent); }
+.stage.antipad-on .stk-antipad { fill: var(--accent); opacity: 0.6; }
+.stage.npth-on .stk-npth { opacity: 1; stroke: var(--accent); stroke-width: 1.5; }
+.stage.edge-on .stk-outline { opacity: 1; animation: stk-pulse 1.2s var(--ease) infinite alternate; }
+@keyframes stk-pulse { from { opacity: 0.45; } to { opacity: 1; } }
+/* Finished: layers with errors or warnings are tinted, and each one opens on the board. */
+.stage.is-done .stk-layer { cursor: pointer; }
+.stage.is-done .stk-layer.sev-error .stk-face { stroke: var(--issue); stroke-width: 1.4; }
+.stage.is-done .stk-layer.sev-warn .stk-face { stroke: var(--warn); stroke-width: 1.2; }
+.stage.is-done .stk-layer:hover .stk-face, .stage.is-done .stk-layer:focus .stk-face { stroke: var(--accent); stroke-width: 2; }
+.stage.is-done .stk-layer:hover .stk-lbl { fill: var(--text); }
+.stage-side { min-width: 0; }
+.stg-eyebrow { font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent-ink); }
+.stg-title { font: 600 19px/1.25 var(--display); margin: 4px 0 6px; }
+.stg-desc { font-size: 13px; line-height: 1.45; color: var(--text-2); min-height: 3.6em; }
+.stg-mods { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.stg-mods li { font-size: 12px; padding: 3px 10px; border-radius: 980px; background: var(--bg-sunk); color: var(--text-2); }
+.stg-mods li.done { background: var(--pass-soft); color: var(--pass); }
+.stg-mods li.on { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }
+.stg-mods li.done::before { content: "✓ "; }
+/* The run log, collapsed to its latest line under the stage. */
+.logbox { margin-top: 12px; }
+.logbox > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 8px 4px; font-size: 13px; color: var(--text-2); }
+.logbox > summary::-webkit-details-marker { display: none; }
+.logbox > summary::before { content: "▸"; color: var(--text-3, var(--text-2)); transition: transform 0.2s var(--ease); }
+.logbox[open] > summary::before { transform: rotate(90deg); }
+.logbox > summary b { color: var(--text); font-weight: 600; }
+.log-last { font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+@media (prefers-reduced-motion: reduce) { .stk-layer.scan .stk-scan, .stk-via.ring-on .stk-ring, .stage.edge-on .stk-outline { animation: none; } }
+.stk { max-width: 620px; margin: 0 auto; }
+.stk-lead { stroke: var(--hair-2, rgba(128, 128, 128, 0.35)); stroke-width: 0.8; stroke-dasharray: 2 3; }
+.stk-n { font: 600 11px var(--sans); }
+.stage.is-running .stk-layer.on .stk-lead { stroke: var(--accent); stroke-dasharray: none; }

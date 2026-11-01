@@ -40,6 +40,13 @@ guide, FTE section, demo mode), `docs/fab-rules.md` (every fab-rule default with
   code; thresholds live in a `T` object and named patterns, and `rules()` reads them, so the
   "BOM & assembly checks" tab can't drift. `C.audit` warns on undeclared findings. Add a declaration
   whenever you add one of these checks.
+- Raster kernels (labeling, distance transforms, gaps, slivers, islands) run in a Blob-URL worker pool
+  built from the same functions (`prepareRaster` in `raster.js`); the DFM generator yields
+  `{ label, wait }` for the app to await, and `C.runner` (`out.sync`) keeps everything on the main
+  thread. Speed changes must leave findings identical: run every check step on the committed code
+  (`git archive HEAD` into a scratch folder, served alongside) and on the new code, and diff every
+  finding (check, severity, title, detail, layer, location, value, box). See *Speed* in `design.md`.
+- `assets/stage.js` draws the Overview's inspection stage (layer stack lit by the running step).
 - DFM limits come from `assets/profiles.js` (`Fab.rules`): 28 rules, built-ins Prototype / Standard /
   Advanced. A new rule needs an entry in `RULES`, a value in all three built-ins, a row in
   `docs/fab-rules.md` with its source (or "rule of thumb"), and its check id in `checks`. Old runs

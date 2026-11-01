@@ -25,9 +25,14 @@ is uploaded.
 
 **Using it**
 
-1. Drop a package on the page. Checks run straight away, with a live log.
+1. Drop a package on the page. Checks run straight away. The **Inspection** panel draws your board's
+   layer stack and lights up the layer or feature each check is measuring; when the run is done, it
+   shows the errors and warnings on each layer, and selecting a layer shows it on the board. The full
+   log is folded away under it.
 2. **Overview** shows the totals for each area. **Findings** lists every issue with its severity.
-   **Board** draws the board: click a finding and it zooms to the spot.
+   **Board** draws the board: click a finding and it zooms to the spot, fading the layers above it so
+   inner-layer problems stay visible. **Realistic** shows the board as it will be built: green mask,
+   gold pads and white silkscreen.
 3. Pick a **fab profile**: *Prototype*, *Standard* or *Advanced (HDI-lite)*. Each is a set of
    typical industry limits, with their sources documented. Or make your own for a specific fab
    house on the **Fab rules** page: copy a profile, adjust the limits, and note the fab's

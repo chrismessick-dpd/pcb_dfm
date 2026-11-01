@@ -456,15 +456,22 @@
 
     // ---- raster engine: spacing, slivers, isolated copper, region mask dams ----
     if (Fab.raster && pkg.boardBBox && typeof document !== 'undefined') {
+      // Callers that can wait (the app) get every raster job analyzed in workers first; the
+      // synchronous runner gets everything on the main thread. Findings are the same either way.
+      let pre = null;
+      if (!out.sync && Fab.raster.prepareRaster) {
+        const p = Fab.raster.prepareRaster(pkg, L, prof).then(m => { pre = m; });
+        yield { label: `Raster analysis · ${L.copper.length} copper and ${['top', 'bottom'].filter(s => L.mask[s]).length} mask layers in parallel`, wait: p };
+      }
       for (const lay of L.copper) {
         yield `Spacing and slivers · ${lay.file.name}`;
-        const r = Fab.raster.copperSpacing(pkg, lay, prof, add, MAX);
+        const r = Fab.raster.copperSpacing(pkg, lay, prof, add, MAX, pre && pre.copper.get(lay));
         if (!r.gaps && !r.slivers) add('spacing', 'info', `${lay.file.name}: no spacing or sliver problems`, `Checked on a ${Math.round(r.res * 1000)} µm raster against ${fl(prof.minSpace)} spacing and ${fl(prof.minTrace)} width.`, { layer: lay.file.name });
       }
       const cover = [];
       for (const lay of L.copper) {
         yield `Isolated copper · ${lay.file.name}`;
-        cover.push(Fab.raster.islands(pkg, lay, prof, add, MAX).copperArea);
+        cover.push(Fab.raster.islands(pkg, lay, prof, add, MAX, pre && pre.islands.get(lay)).copperArea);
       }
       // Copper balance: layers mirrored about the stackup center (top/bottom, L2/Ln-1, ...).
       const o = L.outline;
@@ -483,7 +490,7 @@
         const mask = L.mask[side];
         if (!mask) continue;
         yield `Mask dams (regions) · ${mask.file.name}`;
-        Fab.raster.maskDams(pkg, mask, prof, add, MAX);
+        Fab.raster.maskDams(pkg, mask, prof, add, MAX, pre && pre.mask.get(mask));
       }
     }
     return;

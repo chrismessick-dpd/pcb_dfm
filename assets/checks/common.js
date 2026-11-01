@@ -8,7 +8,8 @@
   // runner() wraps one so callers get a plain function returning the findings; `.steps` keeps the
   // generator for the live console, which runs the steps one at a time and repaints between them.
   C.runner = function (gen) {
-    const fn = function () { const out = []; const g = gen(...arguments, out); while (!g.next().done); C.audit(out); return out; };
+    // out.sync tells a check not to yield work to wait for ({ label, wait }); only steps() callers await.
+    const fn = function () { const out = []; out.sync = true; const g = gen(...arguments, out); while (!g.next().done); C.audit(out); return out; };
     fn.steps = gen;
     return fn;
   };
@@ -159,9 +160,36 @@
     return (outline._segs = { segs, grid });
   };
 
+  // Point in polygon (G.inPoly's crossing test) using only the edges whose y-span covers py: edges are
+  // bucketed by y once per loop, and an edge outside the bucket can't cross, so the result is the same.
+  // The sampled edge checks call this hundreds of thousands of times per plane layer.
+  const BAND = 0.5;
+  function yIndex(pts) {
+    const ys = [];
+    for (let i = 1; i < pts.length; i += 2) ys.push(pts[i]);
+    const y0 = Math.min(...ys), n = Math.floor((Math.max(...ys) - y0) / BAND) + 1, bins = Array.from({ length: n }, () => []);
+    for (let i = 0, m = pts.length, j = m - 2; i < m; j = i, i += 2) {
+      const a = Math.floor((Math.min(pts[i + 1], pts[j + 1]) - y0) / BAND), b = Math.floor((Math.max(pts[i + 1], pts[j + 1]) - y0) / BAND);
+      for (let k = a; k <= b; k++) bins[k].push(i, j);
+    }
+    return { y0, bins };
+  }
+  function inPolyIdx(px, py, pts, idx) {
+    const k = Math.floor((py - idx.y0) / BAND);
+    if (k < 0 || k >= idx.bins.length) return false;
+    const e = idx.bins[k];
+    let inside = false;
+    for (let q = 0; q < e.length; q += 2) {
+      const i = e[q], j = e[q + 1];
+      const xi = pts[i], yi = pts[i + 1], xj = pts[j], yj = pts[j + 1];
+      if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
   C.insideBoard = function (outline, x, y) {
-    if (!G.inPoly(x, y, outline.board.pts)) return false;
-    for (const c of outline.cutouts) if (G.inPoly(x, y, c.pts)) return false;
+    const ix = outline._yidx || (outline._yidx = [outline.board].concat(outline.cutouts).map(l => yIndex(l.pts)));
+    if (!inPolyIdx(x, y, outline.board.pts, ix[0])) return false;
+    for (let c = 0; c < outline.cutouts.length; c++) if (inPolyIdx(x, y, outline.cutouts[c].pts, ix[c + 1])) return false;
     return true;
   };
 

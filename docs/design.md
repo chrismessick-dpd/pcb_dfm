@@ -13,8 +13,8 @@ vendors give away their DFM viewers.
   (`file://`) or hosted on any static host.
   - Because of `file://`, Chrome and Edge block local ES-module imports and `new Worker('x.js')`.
     Our own code therefore uses classic `<script>` tags that share one `window.Fab` namespace.
-    Heavy work runs on the main thread in slice 1. If it needs a worker later, the worker is created
-    from a Blob URL.
+    The raster kernels run in Blob-URL workers built from the same functions (see *Speed*), so they
+    work from `file://` too.
 - **CDN libraries pinned to exact versions** (cdnjs):
   - `jszip@3.10.1` reads zip packages.
   - `xlsx@0.18.5` (SheetJS) reads BOMs in `.xlsx`/`.xls`/`.csv`.
@@ -271,16 +271,35 @@ Spacing-type checks need geometry on the union of shapes, so they run on a raste
 - **Mask dams.** The spacing method on the mask layer (openings as features). Dams between two flashed
   openings stay with the exact vector check.
 
-Cost is about 0.4 s per copper layer on a 43 × 67 mm board, and about 2 s per layer on a
-100 × 100 mm board, on the main thread with the console updating per layer. A Blob-URL Web Worker is
-the next step if boards get bigger.
+#### Speed (audit 2026-10-31)
 
-Neck shape analysis, the whole-board connectivity map and the fine re-measure of near-limit gaps add
-about 40% on a dense 100 × 100 mm 6-layer board (2026-10-31): plane layers about 5.8 s instead of
-3.9 s, and the outer layer with the most near-limit gaps 8 s instead of 6.3 s, measured with the
-browser pane hidden. The shape analysis runs only on tiles that have thin copper. The opening grows
-the wide copper back with a small disc instead of a second distance transform. Re-measure patches
-are 1 mm squares shared by nearby gaps, painted with only the primitives that reach them.
+A full run on a dense 100 × 100 mm 6-layer board took 49 s (Standard) and 47 s (Advanced). It now
+takes about 18 s and 15 s. Findings are identical: a harness ran every check step on the old and new
+code for that board (as sent and corrected), the demo board on all three profiles, and Advanced on the
+dense board, and diffed every finding's check, severity, title, detail, layer, location, value and
+box. All six matched.
+
+- **Workers.** `prepareRaster` paints every raster job on the main thread (painting needs the
+  canvas), then runs the kernels in a pool of Blob-URL workers (cores − 1, at most 6; each busy one
+  holds about 100 MB): copper spacing and sliver tiles for every layer, whole-board isolated-copper
+  rasters, and mask dam tiles. The worker source is `toString()` of the same kernel functions, so
+  the math can't drift. The DFM generator yields `{ label, wait }` for the app to await; the
+  synchronous runner (`C.runner`, `out.sync`) and any failed job take the main-thread path.
+- **Labeling** without per-pixel allocation (3× on plane tiles).
+- **Clustering** with a grid of cluster centers instead of a scan of all clusters, keeping the
+  earliest-made cluster rule.
+- **Drawn traces** are dropped from sliver clusters before their width is measured (they were
+  measured, then dropped).
+- **Gaps** in a tile's margin are skipped before the sub-pixel measurement.
+- **The opening** finds its core (copper with no background within rho) with per-row background
+  counts instead of a distance transform, for the whole-board connectivity map. Squared pixel distances
+  are integers, so the set is the same; checked pixel for pixel on six layers at five radii.
+- **Inside the board** uses the outline's edges bucketed by y (the same crossing test on the edges that
+  can cross); 19× faster, identical on 2 million points. The sampled copper-to-edge and NPTH checks
+  call it hundreds of thousands of times.
+- The shape analysis runs only on tiles with thin copper. The opening grows the wide copper back with
+  a small disc. Re-measure patches are 1 mm squares shared by nearby gaps, painted with only the
+  primitives that reach them.
 
 ### Fab rules and capability profiles (`assets/profiles.js`, Fab rules page)
 
@@ -357,14 +376,27 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
 - **Sidebar.** Open packages, listed like Signoff's projects, with error/warning badges and a spinner
   while checks run. Several packages can be open at once, which is what the Revisions and Archive
   tabs compare.
-- **Overview.** Stats, one card per check category, the fab profile and thickness controls, and a
-  **live run log**. The package build and every check module are generators that yield a label
-  before each step. The pipeline runs one step, prints its result (errors and warnings, plus the first
-  few hits) with timings, and repaints before the next.
+- **Overview.** Stats, the **inspection stage**, one card per check category, the fab profile and
+  thickness controls, and the run log. The package build and every check module are generators that
+  yield a label before each step. The pipeline runs one step, prints its result (errors and warnings,
+  plus the first few hits) with timings, and repaints before the next.
+  - The stage (`assets/stage.js`) draws the package's own stack, exploded: silkscreen, mask and each
+    copper layer (planes marked), on the board outline, with dielectric between copper and a cutaway
+    via at a real via near the center. While running it lights up what the step measures: one layer
+    with a scan sweep, all copper and mask for the parallel raster pass, the pads and ring for annular
+    ring, the barrel for drills, the outline for edge checks. Beside it: the step, a one-line
+    explanation with the profile's limits, and the modules done so far.
+  - Finished, each layer shows its error or warning count and opens alone on the board.
+  - The run log is collapsed under the stage to its latest step line, and remembers being opened.
 - **Findings.** Signoff-style sections with severity and category filters. Clicking a finding opens the
   inspector, and "Show on board" zooms to it.
-- **Board.** Layer list, the canvas (pan/zoom, top/bottom, placements), and a findings rail. This is
-  where the interactive DFM work (spacing engine, measure tools) lands next.
+- **Board.** Layer list, the canvas (pan/zoom, top/bottom, placements), and a findings rail.
+  - Zooming to a finding dims every layer between the viewer and the finding's layer to 15%
+    (stack depth: silkscreen, mask, paste, then copper by order; mirrored from the bottom), so an inner
+    layer's copper isn't hidden. Fit clears it.
+  - **Realistic** draws the visible side as built: laminate, copper under green mask, gold finish where
+    the mask opens over copper, silkscreen clipped at the openings, and the holes. Same painter as the
+    checks. A finding on an inner layer switches back to the layer view.
 - **Assembly / BOM / Files.** Tables, including ODB++ placement status.
 - **Revisions.** Compare against a baseline package (or a lone BOM): BOM designators
   added/removed/changed (grouped by identical change), placements moved/rotated/re-footprinted,

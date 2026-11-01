@@ -116,8 +116,12 @@
         body.insertAdjacentHTML('beforeend', lineHtml(line));
         if (stick) body.scrollTop = body.scrollHeight;
       }
+      const last = $('#log-last');
+      if (last && headline(line)) last.textContent = text;
     }
   }
+  // Lines worth showing in the collapsed log: steps and results, not their detail lines.
+  const headline = l => l.cls !== 'dim' && !/^\s|^…/.test(l.text);
   function lineHtml(l) { return `<div class="ln ${l.cls}"><span class="t">${(l.t / 1000).toFixed(2)}s</span><span class="x">${esc(l.text)}</span></div>`; }
   function setProgress(entry, p) {
     entry.progress = p;
@@ -211,20 +215,24 @@
     entry.status = 'running';
     entry.findings = [];
     if (reason) log(entry, 'step', reason);
-    renderSidebar();
+    entry.stage = { module: 'package', label: null };
+    renderAll();
     const modules = [
-      ['Package', C.package.steps, [pkg]],
-      ['Assembly', C.assembly.steps, [pkg, prof]],
-      ['Build consistency', C.build.steps, [pkg]],
-      ['Pins (IPC-356)', C.pins.steps, [pkg]],
-      ['BOM audit', C.bom.steps, [pkg]],
-      [`Fabrication DFM (${profileName(entry)}${entry.pinned ? ", run's saved rules" : ''}, ${Fab.fmtLen(prof.thickness)})`, C.dfm.steps, [pkg, prof]],
+      ['Package', C.package.steps, [pkg], 'package'],
+      ['Assembly', C.assembly.steps, [pkg, prof], 'assembly'],
+      ['Build consistency', C.build.steps, [pkg], 'build'],
+      ['Pins (IPC-356)', C.pins.steps, [pkg], 'pins'],
+      ['BOM audit', C.bom.steps, [pkg], 'bom'],
+      [`Fabrication DFM (${profileName(entry)}${entry.pinned ? ", run's saved rules" : ''}, ${Fab.fmtLen(prof.thickness)})`, C.dfm.steps, [pkg, prof], 'dfm'],
     ];
+    // The inspection stage follows the step being run.
+    const stage = (module, label) => { entry.stage = { module, label }; if (entry.id === state.active && Fab.stage) Fab.stage.update(entry, prof); };
     const totalSteps = 34 + 2 * pkg.layers.copper.length; // fixed steps + raster steps per copper layer
     let done = 0;
     const t0 = performance.now();
-    for (const [name, gen, args] of modules) {
+    for (const [name, gen, args, key] of modules) {
       log(entry, 'step', name);
+      stage(key, null);
       await tick();
       const out = [];
       const g = gen(...args, out);
@@ -240,14 +248,17 @@
         seen = out.length;
         if (label || fresh.length) reportStep(entry, label || 'Summary', fresh, performance.now() - ts);
         if (r.done) break;
-        label = r.value; ts = performance.now();
+        ts = performance.now();
         done++;
         setProgress(entry, 0.3 + 0.7 * Math.min(1, done / totalSteps));
+        // A step may hand back work running elsewhere (raster tiles in workers) to wait for.
+        if (r.value && r.value.wait) { label = r.value.label; stage(key, label); await r.value.wait; } else { label = r.value; stage(key, label); }
         await tick();
       }
       C.audit(out);
       entry.findings.push(...out);
     }
+    entry.stage = null;
     attachLocations(pkg, entry.findings);
     const n = s => entry.findings.filter(f => f.severity === s).length;
     setProgress(entry, 1);
@@ -496,6 +507,7 @@
       }[state.view];
       pageEl.innerHTML = page(e);
     });
+    if (e && e.stage && Fab.stage && state.view === 'overview') Fab.stage.update(e, profile(e));
     if (!e && state.view !== 'rules') loadRecent();
     if (e && state.view === 'archive') loadArchive(e);
   }
@@ -615,6 +627,8 @@
     let h = `<div class="page wide">` + pageHead(e, 'Fab package', e.label, sub, actions);
     const stat = (cls, n, label, sev) => `<button class="card stat ${cls}" style="border:none;text-align:left" data-act="sev" data-sev="${sev}"><div class="stat-num">${busy ? '–' : n}</div><div class="stat-label">${label}</div></button>`;
     h += `<div class="grid grid-4">${stat('issue', c.error, 'Errors', 'error')}${stat('warn', c.warn, 'Warnings', 'warn')}${stat('info', c.info, 'Info', 'info')}<div class="card stat"><div class="stat-num">${pkg ? pkg.files.length : '–'}</div><div class="stat-label">Files in package</div></div></div>`;
+    const stageHtml = Fab.stage && pkg && (e.status === 'running' || e.status === 'ready') ? Fab.stage.html(e, profile(e)) : '';
+    if (stageHtml) h += `<div class="section-title">Inspection</div>` + stageHtml + logHtml(e, busy);
     h += `<div class="section-title">Checks<span class="chips">` +
       profileSelect(e) + `<button class="btn btn-plain" data-view="rules">Edit rules</button>` +
       `<label class="tb-field">Board thickness <input data-act="thickness" type="number" step="0.1" min="0.2" max="6" value="${e.pinned ? e.pinned.thickness : state.thickness}"> mm</label></span></div><div class="grid grid-3">`;
@@ -629,8 +643,14 @@
     }
     h += `</div>`;
     if (e.status === 'ready') h += signoffHtml(e);
-    h += `<div class="section-title">Run log <span class="chips"><span class="chip">${busy ? 'Running' : e.status === 'error' ? 'Failed' : 'Finished'}</span></span></div>` + consoleHtml(e);
+    if (!stageHtml) h += `<div class="section-title">Run log <span class="chips"><span class="chip">${busy ? 'Running' : e.status === 'error' ? 'Failed' : 'Finished'}</span></span></div>` + consoleHtml(e);
     return h + '</div>';
+  }
+
+  // The run log, collapsed to its latest line beside the stage; it remembers being opened.
+  function logHtml(e, busy) {
+    const last = (e.log.filter(headline).pop() || { text: '' }).text;
+    return `<details class="logbox"${state.logOpen ? ' open' : ''}><summary><span class="chip">${busy ? 'Running' : e.status === 'error' ? 'Failed' : 'Finished'}</span><b>Run log</b><span class="log-last" id="log-last">${esc(last)}</span></summary>` + consoleHtml(e) + `</details>`;
   }
 
   function consoleHtml(e, tall) {
@@ -971,6 +991,10 @@
     if (entry) { entry.visible = true; if (entry.side === 'top' || entry.side === 'bottom') side = entry.side; }
     if (side && (side === 'bottom') !== viewer.view.flip) setSide(side);
     if (entry) entry.visible = true;
+    // Layers between the viewer and the finding's layer are dimmed until the view is fitted again.
+    viewer.focusLayer = entry ? entry.layer : null;
+    // The realistic look shows only the outer side; a finding on an inner layer needs the layer view.
+    if (viewer.photo && entry && entry.side !== 'top' && entry.side !== 'bottom') { viewer.photo = false; const b = $('#photo-btn'); if (b) b.classList.remove('on'); }
     renderLayers(e);
     if (!selectRailRow(f.id)) renderRail(e);
     const bb = f.bbox || [f.at.x, f.at.y, f.at.x, f.at.y];
@@ -1220,12 +1244,22 @@
       case 'close-insp': closeInspector(); break;
       case 'show-on-board': closeInspector(); focusFinding(e.findings.find(f => f.id === t.dataset.id)); break;
       case 'board-finding': focusFinding(e.findings.find(f => f.id === t.dataset.id)); break;
-      case 'fit': viewer.highlight = null; viewer.fit(); break;
+      case 'fit': viewer.highlight = null; viewer.focusLayer = null; viewer.fit(); break;
       case 'pnp': state.showPnp = !state.showPnp; t.classList.toggle('on', state.showPnp); viewer.draw(); break;
+      case 'photo': viewer.photo = !viewer.photo; t.classList.toggle('on', viewer.photo); viewer.draw(); break;
       case 'layers-off': viewer.layers.forEach(l => { l.visible = false; }); renderLayers(e); viewer.draw(); break;
       case 'part': { const p = state.asmRows[+t.dataset.i].part; focusFinding({ id: 'part-' + p.des, at: { x: p.gx, y: p.gy }, side: p.side }); break; }
       case 'rev-at': focusFinding({ id: 'rev', at: { x: +t.dataset.x, y: +t.dataset.y } }); break;
       case 'rev-layer': { const g = e.revCache.res.gerber[+t.dataset.i]; focusFinding({ id: 'rev', bbox: g.bbox, layer: g.layerRef.file.name }); break; }
+      case 'stage-layer': {
+        const file = t.dataset.file;
+        go('board');
+        const L = viewer.layers.find(l => l.layer && l.layer.file.name === file);
+        if (L && (L.side === 'top' || L.side === 'bottom')) setSide(L.side, true);
+        for (const l of viewer.layers) if (l.kind === 'gerber') l.visible = l === L;
+        renderLayers(e); viewer.draw();
+        break;
+      }
       case 'copy-log': copyText(e.log.map(l => `${(l.t / 1000).toFixed(2).padStart(7)}s  ${l.text}`).join('\n')); break;
       case 'copy': copyText(t.dataset.text); break;
       case 'signoff-send': {
@@ -1336,6 +1370,7 @@
     showPeople();
     window.addEventListener('storage', showPeople);
     document.addEventListener('click', onClick);
+    document.addEventListener('toggle', ev => { if (ev.target.matches && ev.target.matches('details.logbox')) state.logOpen = ev.target.open; }, true);
     document.addEventListener('change', ev => {
       const e = active();
       if (ev.target.matches('[data-act="profile"]')) useProfile(ev.target.value);
