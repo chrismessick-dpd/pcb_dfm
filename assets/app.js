@@ -105,6 +105,44 @@
     try { localStorage.setItem(SIDE_KEY, on ? '1' : '0'); } catch (e) { /* storage blocked */ }
   }
 
+  // The board's layers panel: its width (dragged from the board's left edge) and whether it is
+  // folded to a strip, remembered in this browser. layersUi(set) saves set, then applies the result.
+  const LAYERS_KEY = 'fabcheck.ui.layers', LAY_MIN = 160, LAY_MAX = 480;
+  function layersUi(set) {
+    let s = {};
+    try { s = JSON.parse(localStorage.getItem(LAYERS_KEY) || '{}') || {}; } catch (e) { /* storage blocked */ }
+    if (set) { s = Object.assign(s, set); try { localStorage.setItem(LAYERS_KEY, JSON.stringify(s)); } catch (e) { /* storage blocked */ } }
+    const bv = $('#board-view');
+    bv.classList.toggle('layers-collapsed', !!s.folded);
+    if (s.w) bv.style.setProperty('--lay-w', s.w + 'px'); else bv.style.removeProperty('--lay-w');
+    return s;
+  }
+  function bindLayersResize() {
+    const grip = $('#lay-resize'), bv = $('#board-view');
+    const setW = w => { w = Math.round(Math.max(LAY_MIN, Math.min(LAY_MAX, w))); bv.style.setProperty('--lay-w', w + 'px'); return w; };
+    grip.addEventListener('pointerdown', ev => {
+      ev.preventDefault();
+      grip.setPointerCapture(ev.pointerId);
+      bv.classList.add('resizing');
+      const left = bv.getBoundingClientRect().left;
+      let w = 0;
+      const move = m => { w = setW(m.clientX - left); };
+      const end = () => {
+        grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', end); grip.removeEventListener('pointercancel', end);
+        bv.classList.remove('resizing');
+        if (w) layersUi({ w });
+      };
+      grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', end); grip.addEventListener('pointercancel', end);
+    });
+    grip.addEventListener('dblclick', () => layersUi({ w: 0 }));
+    grip.addEventListener('keydown', ev => {
+      if (ev.key !== 'ArrowLeft' && ev.key !== 'ArrowRight') return;
+      ev.preventDefault();
+      layersUi({ w: setW($('#layers-pane').getBoundingClientRect().width + (ev.key === 'ArrowRight' ? 16 : -16)) });
+    });
+    layersUi();
+  }
+
   // ── Console ──
   function log(entry, cls, text) {
     const line = { t: performance.now() - entry.t0, cls, text };
@@ -1057,7 +1095,9 @@
 
   function renderLayers(e) {
     const pane = $('#layers-pane');
-    redraw(pane, e.id, () => { pane.innerHTML = `<div class="side-head"><span class="side-label">Layers</span><button class="btn btn-plain" style="padding:2px 6px;font-size:12px" data-act="layers-off">Hide all</button></div>` +
+    const folded = $('#board-view').classList.contains('layers-collapsed');
+    redraw(pane, e.id, () => { pane.innerHTML = `<div class="side-head"><span class="side-label">Layers</span><button class="btn btn-plain" style="padding:2px 6px;font-size:12px" data-act="layers-off">Hide all</button>` +
+      `<button class="lay-fold" data-act="layers-fold" aria-label="${folded ? 'Show' : 'Hide'} the layers panel" title="${folded ? 'Show' : 'Hide'} layers"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5L5.5 8l4.5 4.5"/></svg></button></div>` +
       viewer.layers.map((l, i) => `<label class="lay"${l.other ? ' style="opacity:.7"' : ''}><input type="checkbox" data-layer="${i}"${l.visible ? ' checked' : ''}><span class="sw" style="background:${l.color}"></span><span class="nm" title="${esc(l.layer ? l.layer.file.name : l.label)}">${esc(l.label)}</span></label>`).join(''); });
   }
 
@@ -1123,6 +1163,13 @@
     if (!entry && f.category === 'DFM') {
       if (HOLE_CHECKS.has(f.check)) on.push(...layers.filter(l => l.kind === 'pth' || l.kind === 'npth'));
       if (EDGE_CHECKS.has(f.check)) on.push(...layers.filter(l => l.kind === 'outline'));
+    }
+    // With every drawn layer hidden ("Hide all"), a finding without a layer of its own would land on
+    // an empty board: bring back its side's copper (and silkscreen, for parts) and the outline.
+    if (!entry && !layers.some(l => l.visible && l.kind === 'gerber')) {
+      const s = side || (flip ? 'bottom' : 'top'), part = f.category === 'Assembly' || f.category === 'BOM' || String(f.id).startsWith('part-');
+      on.push(...layers.filter(l => l.layer && l.side === s && (l.layer.fn === 'copper' || (part && l.layer.fn === 'silk'))));
+      on.push(...layers.filter(l => l.kind === 'outline'));
     }
     return {
       entry, on, focusLayer: entry ? entry.layer : null,
@@ -1403,6 +1450,7 @@
       case 'pnp': state.showPnp = !state.showPnp; t.classList.toggle('on', state.showPnp); viewer.draw(); break;
       case 'photo': viewer.photo = !viewer.photo; t.classList.toggle('on', viewer.photo); viewer.draw(); break;
       case 'layers-off': viewer.layers.forEach(l => { l.visible = false; }); renderLayers(e); viewer.draw(); break;
+      case 'layers-fold': layersUi({ folded: !$('#board-view').classList.contains('layers-collapsed') }); renderLayers(e); break;
       case 'part': { const p = state.asmRows[+t.dataset.i].part; focusFinding({ id: 'part-' + p.des, at: { x: p.gx, y: p.gy }, side: p.side }); break; }
       case 'rev-at': focusFinding({ id: 'rev', at: { x: +t.dataset.x, y: +t.dataset.y } }); break;
       case 'rev-layer': { const g = e.revCache.res.gerber[+t.dataset.i]; focusFinding({ id: 'rev', bbox: g.bbox, layer: g.layerRef.file.name }); break; }
@@ -1605,6 +1653,7 @@
       else if (ev.key === '[' && !ev.ctrlKey && !ev.metaKey) { ev.preventDefault(); toggleSidebar(); }
     });
     try { if (localStorage.getItem(SIDE_KEY) === '1' && !narrow.matches) $('#app').classList.add('side-collapsed'); } catch (e) { /* storage blocked */ }
+    bindLayersResize();
     $('#file-profile').addEventListener('change', async ev => {
       const f = ev.target.files[0]; ev.target.value = '';
       if (!f) return;

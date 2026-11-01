@@ -422,6 +422,10 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
     to see both places (at least 1.6×, never past the whole board), across, then in, in about
     0.4–0.75 s. Panning or zooming by hand stops it. Arriving from another view jumps straight there.
   - Up and down arrows step through the findings list beside the board, in its order (not in a text field).
+  - The layers panel folds to a strip (‹ in its header) and is resized by dragging the board's left
+    edge (160–480 px, double-click to reset, or left/right arrows on the focused edge). Both are kept in
+    `fabcheck.ui.layers`. After "Hide all", selecting a finding without a layer of its own brings back
+    its side's copper (and silkscreen for parts) and the outline, so it doesn't land on an empty board.
   - A filter change (severity, category, search) that hides the selected finding unselects it: the
     crosshair and the dimming go until another finding is selected (`dropHiddenSel`).
   - Warnings are drawn as triangles everywhere (list dots, board marks, stage pins and counts), and
