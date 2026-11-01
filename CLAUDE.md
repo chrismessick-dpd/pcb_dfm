@@ -100,37 +100,10 @@ Done: kept runs and deep links with Signoff EE (stages 1–2), editable/shared f
 2026-10 rules audit and new checks, BOM & assembly checks tab, mil after lengths, collapsible
 sidebar, demo mode with the scrubbed Handle sample.
 
-### Branch `stage-glow`: ready to merge into `main` (2026-10-31)
-
-Made on a branch because another session was working on `main`. It branched from `main` at
-`961ae01`, and `main` had nothing newer when it was pushed. Chris saw each piece in the browser and
-had it pushed so a session working on `main` can merge it. Commits:
-1. Inspection stage: live raster glow, finding pins, detail drawings, progress bar. Replaces the old
-   cutaway via. Touches `raster.js` and `checks/dfm.js` (the watch hook) as well as the UI.
-2. Inspection stage leads the Overview, with start and finish transitions. Chris tuned these: no
-   rings at the start, softer rings at the finish; keep the start expand and the finish bounce.
-3. Finding preview in the inspector (replaces "Show on board"), zooming into the Board view;
-   `jumpPlan` shared by the board and the preview.
-4. Board flies between findings (`Viewer.flyTo`). A stage layer click opens that layer's worst
-   finding. Warnings are triangles everywhere, for Chris, who is colorblind. The fab profile
-   dropdown is in the Overview header. "Edit rules" is gone from Overview, and board thickness is
-   on the Fab rules tab bar.
-
-To merge:
-- Merge `refs/heads/stage-glow` into `main` (a fast-forward if `main` hasn't moved). Conflicts, if
-  any, will be in `assets/app.js`, `assets/stage.js`, `assets/styles.css`, `assets/version.js` and
-  the two docs. For `version.js`, take either side and re-stamp.
-- Then run `python tools/stamp_version.py` and `python tools/sync_vendor.py --check`.
-- If the merge touched `raster.js` or `checks/dfm.js`, re-run the findings-identical check (above)
-  against `961ae01` on both Generator packages and the demo, for all three profiles. The branch
-  passed it: 9 of 9 identical, every raster job reporting `start` and `done`.
-- In the browser, check:
-  - a run on the demo: glow, pins, bar, and the finish rings and bounce;
-  - Findings → select an inner-layer finding → preview → board, with the layer on and the
-    covering layers dimmed.
-  - on the board, select one finding in the list and then a distant one: the view zooms out, across
-    and back in.
-- Push `main` (when Chris says so), then delete the branch and its worktree.
+Merged 2026-11-01: the `stage-glow` branch (inspection stage with live raster glow, finding pins,
+detail drawings, progress bar and transitions; finding preview; board fly-to; warning triangles)
+and the `security` branch (trusted deep-link repos, `cleanFinding`, SRI, SheetJS 0.20.3, CSP).
+Findings identical to `961ae01` on the demo (all three profiles) and both Generator packages.
 
 Open:
 - Not built yet: acid traps (needs a trace graph), text-height check, microvia/HDI profile, revision
