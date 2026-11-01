@@ -90,7 +90,7 @@
 
   // A run from the repo named in a deep link, cached in IndexedDB. Resolves {stored, pkgRec} or null.
   async function fetchRun(q, log) {
-    if (!window.Signoff || !window.Signoff.GitHubStore || !q.repo || !q.project) return null;
+    if (!window.Signoff || !window.Signoff.GitHubStore || !q.repo || !q.project || !trusted(q.repo, q.project)) return null;
     const store = storeFor(q.repo, 'main');
     const entries = await store.listTree('');
     const runPath = entries.find(e => e.path.endsWith('fabcheck/' + q.project + '/runs/' + q.run + '.json'));
@@ -118,6 +118,19 @@
   const canon = o => JSON.stringify(o, (k, v) => v && typeof v === 'object' && !Array.isArray(v) ? Object.keys(v).sort().reduce((a, x) => (a[x] = v[x], a), {}) : v, 1);
 
   // ---- team fab profiles: <dataPath>fabcheck/profiles/<id>.json in the FTE data repo ----
+  // Repos a deep link may read a run from: the project's home, or this suite's own EE data and
+  // shared review repos (same owner, EE's prefix). A link can name any repo, and a repo outside
+  // the account could hand Fabcheck anything; one inside it is still only data (see cleanFinding).
+  function trusted(repo, projectId) {
+    const s = load('settings', {}) || {};
+    const r = String(repo || '').toLowerCase(), parts = r.split('/');
+    if (parts.length !== 2 || !parts[0] || !parts[1]) return false;
+    if (projectId && r === home(projectId).repo.toLowerCase()) return true;
+    const owner = (s.owner || ((window.SIGNOFF_CONFIG || {}).repos || {}).owner || 'chrismessick-dpd').toLowerCase();
+    const prefix = (s.prefix || 'review-ee-').toLowerCase();
+    return parts[0] === owner && (parts[1] === (s.dataRepo || 'ee_design_review_data').toLowerCase() || parts[1].indexOf(prefix) === 0);
+  }
+
   function dataRepo() {
     const s = load('settings', {}) || {};
     const owner = s.owner || ((window.SIGNOFF_CONFIG || {}).repos || {}).owner || 'chrismessick-dpd';
@@ -167,5 +180,5 @@
     return (load('settings', {}) || {}).tokenTag === M.tokenTag(t) && load('dataAccess', '') === 'ok';
   }
 
-  Fab.repoRuns = Fab.DEMO ? null : { home, upload, fetchRun, markStored, dataRepo, syncProfiles, isFte, setFetch: f => { fetchImpl = f; } };
+  Fab.repoRuns = Fab.DEMO ? null : { home, trusted, upload, fetchRun, markStored, dataRepo, syncProfiles, isFte, setFetch: f => { fetchImpl = f; } };
 })(window.Fab);
