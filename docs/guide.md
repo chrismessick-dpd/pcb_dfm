@@ -34,7 +34,7 @@ is uploaded.
    everywhere else. The full log is folded away under it.
 2. **Overview** shows the totals for each area. **Findings** lists every issue with its severity;
    select one to see it on a small preview of the board, and select the preview to zoom into it on
-   the **Board**, with its layer turned on. **Board** draws the board: click a finding and it zooms to the spot, fading the layers above it so
+   the **Board**, with its layer turned on. **Board** draws the board (the up and down arrow keys step through its findings list): click a finding and it zooms to the spot, fading the layers above it so
    inner-layer problems stay visible. **Realistic** shows the board as it will be built: green mask,
    gold pads and white silkscreen.
 3. Pick a **fab profile**: *Prototype*, *Standard* or *Advanced (HDI-lite)*. Each is a set of
