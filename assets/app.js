@@ -885,6 +885,18 @@
   }
 
   // ── Findings view ──
+  // After a filter change: a selected finding the filters now hide is no longer selected, so the
+  // board drops its crosshair and the dimming that served it. Selecting a finding brings them back.
+  // (Selections that aren't findings, such as a part or a deep-link point, are left alone.)
+  function dropHiddenSel(e) {
+    const f = e && state.sel && e.findings.find(x => x.id === state.sel);
+    if (!f) return;
+    const fc = state.focusCheck;
+    if (visibleFindings(e).includes(f) && (!fc || f.check === fc)) return;
+    state.sel = null;
+    if (viewer) { viewer.highlight = null; viewer.focusLayer = null; }
+  }
+
   function visibleFindings(e) {
     const q = state.q.trim().toLowerCase();
     return e.findings.filter(f => state.filter[f.severity] && (!state.cat || f.category === state.cat) &&
@@ -1376,8 +1388,8 @@
       case 'rerun': if (e && e.pkg && e.status === 'ready') runChecks(e, 'Re-running checks'); break;
       case 'sev': state.filter = { error: false, warn: false, info: false }; state.filter[t.dataset.sev] = true; state.cat = null; go('findings'); break;
       case 'cat': state.cat = t.dataset.cat; state.filter = { error: true, warn: true, info: true }; go('findings'); break;
-      case 'sev-toggle': state.filter[t.dataset.sev] = !state.filter[t.dataset.sev]; if (state.view === 'board') { renderRail(e); viewer.draw(); } else renderAll(); break;
-      case 'cat-filter': state.cat = t.dataset.cat || null; renderAll(); break;
+      case 'sev-toggle': state.filter[t.dataset.sev] = !state.filter[t.dataset.sev]; dropHiddenSel(e); if (state.view === 'board') { renderRail(e); viewer.draw(); } else renderAll(); break;
+      case 'cat-filter': state.cat = t.dataset.cat || null; dropHiddenSel(e); renderAll(); break;
       case 'toggle-sec': { const s = t.closest('.sec'); s.classList.toggle('collapsed'); state.closed[s.classList.contains('collapsed') ? 'add' : 'delete'](s.dataset.cat); break; }
       case 'finding': openInspector(e.findings.find(f => f.id === t.dataset.id)); break;
       case 'close-insp': closeInspector(); break;
@@ -1542,6 +1554,7 @@
     document.addEventListener('input', ev => {
       if (ev.target.id === 'f-search' || ev.target.id === 'rail-search') {
         state.q = ev.target.value;
+        dropHiddenSel(active());
         const pos = ev.target.selectionStart, id = ev.target.id;
         if (id === 'rail-search') { renderRail(active()); if (viewer) viewer.draw(); } else renderAll();
         const el = document.getElementById(id); if (el) { el.focus(); el.setSelectionRange(pos, pos); }

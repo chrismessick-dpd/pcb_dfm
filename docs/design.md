@@ -421,6 +421,8 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
   - Moving from one finding to another on the board flies there (`Viewer.flyTo`): out far enough
     to see both places (at least 1.6×, never past the whole board), across, then in, in about
     0.4–0.75 s. Panning or zooming by hand stops it. Arriving from another view jumps straight there.
+  - A filter change (severity, category, search) that hides the selected finding unselects it: the
+    crosshair and the dimming go until another finding is selected (`dropHiddenSel`).
   - Warnings are drawn as triangles everywhere (list dots, board marks, stage pins and counts), and
     errors and info as circles, so severity doesn't depend on telling red from orange.
   - Zooming to a finding dims every layer between the viewer and the finding's layer to 15%
