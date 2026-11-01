@@ -382,23 +382,51 @@
       ctx.restore();
     }
 
+    // Zoom by k about a point on the canvas (CSS pixels), keeping the model point under it in place.
+    _zoomAt(sx, sy, k) {
+      const [mx, my] = this.toModel(sx, sy);
+      this.view.scale = Math.min(5000, Math.max(0.5, this.view.scale * k));
+      const [nx, ny] = this.toModel(sx, sy);
+      this.view.cx += mx - nx; this.view.cy += my - ny;
+    }
+
     _bindEvents() {
       const c = this.canvas;
-      let drag = null;
+      let drag = null, pinch = null;
+      // Touches down, for pinch zoom: two fingers zoom about their midpoint and pan with it.
+      const touches = new Map();
+      const pair = () => {
+        const [a, b] = [...touches.values()], r = c.getBoundingClientRect();
+        return { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, x: (a.x + b.x) / 2 - r.left, y: (a.y + b.y) / 2 - r.top };
+      };
       c.addEventListener('wheel', e => {
         e.preventDefault();
         this.stopFly();
         const r = c.getBoundingClientRect();
-        const sx = e.clientX - r.left, sy = e.clientY - r.top;
-        const [mx, my] = this.toModel(sx, sy);
-        const k = Math.exp(-e.deltaY * 0.0015);
-        this.view.scale = Math.min(5000, Math.max(0.5, this.view.scale * k));
-        const [nx, ny] = this.toModel(sx, sy);
-        this.view.cx += mx - nx; this.view.cy += my - ny;
+        this._zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.0015));
         this.draw();
       }, { passive: false });
-      c.addEventListener('pointerdown', e => { this.stopFly(); drag = { x: e.clientX, y: e.clientY, cx: this.view.cx, cy: this.view.cy, moved: false }; c.setPointerCapture(e.pointerId); });
+      c.addEventListener('pointerdown', e => {
+        this.stopFly();
+        try { c.setPointerCapture(e.pointerId); } catch (_) { /* a pointer already gone */ }
+        if (e.pointerType === 'touch') touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (touches.size === 2) { drag = null; pinch = pair(); return; }
+        if (touches.size > 2) return;
+        drag = { x: e.clientX, y: e.clientY, cx: this.view.cx, cy: this.view.cy, moved: false };
+      });
       c.addEventListener('pointermove', e => {
+        if (touches.has(e.pointerId)) touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (pinch) {
+          if (touches.size !== 2) return;
+          const p = pair(), [ax, ay] = this.toModel(pinch.x, pinch.y);
+          this._zoomAt(pinch.x, pinch.y, p.d / pinch.d);
+          // Then move the point that was under the old midpoint to the new one.
+          const [bx, by] = this.toModel(p.x, p.y);
+          this.view.cx += ax - bx; this.view.cy += ay - by;
+          pinch = p;
+          this.draw();
+          return;
+        }
         const r = c.getBoundingClientRect();
         const [mx, my] = this.toModel(e.clientX - r.left, e.clientY - r.top);
         if (this.onHover) this.onHover(mx, my);
@@ -409,14 +437,19 @@
         this.view.cy = drag.cy + dy / this.view.scale;
         this.draw();
       });
-      c.addEventListener('pointerup', e => {
-        if (drag && !drag.moved && this.onClick) {
+      const lift = e => {
+        touches.delete(e.pointerId);
+        // A pinch ends without a click; the finger left down doesn't start a drag either.
+        if (pinch) { if (!touches.size) pinch = null; drag = null; return; }
+        if (e.type === 'pointerup' && drag && !drag.moved && this.onClick) {
           const r = c.getBoundingClientRect();
           const [mx, my] = this.toModel(e.clientX - r.left, e.clientY - r.top);
           this.onClick(mx, my);
         }
         drag = null;
-      });
+      };
+      c.addEventListener('pointerup', lift);
+      c.addEventListener('pointercancel', lift);
       c.addEventListener('dblclick', () => { this.stopFly(); this.fit(); });
     }
   }

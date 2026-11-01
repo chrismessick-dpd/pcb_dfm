@@ -259,7 +259,7 @@
     if (reason) log(entry, 'step', reason);
     entry.stage = { module: 'package', label: null };
     const t0 = performance.now();
-    const run = entry.live = { t0, frac: 0, jobs: [], pins: [], n: { error: 0, warn: 0 }, fx: 'enter' };
+    const run = entry.live = { t0, frac: 0, jobs: [], pins: [], n: { error: 0, warn: 0 }, fx: 'enter', steps: [], pick: null };
     renderAll();
     const modules = [
       ['Package', C.package.steps, [pkg], 'package'],
@@ -271,7 +271,12 @@
     ];
     // The inspection stage follows the step being run.
     const live = () => entry.id === state.active && Fab.stage;
-    const stage = (module, label) => { entry.stage = { module, label }; if (live()) Fab.stage.update(entry, prof); };
+    // Each labeled step is kept (run.steps), so the stage's rail can go back to it.
+    const stage = (module, label) => {
+      entry.stage = { module, label };
+      if (label) run.steps.push({ module, label, n: { error: 0, warn: 0 } });
+      if (live()) Fab.stage.update(entry, prof);
+    };
     // Progress in work units, weighted by how long steps take: 1 per step, 3 per copper layer's
     // spacing step, and the raster pass about as much as everything else, filled by the area of
     // its finished jobs. A module that returns early jumps to its end.
@@ -608,7 +613,7 @@
       const fresh = $('#stage');
       if (kept && fresh && kept.dataset.key === fresh.dataset.key) fresh.replaceWith(kept);
     });
-    if (e && e.stage && Fab.stage && state.view === 'overview') Fab.stage.update(e, profile(e));
+    if (e && Fab.stage && state.view === 'overview') { if (e.stage) Fab.stage.update(e, profile(e)); else Fab.stage.paint(e, profile(e)); }
     if (!e && state.view !== 'rules') loadRecent();
     if (e && state.view === 'archive') loadArchive(e);
   }

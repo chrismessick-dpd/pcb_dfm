@@ -32,9 +32,9 @@ is uploaded.
    progress and time. When the run is done, the pins stay, each layer shows its count, and selecting
    a layer shows its worst finding on the board. Warnings are triangles and errors are dots, here and
    everywhere else. The full log is folded away under it.
-2. **Overview** shows the totals for each area. **Findings** lists every issue with its severity;
+2. **Overview** shows the totals for each area. While the checks run, the layer stack beside them lights what each step looks at; the bars on its right are the steps so far, and pressing or sliding along them goes back to one that went by too fast to read (**Live** or **Summary** comes back). **Findings** lists every issue with its severity;
    select one to see it on a small preview of the board, and select the preview to zoom into it on
-   the **Board**, with its layer turned on. **Board** draws the board (the up and down arrow keys step through its findings list): click a finding and it zooms to the spot, fading the layers above it so
+   the **Board**, with its layer turned on. **Board** draws the board (drag to pan; scroll, or pinch on a phone or tablet, to zoom; the up and down arrow keys step through its findings list): click a finding and it zooms to the spot, fading the layers above it so
    inner-layer problems stay visible. **Realistic** shows the board as it will be built: green mask,
    gold pads and white silkscreen.
 3. Pick a **fab profile**: *Prototype*, *Standard* or *Advanced (HDI-lite)*. Each is a set of

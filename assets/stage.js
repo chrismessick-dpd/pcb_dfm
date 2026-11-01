@@ -243,14 +243,16 @@
     if (run) run.fx = null;
     const mid = (R.length - 1) / 2;
     const cu = R.filter(r => r.kind === 'copper' || r.kind === 'plane');
-    const f = !done && e.stage ? focus(e.stage.label, e.stage.module) : {};
+    cur = { e, prof };
+    // The step shown: one picked on the rail, else the one running (none once done).
+    const st = shown(e), f = st ? focus(st.label, st.module) : {};
     let svg = `<svg class="stk" viewBox="0 0 ${VW} ${H}" role="img" aria-label="Layer stack">`;
     svg += '<defs><linearGradient id="stk-scan" x1="0" x2="1"><stop offset="0" stop-color="var(--stk-glow)" stop-opacity="0"/><stop offset="0.5" stop-color="var(--stk-glow)" stop-opacity="0.5"/><stop offset="1" stop-color="var(--stk-glow)" stop-opacity="0"/></linearGradient></defs>';
     // Dielectric between neighboring copper layers, drawn first so the layers sit on it.
     for (let i = 0; i + 1 < cu.length; i++) svg += `<polygon class="stk-core" points="${poly(s.uv, cu[i].y + 6)}"/>`;
     // Back to front: bottom layers first, so upper ones overlap them.
     for (let i = R.length - 1; i >= 0; i--) {
-      const r = R[i], c = per.get(r.file), on = !done && lit(f, r);
+      const r = R[i], c = per.get(r.file), on = !!st && lit(f, r);
       const sev = c ? (c.error ? 'error' : c.warn ? 'warn' : '') : '';
       svg += `<g class="stk-layer k-${r.kind}${sev ? ' sev-' + sev : ''}${on ? ' on' : ''}${on && f.scan ? ' scan' : ''}${done ? ' done' : ''}" data-file="${esc(r.file)}" data-kind="${r.kind}" data-side="${r.side || ''}"${done ? ` data-act="stage-layer" tabindex="0"` : ''}${fx ? ` style="--i:${i};--sq:${((mid - i) * 4).toFixed(1)}px"` : ''}>`;
       svg += `<polygon class="stk-edge" points="${poly(s.uv, r.y, r.kind === 'silk' ? 1.5 : 3)}"/><polygon class="stk-face" points="${poly(s.uv, r.y)}"/>`;
@@ -268,12 +270,6 @@
     }
     svg += `<polygon class="stk-outline" points="${poly(s.uv, R[0].y)}"/>${fx === 'exit' ? burst(R) : ''}</svg>`;
 
-    const st = e.stage || {};
-    const nE = e.findings.filter(x => x.severity === 'error').length, nW = e.findings.filter(x => x.severity === 'warn').length;
-    const right = done
-      ? `<div class="stg-eyebrow">Inspection finished</div><div class="stg-title">${plural(nE, 'error')} · ${plural(nW, 'warning')}</div><div class="stg-desc">Each pin is a finding, on its layer. Select a layer to see it on the board.</div>`
-      : `<div class="stg-eyebrow" id="stg-mod">${esc(modTitle(st.module))}</div><div class="stg-title" id="stg-title">${esc(st.label || 'Reading the package')}</div><div class="stg-desc" id="stg-desc">${esc(explain(st.label, st.module, prof))}</div>` +
-        `<div class="stg-detail" id="stg-detail" data-key="${f.detail || ''}">${detail(f.detail, prof)}</div>`;
     // The way into the board, under the summary once the run is done (it fades in with the finish).
     const open = `<div class="stg-actions"><button class="btn btn-primary" data-act="view" data-view="board">Open board <span aria-hidden="true">→</span></button></div>`;
     const cls = ['card', 'stage', done ? 'is-done' : 'is-running'];
@@ -281,7 +277,147 @@
     if (f.holes) cls.push('holes-' + f.holes);
     if (f.edge) cls.push('edge-on');
     if (f.raster) cls.push('raster-on');
-    return `<div class="${cls.join(' ')}" id="stage" data-key="${esc(e.id + ':' + e.status)}"><div class="stage-art">${svg}</div><div class="stage-side">${right}${done ? open : ''}</div>${progHtml(e)}</div>`;
+    if (picked(e)) cls.push('picked');
+    return `<div class="${cls.join(' ')}" id="stage" data-key="${esc(e.id + ':' + e.status)}"><div class="stage-art">${svg}</div>` +
+      `<div class="stage-side"><div class="stg-main"><div class="stg-text" data-mode="${st ? 'step' : 'sum'}">${textHtml(e, prof, st, f)}</div>${done ? open : ''}</div>${railHtml(e)}</div>${progHtml(e)}</div>`;
+  }
+
+  // The words beside the stack: the step shown, or the run's summary once it is done.
+  function textHtml(e, prof, st, f) {
+    if (!st) {
+      const nE = e.findings.filter(x => x.severity === 'error').length, nW = e.findings.filter(x => x.severity === 'warn').length;
+      return `<div class="stg-eyebrow">Inspection finished</div><div class="stg-title">${plural(nE, 'error')} · ${plural(nW, 'warning')}</div><div class="stg-desc">Each pin is a finding, on its layer. Select a layer to see it on the board.</div>`;
+    }
+    return `<div class="stg-eyebrow" id="stg-mod">${esc(eyebrow(e, st))}</div><div class="stg-title" id="stg-title">${esc(st.label || 'Reading the package')}</div><div class="stg-desc" id="stg-desc">${esc(explain(st.label, st.module, prof))}</div>` +
+      `<div class="stg-step-n" id="stg-step-n">${stepFound(e)}</div>` +
+      `<div class="stg-detail" id="stg-detail" data-key="${f.detail || ''}">${detail(f.detail, prof)}</div>`;
+  }
+
+  // ---- the step rail: one bar per step run, to go back to steps that went by too fast to read ----
+  // run.pick is the index in run.steps of the step shown, or null to follow the run (and to show the
+  // summary once it is done).
+  let cur = null; // the entry and profile of the stage on the page
+  const picked = e => { const run = e.live; return run && run.pick != null ? run.steps[run.pick] || null : null; };
+  const shown = e => picked(e) || (e.status === 'ready' ? null : e.stage);
+  function eyebrow(e, st) {
+    const run = e.live;
+    return picked(e) ? `${modTitle(st.module).split(' · ')[0]} · step ${run.pick + 1} of ${run.steps.length}` : modTitle(st.module);
+  }
+  // What the picked step found; nothing while following the run (the bar has the totals).
+  function stepFound(e) {
+    const p = picked(e), run = e.live;
+    if (!p) return '';
+    if (e.status !== 'ready' && run.pick === run.steps.length - 1) return 'Running';
+    if (!p.n.error && !p.n.warn) return '<b class="ok">✓</b> Nothing found in this step';
+    return [p.n.error && `<b class="e">●</b> ${plural(p.n.error, 'error')}`, p.n.warn && `<b class="w">▲</b> ${plural(p.n.warn, 'warning')}`].filter(Boolean).join('<span class="sep"></span>') + ' in this step';
+  }
+  function barHtml(s, i, prev) {
+    const sev = s.n.error ? ' e' : s.n.warn ? ' w' : '';
+    return `<i data-i="${i}" class="${!prev || prev.module !== s.module ? 'm0' : ''}${sev}" title="${esc(s.label)}"></i>`;
+  }
+  // Empty here; railSync fills it in once it is on the page.
+  function railHtml(e) {
+    const run = e.live;
+    if (!run || !run.steps) return '';
+    return `<div class="stg-rail" id="stg-rail" tabindex="0" role="slider" aria-orientation="vertical" aria-label="Step shown">` +
+      `<div class="stg-bars" id="stg-bars"></div><button type="button" class="stg-now" id="stg-now"></button></div>`;
+  }
+  // Bring the rail up to date: new bars, their findings, the one shown.
+  function railSync(e) {
+    const run = e.live, bars = document.getElementById('stg-bars');
+    if (!run || !run.steps || !bars) return;
+    for (let i = bars.childElementCount; i < run.steps.length; i++) bars.insertAdjacentHTML('beforeend', barHtml(run.steps[i], i, run.steps[i - 1]));
+    const done = e.status === 'ready', at = run.pick != null ? run.pick : done ? -1 : run.steps.length - 1;
+    [...bars.children].forEach((b, i) => {
+      const n = run.steps[i].n;
+      b.classList.toggle('e', !!n.error);
+      b.classList.toggle('w', !n.error && !!n.warn);
+      b.classList.toggle('cur', i === at);
+      b.classList.toggle('live', !done && i === run.steps.length - 1);
+    });
+    const now = document.getElementById('stg-now'), rail = document.getElementById('stg-rail');
+    const label = done ? 'Summary' : 'Live';
+    if (now.textContent !== label) now.textContent = label;
+    now.classList.toggle('on', run.pick == null);
+    const st = shown(e);
+    rail.setAttribute('aria-valuemin', 1);
+    rail.setAttribute('aria-valuemax', Math.max(1, run.steps.length));
+    rail.setAttribute('aria-valuenow', at < 0 ? run.steps.length : at + 1);
+    rail.setAttribute('aria-valuetext', st ? st.label || '' : 'Summary');
+  }
+
+  // Show the step picked on the rail (null: follow the run, or its summary once done).
+  function pick(i) {
+    if (!cur || !cur.e.live || !cur.e.live.steps) return;
+    const e = cur.e, run = e.live, n = run.steps.length;
+    if (i != null) i = Math.max(0, Math.min(n - 1, i));
+    // The step running is what following the run shows anyway.
+    run.pick = i == null || (e.status !== 'ready' && i === n - 1) ? null : i;
+    paint(e, cur.prof);
+  }
+  function barAt(bars, y) {
+    let best = null, d = Infinity;
+    for (const b of bars.children) {
+      const r = b.getBoundingClientRect(), dd = y < r.top ? r.top - y : y > r.bottom ? y - r.bottom : 0;
+      if (dd < d) { d = dd; best = b; }
+    }
+    return best ? +best.dataset.i : null;
+  }
+  // Press and slide along the rail; arrows, Home, End and Escape from the keyboard.
+  document.addEventListener('pointerdown', ev => {
+    const bars = ev.target.closest && ev.target.closest('#stg-bars');
+    if (!bars || !cur) return;
+    ev.preventDefault();
+    bars.setPointerCapture(ev.pointerId);
+    const go = y => { const i = barAt(bars, y); if (i != null) pick(i); };
+    go(ev.clientY);
+    const move = m => go(m.clientY);
+    const end = () => { bars.removeEventListener('pointermove', move); bars.removeEventListener('pointerup', end); bars.removeEventListener('pointercancel', end); };
+    bars.addEventListener('pointermove', move); bars.addEventListener('pointerup', end); bars.addEventListener('pointercancel', end);
+  });
+  document.addEventListener('click', ev => { if (ev.target.closest && ev.target.closest('#stg-now')) pick(null); });
+  document.addEventListener('keydown', ev => {
+    if (!ev.target.closest || !ev.target.closest('#stg-rail') || !cur || !cur.e.live || !cur.e.live.steps) return;
+    const run = cur.e.live, n = run.steps.length, done = cur.e.status === 'ready';
+    const at = run.pick != null ? run.pick : done ? n : n - 1;
+    const to = { ArrowUp: at - 1, ArrowDown: at + 1 >= n ? null : at + 1, Home: 0, End: done ? n - 1 : null, Escape: null }[ev.key];
+    if (to === undefined) return;
+    ev.preventDefault();
+    pick(to);
+  });
+
+  // Light up the step shown and write its words, without redrawing the stage.
+  function paint(e, prof) {
+    const root = document.getElementById('stage');
+    if (!root) return;
+    cur = { e, prof };
+    const st = shown(e), f = st ? focus(st.label, st.module) : {};
+    for (const g of root.querySelectorAll('.stk-layer')) {
+      const r = { file: g.dataset.file, kind: g.dataset.kind, side: g.dataset.side }, on = !!st && lit(f, r);
+      g.classList.toggle('on', on);
+      g.classList.toggle('scan', !!(on && f.scan));
+    }
+    root.classList.remove('holes-all', 'holes-npth');
+    if (f.holes) root.classList.add('holes-' + f.holes);
+    root.classList.toggle('edge-on', !!f.edge);
+    root.classList.toggle('raster-on', !!f.raster);
+    root.classList.toggle('picked', !!picked(e));
+    // Worker patches stay while the raster pass runs, whatever step is shown.
+    const now = e.status !== 'ready' && e.stage ? focus(e.stage.label, e.stage.module) : {};
+    if (!now.raster) for (const j of root.querySelectorAll('.fx-job')) j.remove();
+    const text = root.querySelector('.stg-text'), mode = st ? 'step' : 'sum';
+    if (text && text.dataset.mode !== mode) { text.dataset.mode = mode; text.innerHTML = textHtml(e, prof, st, f); }
+    else if (st) {
+      const set = (id, t) => { const el = document.getElementById(id); if (el && el.textContent !== t) el.textContent = t; };
+      set('stg-mod', eyebrow(e, st));
+      set('stg-title', st.label || '');
+      set('stg-desc', explain(st.label, st.module, prof));
+      const n = document.getElementById('stg-step-n'), h = stepFound(e);
+      if (n && n.innerHTML !== h) n.innerHTML = h;
+      const fig = document.getElementById('stg-detail');
+      if (fig && fig.dataset.key !== (f.detail || '')) { fig.dataset.key = f.detail || ''; fig.innerHTML = detail(f.detail, prof); }
+    }
+    railSync(e);
   }
 
   // The bar along the bottom: found so far on the left, jobs, percent and time on the right.
@@ -305,27 +441,10 @@
     return `${jobs}${Math.floor(run.frac * 100)}%<span class="sep"></span>${clock(performance.now() - run.t0)}`;
   }
 
-  // Light up what the current step looks at, without redrawing the stage.
+  // The run moved on to a new step: show it (unless one is picked on the rail), without redrawing.
   function update(e, prof) {
-    const root = document.getElementById('stage');
-    if (!root || !e.stage) return;
-    const { module, label } = e.stage, f = focus(label, module);
-    for (const g of root.querySelectorAll('.stk-layer')) {
-      const r = { file: g.dataset.file, kind: g.dataset.kind, side: g.dataset.side }, on = lit(f, r);
-      g.classList.toggle('on', on);
-      g.classList.toggle('scan', !!(on && f.scan));
-    }
-    root.classList.remove('holes-all', 'holes-npth');
-    if (f.holes) root.classList.add('holes-' + f.holes);
-    root.classList.toggle('edge-on', !!f.edge);
-    root.classList.toggle('raster-on', !!f.raster);
-    if (!f.raster) for (const j of root.querySelectorAll('.fx-job')) j.remove();
-    const set = (id, t) => { const el = document.getElementById(id); if (el && el.textContent !== t) el.textContent = t; };
-    set('stg-mod', modTitle(module));
-    set('stg-title', label || '');
-    set('stg-desc', explain(label, module, prof));
-    const fig = document.getElementById('stg-detail');
-    if (fig && fig.dataset.key !== (f.detail || '')) { fig.dataset.key = f.detail || ''; fig.innerHTML = detail(f.detail, prof); }
+    if (!document.getElementById('stage') || !e.stage) return;
+    paint(e, prof);
     progress(e);
   }
 
@@ -352,9 +471,11 @@
   function found(e, fresh, show) {
     const run = e.live;
     if (!run) return;
+    // Counted against the step that found them; a module's findings before its first step have none.
+    const step = e.stage && e.stage.label && run.steps ? run.steps[run.steps.length - 1] : null;
     const R = rows(e.pkg), hit = new Map(), add = [];
     for (const f of fresh) {
-      if (f.severity === 'error' || f.severity === 'warn') run.n[f.severity]++;
+      if (f.severity === 'error' || f.severity === 'warn') { run.n[f.severity]++; if (step) step.n[f.severity]++; }
       const p = pinOf(e.pkg, R, f);
       if (!p) continue;
       run.pins.push(p); add.push(p);
@@ -386,6 +507,9 @@
       t.innerHTML = list.map(p => pinSvg(r, p, true)).join('');
       while (t.firstChild) box.appendChild(t.firstChild);
     }
+    railSync(e);
+    const n = document.getElementById('stg-step-n'), h = stepFound(e);
+    if (n && n.innerHTML !== h) n.innerHTML = h;
     progress(e);
   }
 
@@ -404,5 +528,5 @@
     if (b && b.innerHTML !== tb) b.innerHTML = tb;
   }
 
-  Fab.stage = { html, update, focus, job, found, progress, detail };
+  Fab.stage = { html, update, paint, focus, job, found, progress, detail };
 })(window.Fab);

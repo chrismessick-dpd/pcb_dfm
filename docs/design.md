@@ -413,6 +413,12 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
     next stage render plays it once. A re-render keeps the stage's node while its run and status are
     the same, so the save right after a run doesn't restart the transition.
   - The run log is collapsed under the stage to its latest step line, and remembers being opened.
+  - **Step rail**, right of the words: one bar per step run (`entry.live.steps`, with what each
+    found), a gap between modules, red or amber where a step found errors or warnings. Pressing or
+    sliding along it (touch too), or the arrow keys on it, shows that step: its words, its detail
+    drawing, the layers it reads lit, and what it found. The run keeps going behind it. **Live** (or
+    **Summary** once finished), Escape, or the bar of the step running goes back to following the run.
+    The steps live only with the run in this tab; a run reopened from storage has no rail.
 - **Findings.** Signoff-style sections with severity and category filters. Clicking a finding opens the
   inspector, with a preview of the finding on the board: a second `Fab.render.Viewer` on a copy of
   the board's layer list, set up the way the Board view will be (`jumpPlan`: the side, the finding's
@@ -422,6 +428,8 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
   - Showing a finding turns on its layer if it was off. DFM findings without a layer turn on what
     they measure: the plated and non-plated holes for hole checks, the outline for edge checks.
 - **Board.** Layer list, the canvas (pan/zoom, top/bottom, placements), and a findings rail.
+  - On touch screens one finger pans and two pinch to zoom about their midpoint (panning with it).
+    A pinch never counts as a tap.
   - Moving from one finding to another on the board flies there (`Viewer.flyTo`): out far enough
     to see both places (at least 1.6×, never past the whole board), across, then in, in about
     0.4–0.75 s. Panning or zooming by hand stops it. Arriving from another view jumps straight there.

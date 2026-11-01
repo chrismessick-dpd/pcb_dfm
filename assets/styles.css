@@ -268,10 +268,10 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .stage.holes-npth .stk-layer.on .stk-npth { opacity: 1; fill: var(--stk-glow); stroke: none; animation: stk-ping 1.6s var(--ease) var(--dl) infinite; }
 @keyframes stk-ping { 0%, 100% { opacity: 0.35; } 25% { opacity: 1; } }
 /* While running, the layers not being checked step back and the checked ones glow. */
-.stage.is-running .stk-layer:not(.on) { opacity: 0.4; }
-.stage.is-running .stk-layer.on .stk-face { stroke: var(--stk-glow); stroke-width: 1.2; filter: drop-shadow(0 0 5px var(--stk-glow)); }
-.stage.is-running .stk-layer.on .stk-lbl { fill: var(--text); font-weight: 600; }
-.stage.is-running .stk-layer.on .stk-lead { stroke: var(--stk-glow); stroke-dasharray: none; }
+.stage.is-running .stk-layer:not(.on), .stage.picked .stk-layer:not(.on) { opacity: 0.4; }
+.stage.is-running .stk-layer.on .stk-face, .stage.picked .stk-layer.on .stk-face { stroke: var(--stk-glow); stroke-width: 1.2; filter: drop-shadow(0 0 5px var(--stk-glow)); }
+.stage.is-running .stk-layer.on .stk-lbl, .stage.picked .stk-layer.on .stk-lbl { fill: var(--text); font-weight: 600; }
+.stage.is-running .stk-layer.on .stk-lead, .stage.picked .stk-layer.on .stk-lead { stroke: var(--stk-glow); stroke-dasharray: none; }
 .stk-layer.scan .stk-scan { opacity: 1; animation: stk-sweep 1.6s linear infinite; }
 @keyframes stk-sweep { from { transform: translateX(0); } to { transform: translateX(660px); } }
 /* The outline, for edge checks: a glowing line running around the board. */
@@ -306,7 +306,30 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .stage.is-done .stk-layer:hover .stk-face, .stage.is-done .stk-layer:focus-visible .stk-face { stroke: var(--accent); stroke-width: 2; }
 .stage.is-done .stk-layer:hover .stk-lbl { fill: var(--text); }
 .stage.is-done .stk-layer:focus { outline: none; }
-.stage-side { min-width: 0; }
+.stage-side { min-width: 0; display: flex; gap: 18px; align-self: stretch; }
+.stg-main { flex: 1; min-width: 0; align-self: center; }
+/* The step rail: a bar per step run (a gap between modules), pressed or slid to go back to one. */
+.stg-rail { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 34px; flex: none; padding: 4px 0; border-radius: 8px; outline: none; }
+.stg-rail:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.stg-bars { flex: 1; min-height: 150px; width: 100%; display: flex; flex-direction: column; gap: 2px; cursor: ns-resize; touch-action: none; user-select: none; -webkit-user-select: none; }
+.stg-bars i { flex: 1 1 0; min-height: 3px; max-height: 14px; width: 14px; margin: 0 auto; border-radius: 3px; background: var(--bg-sunk); box-shadow: inset 0 0 0 1px var(--hair, rgba(128, 128, 128, 0.25)); transition: width 0.15s var(--ease), background 0.15s var(--ease); }
+.stg-bars i.m0:not(:first-child) { margin-top: 5px; }
+.stg-bars i.w { background: color-mix(in srgb, var(--warn) 55%, var(--bg-sunk)); }
+.stg-bars i.e { background: color-mix(in srgb, var(--issue) 60%, var(--bg-sunk)); }
+.stg-bars i.live { background: var(--stk-glow); opacity: 0.55; animation: rail-live 1.2s var(--ease) infinite alternate; }
+.stg-bars i.cur { width: 26px; background: var(--stk-glow); opacity: 1; box-shadow: 0 0 6px var(--stk-glow); animation: none; }
+.stg-bars:hover i:not(.cur) { width: 18px; }
+@keyframes rail-live { to { opacity: 1; } }
+/* On phones the rail takes touches instead of scrolling, so it is kept short there. */
+@media (max-width: 860px) { .stg-rail { max-height: 260px; align-self: center; } }
+.stg-now { font: 600 10.5px var(--sans); letter-spacing: 0.03em; color: var(--text-2); background: none; border: 1px solid var(--hair, rgba(128, 128, 128, 0.35)); border-radius: 10px; padding: 2px 6px; cursor: pointer; }
+.stg-now.on { color: var(--accent-ink); border-color: var(--accent); }
+.stg-step-n { font-size: 12px; color: var(--text-2); margin-top: 6px; min-height: 1.3em; font-variant-numeric: tabular-nums; }
+.stg-step-n .sep::before { content: "·"; margin: 0 7px; opacity: 0.6; }
+.stg-step-n b { font-weight: 400; font-size: 9px; vertical-align: 1px; }
+.stg-step-n b.e { color: var(--issue); }
+.stg-step-n b.w { color: var(--warn); }
+.stg-step-n b.ok { color: var(--pass); font-size: 11px; vertical-align: 0; }
 .stg-eyebrow { font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent-ink); font-variant-numeric: tabular-nums; }
 .stg-title { font: 600 19px/1.25 var(--display); margin: 4px 0 6px; }
 .stg-desc { font-size: 13px; line-height: 1.45; color: var(--text-2); min-height: 3.6em; }
@@ -365,10 +388,10 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 @keyframes stk-settle { 35% { transform: translateY(var(--sq)); } }
 .stage.fx-exit .stk-layer .stk-face { animation: stk-edge 0.8s ease-out; animation-delay: calc(var(--i) * 70ms + 120ms); }
 @keyframes stk-edge { 0% { stroke: var(--stk-ring); stroke-width: 2.2; filter: drop-shadow(0 0 6px var(--stk-ring)); } }
-.stage.fx-exit .stage-side > * { animation: fig-in 0.5s var(--ease) both; }
-.stage.fx-exit .stage-side > :nth-child(2) { animation-delay: 0.08s; }
-.stage.fx-exit .stage-side > :nth-child(3) { animation-delay: 0.16s; }
-.stage.fx-exit .stage-side > :nth-child(4) { animation-delay: 0.24s; }
+.stage.fx-exit .stg-text > *, .stage.fx-exit .stg-actions { animation: fig-in 0.5s var(--ease) both; }
+.stage.fx-exit .stg-text > :nth-child(2) { animation-delay: 0.08s; }
+.stage.fx-exit .stg-text > :nth-child(3) { animation-delay: 0.16s; }
+.stage.fx-exit .stg-actions { animation-delay: 0.24s; }
 .stg-actions { margin-top: 16px; }
 .stage.fx-exit .stg-bar i { animation: bar-done 1s ease-out; }
 @keyframes bar-done { 0% { filter: brightness(1.8) drop-shadow(0 0 6px var(--pass)); } }
@@ -380,4 +403,4 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .logbox[open] > summary::before { transform: rotate(90deg); }
 .logbox > summary b { color: var(--text); font-weight: 600; }
 .log-last { font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
-@media (prefers-reduced-motion: reduce) { .stk-burst { display: none; } .stage.fx-enter .stk-layer, .stage.fx-exit .stk-layer, .stage.fx-exit .stk-layer .stk-face, .stage.fx-exit .stage-side > *, .stage.fx-exit .stg-bar i { animation: none !important; } .stk-layer.scan .stk-scan, .stage.edge-on .stk-outline, .fx-patch, .fx-sweep, .pin.new .pin-ring, .pin.new .pin-dot, .stg-run s::after, .stg-fig, .stk-drill, .stk-npth { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .stk-burst { display: none; } .stage.fx-enter .stk-layer, .stage.fx-exit .stk-layer, .stage.fx-exit .stk-layer .stk-face, .stage.fx-exit .stg-text > *, .stage.fx-exit .stg-actions, .stage.fx-exit .stg-bar i { animation: none !important; } .stk-layer.scan .stk-scan, .stage.edge-on .stk-outline, .fx-patch, .fx-sweep, .pin.new .pin-ring, .pin.new .pin-dot, .stg-bars i.live, .stg-run s::after, .stg-fig, .stk-drill, .stk-npth { animation: none !important; } }
