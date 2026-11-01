@@ -2,7 +2,8 @@
    step reads glow; raster jobs light the part of the board each worker is analyzing, live; findings
    drop onto their layer as pins (and stay, as a map of the run, when it is done); hole checks light
    the board's real drill hits; a detail drawing shows what the step measures, at the profile's limit;
-   and a bar along the bottom shows the run's progress. */
+   and a bar along the bottom shows the run's progress, with its steps marked along it; once the run
+   is done, the bar's steps can be slid along to go back to one. */
 (function (Fab) {
   'use strict';
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
@@ -244,7 +245,7 @@
     const mid = (R.length - 1) / 2;
     const cu = R.filter(r => r.kind === 'copper' || r.kind === 'plane');
     cur = { e, prof };
-    // The step shown: one picked on the rail, else the one running (none once done).
+    // The step shown: one picked on the bar, else the one running (none once done).
     const st = shown(e), f = st ? focus(st.label, st.module) : {};
     let svg = `<svg class="stk" viewBox="0 0 ${VW} ${H}" role="img" aria-label="Layer stack">`;
     svg += '<defs><linearGradient id="stk-scan" x1="0" x2="1"><stop offset="0" stop-color="var(--stk-glow)" stop-opacity="0"/><stop offset="0.5" stop-color="var(--stk-glow)" stop-opacity="0.5"/><stop offset="1" stop-color="var(--stk-glow)" stop-opacity="0"/></linearGradient></defs>';
@@ -279,7 +280,7 @@
     if (f.raster) cls.push('raster-on');
     if (picked(e)) cls.push('picked');
     return `<div class="${cls.join(' ')}" id="stage" data-key="${esc(e.id + ':' + e.status)}"><div class="stage-art">${svg}</div>` +
-      `<div class="stage-side"><div class="stg-main"><div class="stg-text" data-mode="${st ? 'step' : 'sum'}">${textHtml(e, prof, st, f)}</div>${done ? open : ''}</div>${railHtml(e)}</div>${progHtml(e)}</div>`;
+      `<div class="stage-side"><div class="stg-text" data-mode="${st ? 'step' : 'sum'}">${textHtml(e, prof, st, f)}</div>${done ? open : ''}</div>${progHtml(e, fx)}</div>`;
   }
 
   // The words beside the stack: the step shown, or the run's summary once it is done.
@@ -293,12 +294,13 @@
       `<div class="stg-detail" id="stg-detail" data-key="${f.detail || ''}">${detail(f.detail, prof)}</div>`;
   }
 
-  // ---- the step rail: once the run is done, one bar per step it ran, to go back to the steps that
-  // went by too fast to read. run.pick is the index in run.steps of the step shown, or null for the
-  // summary. While running, the steps are only recorded (with what each found). ----
+  // ---- steps on the bar: marked where the fill will reach them before they run; once the run is
+  // done, one segment per step it ran, slid along to go back to the steps that went by too fast to
+  // read. run.pick is the index in run.steps of the step shown, or null for the summary. ----
   let cur = null; // the entry and profile of the stage on the page
   const picked = e => { const run = e.live; return run && run.pick != null ? run.steps[run.pick] || null : null; };
   const shown = e => picked(e) || (e.status === 'ready' ? null : e.stage);
+  const canPick = e => e.status === 'ready' && e.live && e.live.steps && e.live.steps.length;
   function eyebrow(e, st) {
     const run = e.live;
     return picked(e) ? `${modTitle(st.module).split(' · ')[0]} · step ${run.pick + 1} of ${run.steps.length}` : modTitle(st.module);
@@ -310,80 +312,102 @@
     if (!p.n.error && !p.n.warn) return '<b class="ok">✓</b> Nothing found in this step';
     return [p.n.error && `<b class="e">●</b> ${plural(p.n.error, 'error')}`, p.n.warn && `<b class="w">▲</b> ${plural(p.n.warn, 'warning')}`].filter(Boolean).join('<span class="sep"></span>') + ' in this step';
   }
-  function barHtml(s, i, prev) {
-    const sev = s.n.error ? ' e' : s.n.warn ? ' w' : '';
-    return `<i data-i="${i}" class="${!prev || prev.module !== s.module ? 'm0' : ''}${sev}" title="${esc(s.label)}"></i>`;
+  // Running: a tick at each planned step (taller where a module starts). Done: a segment per step run,
+  // all one width so each is easy to land on; at the finish they open out from where they ran.
+  function stepsHtml(e, fx) {
+    const run = e.live, done = e.status === 'ready';
+    if (!done) return marks(run).map((p, i, l) => i ? `<span class="${l[i - 1].module !== p.module ? 'm0' : ''}" style="left:${(p.a * 100).toFixed(2)}%"></span>` : '').join('');
+    return run.steps.map((s, i, l) => {
+      const sev = s.n.error ? ' e' : s.n.warn ? ' w' : '', next = l[i + 1] ? l[i + 1].a : 1;
+      return `<span data-i="${i}" class="${i && l[i - 1].module !== s.module ? 'm0' : ''}${sev}" title="${esc(s.label)}"${fx === 'exit' ? ` style="flex-grow:${Math.max(0.01, (next - s.a) * l.length).toFixed(3)}"` : ''}></span>`;
+    }).join('');
   }
-  // Only on a finished run of this tab (a run reopened from storage has no steps).
-  function railHtml(e) {
-    const run = e.live;
-    if (e.status !== 'ready' || !run || !run.steps || !run.steps.length) return '';
-    const bars = run.steps.map((s, i) => barHtml(s, i, run.steps[i - 1])).join('');
-    return `<div class="stg-rail" id="stg-rail" tabindex="0" role="slider" aria-orientation="vertical" aria-label="Step shown">` +
-      `<div class="stg-bars" id="stg-bars">${bars}</div><button type="button" class="stg-now" id="stg-now">Summary</button></div>`;
+  // The marks while running: the steps run where they began, then the plan's for the steps to come
+  // (in the module running, those after the ones it has run).
+  function marks(run) {
+    const ran = run.steps, now = ran.length ? ran[ran.length - 1].module : null;
+    const started = new Set(ran.map(s => s.module));
+    let k = ran.filter(s => s.module === now).length;
+    return ran.concat((run.plan || []).filter(p => p.module === now ? k-- <= 0 : !started.has(p.module)));
   }
-  // Mark the step shown, on the rail and for screen readers.
-  function railSync(e) {
-    const run = e.live, bars = document.getElementById('stg-bars');
-    if (!run || !run.steps || !bars) return;
-    const at = run.pick != null ? run.pick : -1;
-    [...bars.children].forEach((b, i) => b.classList.toggle('cur', i === at));
-    document.getElementById('stg-now').classList.toggle('on', at < 0);
-    const rail = document.getElementById('stg-rail'), st = shown(e);
-    rail.setAttribute('aria-valuemin', 1);
-    rail.setAttribute('aria-valuemax', run.steps.length);
-    rail.setAttribute('aria-valuenow', at < 0 ? run.steps.length : at + 1);
-    rail.setAttribute('aria-valuetext', st ? st.label || '' : 'Summary');
+  // Redraw the marks when a step starts (one the plan didn't expect, or skipped, moves them).
+  function marksSync(e) {
+    const box = document.getElementById('stg-steps');
+    if (!box || e.status === 'ready') return;
+    const tints = [...box.querySelectorAll('b')];
+    box.innerHTML = stepsHtml(e);
+    for (const t of tints) box.appendChild(t);
+  }
+  // Mark the step shown, on the bar, under it and for screen readers.
+  function barSync(e) {
+    const box = document.getElementById('stg-steps');
+    if (!box || !canPick(e)) return;
+    const run = e.live, at = run.pick != null ? run.pick : -1;
+    [...box.children].forEach((b, i) => b.classList.toggle('cur', i === at));
+    // Just finished: the segments drawn where their steps ran open out to one width each.
+    if (box.firstElementChild && box.firstElementChild.style.flexGrow) requestAnimationFrame(() => requestAnimationFrame(() => { for (const b of box.children) b.style.flexGrow = ''; }));
+    const st = shown(e), bar = document.getElementById('stg-bar');
+    bar.setAttribute('aria-valuenow', at < 0 ? run.steps.length + 1 : at + 1);
+    bar.setAttribute('aria-valuetext', st ? st.label || '' : 'Summary');
+    const hint = document.getElementById('stg-found'), h = hintHtml(e);
+    if (hint && hint.innerHTML !== h) hint.innerHTML = h;
+  }
+  function hintHtml(e) {
+    return picked(e) ? '<button type="button" class="stg-now" id="stg-now">← Summary</button>' : 'Slide along the bar to revisit a step';
   }
 
-  // Show the step picked on the rail (null: the summary).
+  // Show the step picked on the bar (null: the summary).
   function pick(i) {
-    if (!cur || !cur.e.live || !cur.e.live.steps) return;
+    if (!cur || !canPick(cur.e)) return;
     const e = cur.e, run = e.live;
     run.pick = i == null ? null : Math.max(0, Math.min(run.steps.length - 1, i));
     paint(e, cur.prof);
   }
-  // Where each bar was when the press began ([top, bottom, index]), so a step that changes the
+  // Where each segment was when the press began ([left, right, index]), so a step that changes the
   // page's layout can't move the target under the finger.
-  function barBoxes(bars) {
-    return [...bars.children].map(b => { const r = b.getBoundingClientRect(); return [r.top, r.bottom, +b.dataset.i]; });
+  function segBoxes(box) {
+    return [...box.children].map(b => { const r = b.getBoundingClientRect(); return [r.left, r.right, +b.dataset.i]; });
   }
-  function barAt(boxes, y) {
+  function segAt(boxes, x) {
     let best = null, d = Infinity;
-    for (const [top, bottom, i] of boxes) {
-      const dd = y < top ? top - y : y > bottom ? y - bottom : 0;
+    for (const [l, r, i] of boxes) {
+      const dd = x < l ? l - x : x > r ? x - r : 0;
       if (dd < d) { d = dd; best = i; }
     }
     return best;
   }
-  // Press and slide along the rail; arrows, Home, End and Escape from the keyboard.
+  // Press and slide along the bar (a vertical swipe still scrolls the page); arrows, Home, End and
+  // Escape from the keyboard.
   document.addEventListener('pointerdown', ev => {
-    const bars = ev.target.closest && ev.target.closest('#stg-bars');
-    if (!bars || !cur) return;
+    const bar = ev.target.closest && ev.target.closest('#stg-bar');
+    if (!bar || !cur || !canPick(cur.e)) return;
     ev.preventDefault();
-    bars.setPointerCapture(ev.pointerId);
-    const boxes = barBoxes(bars);
+    try { bar.setPointerCapture(ev.pointerId); } catch (_) { /* a synthetic pointer */ }
+    const boxes = segBoxes(document.getElementById('stg-steps'));
     let last = null;
-    // While sliding, the stage only grows, so the page below doesn't bounce from step to step.
+    // While sliding, the stage only grows, so the page doesn't bounce from step to step.
     const root = document.getElementById('stage');
-    const go = y => {
-      const i = barAt(boxes, y);
+    const go = x => {
+      const i = segAt(boxes, x);
       if (i != null && i !== last) {
         last = i; pick(i);
         if (root) root.style.minHeight = Math.max(parseFloat(root.style.minHeight) || 0, root.offsetHeight) + 'px';
       }
     };
-    go(ev.clientY);
-    const move = m => go(m.clientY);
-    const end = () => { if (root) root.style.minHeight = ''; bars.removeEventListener('pointermove', move); bars.removeEventListener('pointerup', end); bars.removeEventListener('pointercancel', end); };
-    bars.addEventListener('pointermove', move); bars.addEventListener('pointerup', end); bars.addEventListener('pointercancel', end);
+    const was = cur.e.live.pick;
+    go(ev.clientX);
+    const move = m => go(m.clientX);
+    const end = () => { if (root) root.style.minHeight = ''; bar.removeEventListener('pointermove', move); bar.removeEventListener('pointerup', end); bar.removeEventListener('pointercancel', cancel); };
+    // The browser took the touch as a scroll of the page: put back what was shown before the press.
+    const cancel = () => { end(); pick(was); };
+    bar.addEventListener('pointermove', move); bar.addEventListener('pointerup', end); bar.addEventListener('pointercancel', cancel);
   });
   document.addEventListener('click', ev => { if (ev.target.closest && ev.target.closest('#stg-now')) pick(null); });
   document.addEventListener('keydown', ev => {
-    if (!ev.target.closest || !ev.target.closest('#stg-rail') || !cur || !cur.e.live || !cur.e.live.steps) return;
-    // The summary sits below the last step.
+    if (!ev.target.closest || !ev.target.closest('#stg-bar') || !cur || !canPick(cur.e)) return;
+    // The summary sits after the last step.
     const run = cur.e.live, n = run.steps.length, at = run.pick != null ? run.pick : n;
-    const to = { ArrowUp: at - 1, ArrowDown: at + 1 >= n ? null : at + 1, Home: 0, End: n - 1, Escape: null }[ev.key];
+    const to = { ArrowLeft: at - 1, ArrowRight: at + 1 >= n ? null : at + 1, Home: 0, End: n - 1, Escape: null }[ev.key];
     if (to === undefined) return;
     ev.preventDefault();
     pick(to);
@@ -420,20 +444,24 @@
       const fig = document.getElementById('stg-detail');
       if (fig && fig.dataset.key !== (f.detail || '')) { fig.dataset.key = f.detail || ''; fig.innerHTML = detail(f.detail, prof); }
     }
-    railSync(e);
+    barSync(e);
   }
 
   // The bar along the bottom: found so far on the left, jobs, percent and time on the right.
-  function progHtml(e) {
+  function progHtml(e, fx) {
     const run = e.live, done = e.status === 'ready';
     if (!run || (done && run.ms == null)) return '';
-    return `<div class="stg-prog${done ? ' done' : ''}" id="stg-prog"><div class="stg-bar"><i id="stg-fill" style="transform:scaleX(${done ? 1 : run.frac.toFixed(4)})"></i>${done ? '' : `<b class="stg-run" id="stg-run" style="width:${(run.frac * 100).toFixed(2)}%"><s></s></b>`}</div>` +
+    const steps = `<div class="stg-steps" id="stg-steps">${run.steps ? stepsHtml(e, fx) : ''}</div>`;
+    // A finished run's bar is a slider over its steps, with the summary after the last.
+    const slider = canPick(e) ? ` tabindex="0" role="slider" aria-orientation="horizontal" aria-label="Step shown" aria-valuemin="1" aria-valuemax="${run.steps.length + 1}"` : '';
+    return `<div class="stg-prog${done ? ' done' : ''}${canPick(e) ? ' steps' : ''}" id="stg-prog"><div class="stg-bar" id="stg-bar"${slider}><i class="stg-fill" id="stg-fill" style="transform:scaleX(${done ? 1 : run.frac.toFixed(4)})"></i>${done ? '' : `<b class="stg-run" id="stg-run" style="width:${(run.frac * 100).toFixed(2)}%"><s></s></b>`}${steps}</div>` +
       `<div class="stg-meta"><span id="stg-found">${foundText(e)}</span><span id="stg-time">${timeText(e)}</span></div></div>`;
   }
-  // Running totals; once done the title has the counts, so the bar only keeps its time.
+  // Running totals; once done the title has the counts, so the bar keeps its time and, when its
+  // steps can be picked, says so.
   function foundText(e) {
     const n = e.live.n;
-    if (e.status === 'ready') return '';
+    if (e.status === 'ready') return canPick(e) ? hintHtml(e) : '';
     if (!n.error && !n.warn) return 'Nothing found yet';
     return [n.error && `<b class="e">●</b> ${plural(n.error, 'error')}`, n.warn && `<b class="w">▲</b> ${plural(n.warn, 'warning')}`].filter(Boolean).join('<span class="sep"></span>') + ' so far';
   }
@@ -444,10 +472,11 @@
     return `${jobs}${Math.floor(run.frac * 100)}%<span class="sep"></span>${clock(performance.now() - run.t0)}`;
   }
 
-  // The run moved on to a new step: show it (unless one is picked on the rail), without redrawing.
+  // The run moved on to a new step: show it (unless one is picked on the bar), without redrawing.
   function update(e, prof) {
     if (!document.getElementById('stage') || !e.stage) return;
     paint(e, prof);
+    marksSync(e);
     progress(e);
   }
 
@@ -510,10 +539,35 @@
       t.innerHTML = list.map(p => pinSvg(r, p, true)).join('');
       while (t.firstChild) box.appendChild(t.firstChild);
     }
-    railSync(e);
+    stepTint(e);
     const n = document.getElementById('stg-step-n'), h = stepFound(e);
     if (n && n.innerHTML !== h) n.innerHTML = h;
     progress(e);
+  }
+
+  // While running, a step that found something tints its stretch of the bar.
+  function stepTint(e) {
+    const run = e.live, box = document.getElementById('stg-steps');
+    if (!box || e.status === 'ready' || !run.steps.length) return;
+    const s = run.steps[run.steps.length - 1], sev = s.n.error ? 'e' : s.n.warn ? 'w' : '';
+    if (!sev) return;
+    let el = box.querySelector(`b[data-i="${run.steps.length - 1}"]`);
+    if (!el) {
+      el = document.createElement('b');
+      el.dataset.i = run.steps.length - 1;
+      el.style.left = (s.a * 100).toFixed(2) + '%';
+      box.appendChild(el);
+    }
+    el.className = sev;
+  }
+  // Each tint runs from its step's start to where the next step began (or the fill's head).
+  function tintSync(e) {
+    const run = e.live, box = document.getElementById('stg-steps');
+    if (!box) return;
+    for (const el of box.querySelectorAll('b')) {
+      const i = +el.dataset.i, next = run.steps[i + 1];
+      el.style.width = (((next ? next.a : run.frac) - run.steps[i].a) * 100).toFixed(2) + '%';
+    }
   }
 
   // The bar and its text.
@@ -525,6 +579,7 @@
     fill.style.transform = `scaleX(${run.frac.toFixed(4)})`;
     const head = document.getElementById('stg-run');
     if (head) head.style.width = (run.frac * 100).toFixed(2) + '%';
+    tintSync(e);
     const a = document.getElementById('stg-found'), b = document.getElementById('stg-time');
     const fa = foundText(e), tb = timeText(e);
     if (a && a.innerHTML !== fa) a.innerHTML = fa;

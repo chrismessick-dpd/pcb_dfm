@@ -306,23 +306,7 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .stage.is-done .stk-layer:hover .stk-face, .stage.is-done .stk-layer:focus-visible .stk-face { stroke: var(--accent); stroke-width: 2; }
 .stage.is-done .stk-layer:hover .stk-lbl { fill: var(--text); }
 .stage.is-done .stk-layer:focus { outline: none; }
-.stage-side { min-width: 0; display: flex; gap: 18px; align-self: stretch; }
-.stg-main { flex: 1; min-width: 0; align-self: center; }
-/* The step rail, once a run is done: a bar per step (a gap between modules), pressed or slid to go
-   back to one. */
-/* A fixed size at the top of its column: the words beside it change height from step to step, and a
-   rail that followed them would move under the finger sliding along it. */
-.stg-rail { display: flex; flex-direction: column; align-items: center; gap: 8px; width: 34px; height: 268px; flex: none; align-self: flex-start; padding: 4px 0; border-radius: 8px; outline: none; }
-.stg-rail:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
-.stg-bars { flex: 1; min-height: 0; overflow: hidden; width: 100%; display: flex; flex-direction: column; gap: 2px; cursor: ns-resize; touch-action: none; user-select: none; -webkit-user-select: none; }
-.stg-bars i { flex: 1 1 0; min-height: 2px; max-height: 14px; width: 14px; margin: 0 auto; border-radius: 3px; background: var(--bg-sunk); box-shadow: inset 0 0 0 1px var(--hair, rgba(128, 128, 128, 0.25)); transition: width 0.15s var(--ease), background 0.15s var(--ease); }
-.stg-bars i.m0:not(:first-child) { margin-top: 5px; }
-.stg-bars i.w { background: color-mix(in srgb, var(--warn) 55%, var(--bg-sunk)); }
-.stg-bars i.e { background: color-mix(in srgb, var(--issue) 60%, var(--bg-sunk)); }
-.stg-bars i.cur { width: 26px; background: var(--stk-glow); box-shadow: 0 0 6px var(--stk-glow); }
-.stg-bars:hover i:not(.cur) { width: 18px; }
-.stg-now { font: 600 10.5px var(--sans); letter-spacing: 0.03em; color: var(--text-2); background: none; border: 1px solid var(--hair, rgba(128, 128, 128, 0.35)); border-radius: 10px; padding: 2px 6px; cursor: pointer; }
-.stg-now.on { color: var(--accent-ink); border-color: var(--accent); }
+.stage-side { min-width: 0; }
 .stg-step-n { font-size: 12px; color: var(--text-2); margin-top: 6px; min-height: 1.3em; font-variant-numeric: tabular-nums; }
 .stg-step-n .sep::before { content: "·"; margin: 0 7px; opacity: 0.6; }
 .stg-step-n b { font-weight: 400; font-size: 9px; vertical-align: 1px; }
@@ -364,8 +348,34 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 @keyframes bar-run { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
 .stg-prog.done .stg-bar i { background: var(--pass); }
 .stg-prog.done .stg-run { display: none; }
-.stg-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 7px; font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+/* Steps on the bar. Running: a tick where each planned step begins (taller at a module), and the
+   stretch of a step that found something tinted. */
+.stg-steps { position: absolute; inset: 0; pointer-events: none; }
+.stg-prog:not(.done) .stg-steps span { position: absolute; top: 0; bottom: 0; width: 1px; margin-left: -0.5px; background: var(--bg-elev); opacity: 0.75; }
+.stg-prog:not(.done) .stg-steps span.m0 { top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--text-3); opacity: 0.5; }
+.stg-steps b { position: absolute; top: 0; bottom: 0; border-radius: 1px; opacity: 0.85; }
+.stg-steps b.w { background: var(--warn); }
+.stg-steps b.e { background: var(--issue); }
+/* Done: the same thin bar, full, with a fine line per step run (spread evenly so each is easy to
+   land on; colored where the step found something) and a glowing marker on the one shown. The bar's
+   padding makes a finger-sized target around it. Sliding sideways picks; a vertical swipe scrolls. */
+.stg-prog.steps .stg-bar { height: auto; margin: -8px 0; padding: 8px 0; background: none; cursor: ew-resize; touch-action: pan-y; user-select: none; -webkit-user-select: none; border-radius: 6px; outline: none; }
+.stg-prog.steps .stg-bar:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.stg-prog.steps .stg-fill { display: none; }
+.stg-prog.steps .stg-steps { position: relative; display: flex; height: 13px; }
+.stg-prog.steps .stg-steps::before { content: ""; position: absolute; left: 0; right: 0; top: 4px; height: 5px; border-radius: 5px; background: var(--pass); opacity: 0.85; }
+.stg-prog.steps .stg-steps span { position: relative; flex: 1 1 0; min-width: 0; transition: flex-grow 0.7s var(--ease) 0.25s; }
+.stg-prog.steps .stg-steps span::after { content: ""; position: absolute; left: 50%; top: 4px; height: 5px; width: 1px; margin-left: -0.5px; background: var(--bg-elev); opacity: 0.55; border-radius: 1px; transition: top 0.12s var(--ease), height 0.12s var(--ease), width 0.12s var(--ease), margin 0.12s var(--ease); }
+.stg-prog.steps .stg-steps span.m0::after { top: 1px; height: 11px; opacity: 0.8; background: var(--text-3); }
+.stg-prog.steps .stg-steps span.w::after { top: 1px; height: 11px; opacity: 1; background: var(--warn); }
+.stg-prog.steps .stg-steps span.e::after { top: 1px; height: 11px; opacity: 1; background: var(--issue); }
+.stg-prog.steps .stg-steps span.cur::after { top: -2px; height: 17px; width: 3px; margin-left: -1.5px; opacity: 1; background: var(--stk-glow); box-shadow: 0 0 6px var(--stk-glow); }
+.stg-prog.steps .stg-bar:hover .stg-steps span:hover:not(.cur)::after { top: 0; height: 13px; opacity: 1; }
+.stg-now { font: inherit; color: var(--accent-ink); background: none; border: 0; padding: 0; cursor: pointer; }
+.stg-now:hover { text-decoration: underline; }
+.stg-meta { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-top: 7px; font-size: 12px; color: var(--text-2); font-variant-numeric: tabular-nums; }
 .stg-meta .sep::before { content: "·"; margin: 0 7px; opacity: 0.6; }
+#stg-time { white-space: nowrap; }
 .stg-meta b { font-weight: 400; font-size: 9px; vertical-align: 1px; }
 .stg-meta b.e { color: var(--issue); }
 .stg-meta b.w { color: var(--warn); }
@@ -392,7 +402,7 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .stage.fx-exit .stg-text > :nth-child(3) { animation-delay: 0.16s; }
 .stage.fx-exit .stg-actions { animation-delay: 0.24s; }
 .stg-actions { margin-top: 16px; }
-.stage.fx-exit .stg-bar i { animation: bar-done 1s ease-out; }
+.stage.fx-exit .stg-bar i, .stage.fx-exit .stg-steps::before { animation: bar-done 1s ease-out; }
 @keyframes bar-done { 0% { filter: brightness(1.8) drop-shadow(0 0 6px var(--pass)); } }
 /* The run log, collapsed to its latest line under the stage. */
 .logbox { margin-top: 12px; }
@@ -402,4 +412,4 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .logbox[open] > summary::before { transform: rotate(90deg); }
 .logbox > summary b { color: var(--text); font-weight: 600; }
 .log-last { font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
-@media (prefers-reduced-motion: reduce) { .stk-burst { display: none; } .stage.fx-enter .stk-layer, .stage.fx-exit .stk-layer, .stage.fx-exit .stk-layer .stk-face, .stage.fx-exit .stg-text > *, .stage.fx-exit .stg-actions, .stage.fx-exit .stg-bar i { animation: none !important; } .stk-layer.scan .stk-scan, .stage.edge-on .stk-outline, .fx-patch, .fx-sweep, .pin.new .pin-ring, .pin.new .pin-dot, .stg-run s::after, .stg-fig, .stk-drill, .stk-npth { animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { .stk-burst { display: none; } .stage.fx-enter .stk-layer, .stage.fx-exit .stk-layer, .stage.fx-exit .stk-layer .stk-face, .stage.fx-exit .stg-text > *, .stage.fx-exit .stg-actions, .stage.fx-exit .stg-bar i, .stage.fx-exit .stg-steps::before { animation: none !important; } .stk-layer.scan .stk-scan, .stage.edge-on .stk-outline, .fx-patch, .fx-sweep, .pin.new .pin-ring, .pin.new .pin-dot, .stg-run s::after, .stg-fig, .stk-drill, .stk-npth { animation: none !important; } .stg-steps span { transition: none !important; } }

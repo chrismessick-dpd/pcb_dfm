@@ -260,7 +260,6 @@
     entry.stage = { module: 'package', label: null };
     const t0 = performance.now();
     const run = entry.live = { t0, frac: 0, jobs: [], pins: [], n: { error: 0, warn: 0 }, fx: 'enter', steps: [], pick: null };
-    renderAll();
     const modules = [
       ['Package', C.package.steps, [pkg], 'package'],
       ['Assembly', C.assembly.steps, [pkg, prof], 'assembly'],
@@ -271,21 +270,30 @@
     ];
     // The inspection stage follows the step being run.
     const live = () => entry.id === state.active && Fab.stage;
-    // Each labeled step is kept (run.steps), so the stage's rail can go back to it.
+    // Each labeled step is kept (run.steps), with where it began on the bar, so the stage can go back to it.
     const stage = (module, label) => {
       entry.stage = { module, label };
-      if (label) run.steps.push({ module, label, n: { error: 0, warn: 0 } });
+      if (label) run.steps.push({ module, label, n: { error: 0, warn: 0 }, a: units / total });
       if (live()) Fab.stage.update(entry, prof);
     };
     // Progress in work units, weighted by how long steps take: 1 per step, 3 per copper layer's
     // spacing step, and the raster pass about as much as everything else, filled by the area of
     // its finished jobs. A module that returns early jumps to its end.
     const nCu = pkg.layers.copper.length, nMask = ['top', 'bottom'].filter(s => pkg.layers.mask[s]).length;
-    const most = { package: 7, assembly: 6, build: 3, pins: 3, bom: 1, dfm: 11 + 4 * nCu + nMask };
+    const most = { package: 7, assembly: 5, build: 3, pins: 3, bom: 1, dfm: 11 + 4 * nCu + nMask };
     const other = Object.values(most).reduce((a, b) => a + b, 0), rasterUnits = Math.round(1.2 * other);
     most.dfm += rasterUnits;
     const total = other + rasterUnits;
+    // The steps laid along the bar before they run, where the fill will reach each (as fractions):
+    // the same units, in the order the modules yield them. A step a module skips puts the rest of
+    // that module's marks one step out; the stage marks the steps run where they actually began.
+    run.plan = [];
+    let at = 0;
+    const slot = (module, w, n = 1) => { for (let i = 0; i < n; i++) { run.plan.push({ module, a: at / total }); at += w; } };
+    for (const m of ['package', 'assembly', 'build', 'pins', 'bom']) slot(m, 1, most[m]);
+    slot('dfm', 1, 11); slot('dfm', rasterUnits); slot('dfm', 3, nCu); slot('dfm', 1, nCu); slot('dfm', 1, nMask);
     let base = 0, units = 0;
+    renderAll();
     const advance = u => { units = Math.min(u, base); run.frac = units / total; setProgress(entry, 0.3 + 0.7 * run.frac); };
     // Ticks the bar's clock; stops itself once the run ends, however it ends.
     const clock = setInterval(() => { if (entry.status !== 'running' || entry.live !== run) clearInterval(clock); else if (live()) Fab.stage.progress(entry); }, 500);

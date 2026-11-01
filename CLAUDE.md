@@ -50,7 +50,8 @@ guide, FTE section, demo mode), `docs/fab-rules.md` (every fab-rule default with
 - `assets/stage.js` draws the Overview's inspection stage, at the top of the page: the layer stack
   lit by the running step, a glowing patch per raster worker job (`prepareRaster(..., watch)`, passed
   as `out.watch`; metadata only, findings identical with it), finding pins per layer, real drill hits,
-  a dimensioned detail drawing per DFM step, a weighted progress bar, and start/finish transitions.
+  a dimensioned detail drawing per DFM step, a weighted progress bar with the run's steps marked
+  along it (a step slider once the run is done), and start/finish transitions.
   Live state is `entry.live` (`entry.run` is the saved run record; don't reuse the name). A
   re-render keeps the `#stage` node while `data-key` (entry id + status) is unchanged.
 - Showing a finding on the board goes through `jumpPlan` in `app.js` (side, layers to turn on,

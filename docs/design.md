@@ -413,17 +413,26 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
     next stage render plays it once. A re-render keeps the stage's node while its run and status are
     the same, so the save right after a run doesn't restart the transition.
   - The run log is collapsed under the stage to its latest step line, and remembers being opened.
-  - **Step rail**, right of the words once the run is done: one bar per step run
-    (`entry.live.steps`, recorded during the run with what each found), a gap between modules, red or
-    amber where a step found errors or warnings. Pressing or sliding along it (touch too), or the arrow
-    keys on it, shows that step: its words, its detail drawing, the layers it reads lit, and what it
-    found. **Summary**, Escape, or Down past the last step goes back to the summary. It isn't shown
-    while running (Chris, 2026-11-01): the stage follows the run then. The steps live only with the
-    run in this tab; a run reopened from storage has no rail.
-    The rail has a fixed size at the top of its column, and a slide maps the finger to the bars as
-    measured at the press: when it followed the words beside it, a step that changed their height
-    moved the bars under the finger and the pick flickered between steps. While sliding, the stage
-    only grows, so the page below holds still.
+  - **Steps on the bar.** Before the run, the app lays its planned steps along the progress bar
+    (`entry.live.plan`) where the fill will reach each, with the same units, and a taller mark where
+    a module starts. Each step run is recorded where it began (`entry.live.steps[i].a`, with what it
+    found); while running, the marks of steps already run sit there, and the plan's marks the steps
+    still to come. A step a module skips puts the rest of that module's planned marks one step out
+    until the next module starts. A step that finds errors or warnings tints its stretch red or amber.
+  - Once the run is done, the bar becomes a slider: the same thin bar, full, with a fine line per
+    step run, spread evenly (taller at a module's start, red or amber where the step found
+    something) and opening out from where the steps ran; a glowing marker sits on the step shown.
+    Chris found one block per step too chunky. Pressing or sliding along it (touch too; a
+    vertical swipe still scrolls), or the arrow keys on it, shows that step: its words, its detail
+    drawing, the layers it reads lit, and what it found. **← Summary** under it, Escape, or Right past
+    the last step goes back to the summary. On the time-weighted bar the raster pass is about half
+    the width and the quick steps about 3 px each on a phone, too small to land on, hence even
+    spacing once the bar no longer shows progress. A slide maps the finger to the steps as
+    measured at the press, and the stage only grows while sliding, so a step that changes the words'
+    height can't move the target or bounce the page. The steps live only with the run in this tab; a
+    run reopened from storage has no bar.
+  - This replaced a vertical step rail right of the words (2026-11-01), on Chris's call: the steps
+    belong on the bar that already shows the run.
 - **Findings.** Signoff-style sections with severity and category filters. Clicking a finding opens the
   inspector, with a preview of the finding on the board: a second `Fab.render.Viewer` on a copy of
   the board's layer list, set up the way the Board view will be (`jumpPlan`: the side, the finding's
