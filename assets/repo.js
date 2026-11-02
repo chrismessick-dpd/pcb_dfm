@@ -87,7 +87,11 @@
         files.push({ path: h.dir + 'preview/' + file, bytes: s.bytes });
         return { key: s.key, file, type: s.type, w: s.w, h: s.h };
       });
-      files.push({ path: h.dir + 'preview/index.json', text: json({ v: 1, tool: 'fabcheck', runId: run.id, at: run.at || '', hero: images[0].key, images }) });
+      // The board's size, so Signoff PL can draw it to scale in its 3D view: the outline's extent
+      // in mm, and the run's board thickness.
+      const bb = entry.pkg && entry.pkg.boardBBox, t = Number(run.settings && run.settings.thickness);
+      const board = bb && Fab.bbox.valid(bb) ? { w: +(bb[2] - bb[0]).toFixed(3), h: +(bb[3] - bb[1]).toFixed(3), t: t > 0 ? t : 1.6 } : undefined;
+      files.push({ path: h.dir + 'preview/index.json', text: json({ v: 1, tool: 'fabcheck', runId: run.id, at: run.at || '', hero: images[0].key, images, board }) });
     }
     const bytes = files.reduce((n, f) => n + (f.bytes ? f.bytes.length : f.text.length), 0);
     log('step', `Storing run ${run.id} in ${h.repo}/${h.dir}`);
