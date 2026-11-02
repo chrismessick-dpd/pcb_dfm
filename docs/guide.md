@@ -34,7 +34,7 @@ is uploaded.
    everywhere else. The full log is folded away under it.
 2. **Overview** shows the totals for each area. While the checks run, the layer stack beside them lights what each step looks at; the bar under it marks each step to come. Once they finish, that bar is the steps it ran: press or slide along it, or use the left and right arrow keys, to read one that went by too fast (**← Summary** comes back); with a step shown, **Open board** goes straight to its first error or warning. **Findings** lists every issue with its severity;
    select one to see it on a small preview of the board, and select the preview to zoom into it on
-   the **Board**, with its layer turned on. **Board** draws the board (drag to pan; scroll, or pinch on a phone or tablet, to zoom; the up and down arrow keys step through its findings list): click a finding and it zooms to the spot, fading the layers above it so
+   the **Board**, with its layer turned on. **Board** draws the board (drag to pan; scroll, or pinch on a phone or tablet, to zoom; the up and down arrow keys step through its findings list): click a finding and it zooms to the spot (or click a mark on the board to pick out its finding in the list), fading the layers above it so
    inner-layer problems stay visible. **Realistic** shows the board as it will be built: green mask,
    gold pads and white silkscreen.
 3. Pick a **fab profile**: *Prototype*, *Standard* or *Advanced (HDI-lite)*. Each is a set of

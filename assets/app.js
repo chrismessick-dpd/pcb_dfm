@@ -1304,8 +1304,11 @@
   function ensureViewer() {
     if (viewer) return viewer;
     viewer = new Fab.render.Viewer($('#canvas'));
-    viewer.onHover = (x, y) => { $('#coords').textContent = `X ${x.toFixed(3)}  Y ${y.toFixed(3)} mm`; };
-    viewer.onClick = (x, y) => pickPart(x, y);
+    viewer.onHover = (x, y) => {
+      $('#coords').textContent = `X ${x.toFixed(3)}  Y ${y.toFixed(3)} mm`;
+      viewer.canvas.style.cursor = markAt(x, y) ? 'pointer' : '';
+    };
+    viewer.onClick = (x, y) => { const f = markAt(x, y); if (f) selectFinding(f); else pickPart(x, y); };
     viewer.overlays.push({ draw: drawPlacements }, { draw: drawFindingMarks });
     return viewer;
   }
@@ -1449,24 +1452,61 @@
     ctx.restore();
   }
 
-  // A ring per located finding that passes the filter, on layers that are showing.
-  function drawFindingMarks(ctx, v) {
-    const e = active();
-    if (!e) return;
+  // The located findings that pass the filter, on layers that are showing, with where their marks
+  // sit on screen. The selected one is included (the highlight draws it).
+  function findingMarks(v) {
+    const e = active(), out = [];
+    if (!e) return out;
     const shown = new Set(v.layers.filter(l => l.visible && l.layer).map(l => l.layer.file.name));
     const side = v.view.flip ? 'bottom' : 'top';
+    for (const f of visibleFindings(e)) {
+      if (!(f.at || f.bbox)) continue;
+      if (f.layer ? !shown.has(f.layer) : (f.side && f.side !== side)) continue;
+      const c = f.at || Fab.bbox.center(f.bbox);
+      const [x, y] = v.toScreen(c.x, c.y);
+      if (x < -10 || y < -10 || x > v.W + 10 || y > v.H + 10) continue;
+      out.push({ f, x, y, hot: !!state.focusCheck && f.check === state.focusCheck });
+    }
+    return out;
+  }
+
+  // The finding whose mark is under a board point (mm): the nearest within a few pixels, with the
+  // linked check's marks ahead of the dimmed ones.
+  function markAt(mx, my) {
+    if (!viewer || !viewer.pkg) return null;
+    const [px, py] = viewer.toScreen(mx, my);
+    let best = null, bd = 11;
+    for (const m of findingMarks(viewer)) {
+      const dd = Math.hypot(m.x - px, m.y - py) + (state.focusCheck && !m.hot ? 4 : 0);
+      if (dd < bd) { bd = dd; best = m.f; }
+    }
+    return best;
+  }
+
+  // Clicking a mark picks its finding out in the list and on the board, leaving the view where it is.
+  function selectFinding(f) {
+    const e = active();
+    state.sel = f.id;
+    $('#tip').style.display = 'none';
+    if (!selectRailRow(f.id)) {
+      // Not listed under the linked check: show every check, so its row is there.
+      state.focusCheck = null;
+      renderRail(e);
+    }
+    viewer.focusLayer = jumpPlan(viewer.layers, f, viewer.view.flip).focusLayer;
+    viewer.highlight = highlightOf(f);
+    viewer.draw();
+  }
+
+  // A ring per located finding that passes the filter, on layers that are showing.
+  function drawFindingMarks(ctx, v) {
     const color = { error: '#ff453a', warn: '#ff9f0a', info: '#3fc1cf' };
     const d = v.dpr;
     ctx.save();
     ctx.setTransform(d, 0, 0, d, 0, 0);
     ctx.lineWidth = 2;
-    for (const f of visibleFindings(e)) {
-      if (!(f.at || f.bbox) || f.id === state.sel) continue;
-      if (f.layer ? !shown.has(f.layer) : (f.side && f.side !== side)) continue;
-      const c = f.at || Fab.bbox.center(f.bbox);
-      const [x, y] = v.toScreen(c.x, c.y);
-      if (x < -10 || y < -10 || x > v.W + 10 || y > v.H + 10) continue;
-      const hot = state.focusCheck && f.check === state.focusCheck;
+    for (const { f, x, y, hot } of findingMarks(v)) {
+      if (f.id === state.sel) continue;
       ctx.strokeStyle = color[f.severity];
       ctx.globalAlpha = state.focusCheck && !hot ? 0.35 : 1;
       ctx.lineWidth = hot ? 3 : 2;
