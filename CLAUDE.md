@@ -125,9 +125,18 @@ Open:
 - Not built yet: acid traps (needs a trace graph), text-height check, microvia/HDI profile, revision
   Gerber diff beyond what `revisions.js` does, ODB++ archive vs folder equality.
 - The bottom-side pin-1 rule is unverified (no sample with 3+ bottom parts sharing a footprint).
-- The suite's demos (Signoff EE, ME, PL) now share one made-up product, a Smart Thermostat. The
-  Fabcheck demo board is still the scrubbed sample, so it isn't part of that story yet. A made-up
-  thermostat board package would fix that; see `../CLAUDE.md`.
+
+Demo boards (2026-11-02): `tools/make_demo_boards.py` writes two made-up Smart Thermostat packages,
+`demo/thermostat-main-pcba.zip` (DT-1042 rev B, Signoff EE `pdemo7`) and
+`demo/thermostat-display-board.zip` (DT-1043 rev A, `pdemo11`), plus `demo/boards.js` (their fixed
+run ids `rdemo1042b` / `rdemo1043a`, SHA-256 and settings). Deterministic; `--check` verifies the
+committed files. Each board's planted problems are listed in the script's docstring, and the
+Standard profile finds exactly those (main: 4 errors, 13 warnings; display: 1 error, 5 warnings).
+In demo mode the start page offers both boards, and a deep link naming a demo run id opens and
+re-runs its board (`demoRun` in `app.js`), so Signoff EE's demo issues and pictures land here.
+If you change the script: rerun it, regenerate EE's demo issues and pictures (`config.js`
+`demo.projects[0].fabcheck`, `assets/demo-previews/*.webp`, also copied to PL), bump EE's demo
+`VERSION` and regenerate PL's snapshot.
 
 Suite context: the folder above holds a `CLAUDE.md` for the whole suite, covering engine
 vendoring, project summaries and the demo suite. The vendored `model.js`/`github.js` were last

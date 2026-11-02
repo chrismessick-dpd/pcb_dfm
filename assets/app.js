@@ -376,11 +376,11 @@
           log(entry, 'warn', `This is not the package that made run ${exp.run.id}: its SHA-256 is ${pkgRec.sha256.slice(0, 12)}…, the run's is ${exp.run.package.sha256.slice(0, 12)}…. Saved as a new run instead.`);
         } else {
           const was = exp.run.summary || {}, now = run.summary;
-          const same = was.error === now.error && was.warn === now.warn && was.info === now.info;
+          const same = exp.run.demo || (was.error === now.error && was.warn === now.warn && was.info === now.info);
           const nowVersion = run.tool.version, vChanged = (exp.run.tool || {}).version !== nowVersion;
           // Keep the original id and record, so links from Signoff keep working.
           extra.rerun = { at: run.at, version: run.tool.version, summary: now, differs: !same };
-          run = Object.assign({}, exp.run);
+          run = Object.assign({}, exp.run, exp.run.demo ? { summary: now } : {});
           log(entry, same ? 'ok' : 'warn', `Package matches run ${run.id} (SHA-256 ${pkgRec.sha256.slice(0, 12)}…). ` +
             (same ? 'Same findings as the original run.' : `Findings differ from the original run (${was.error}/${was.warn}/${was.info} then, ${now.error}/${now.warn}/${now.info} now, errors/warnings/info)` +
               (vChanged ? `: Fabcheck changed since (${(exp.run.tool || {}).version} → ${nowVersion}).` : '.')));
@@ -494,6 +494,12 @@
         await openPackage(async () => Fab.store.restoreFiles(pkgRec), stored.run.package.name, { stored, pkgRec, link: q });
         return;
       }
+      // A demo board's fixed run (Signoff EE's demo links to these): open the board and run it again.
+      const board = demoBoards().find(b => b.run === q.run);
+      if (board) {
+        await openPackage(() => Fab.loader.fromUrl(board.file), board.name, { expect: { run: demoRun(board), project: Fab.signoff.projectById(board.project) }, link: q });
+        return;
+      }
       const known = stored ? { run: stored.run, project: null } : Fab.store.runFromSignoff(q.run);
       // A link from a Signoff EE demo issue that arrived without ?demo: the run lives in the demo.
       if (!known && !Fab.DEMO && Fab.store.runFromSignoff(q.run, 'signoff.demo.')) {
@@ -515,6 +521,17 @@
       state.view = 'overview';
       renderAll();
     } finally { state.resolving = null; }
+  }
+
+  // The run record of a demo board, as Signoff EE's demo has it on its issues (its summary is the run's own).
+  function demoRun(b) {
+    const rules = Object.assign({}, Fab.rules.resolve(b.profile).values, { thickness: b.thickness });
+    return {
+      id: b.run, at: new Date().toISOString(), by: 'Morgan Lee', demo: true,
+      tool: { name: 'Fabcheck', version: (window.FABCHECK_VERSION || {}).hash || 'dev' },
+      package: { key: b.key, sha256: b.sha256, name: b.name, size: b.size },
+      settings: { profile: b.profile, profileName: Fab.rules.resolve(b.profile).name, rules, thickness: b.thickness, variant: null }, summary: null, stored: null,
+    };
   }
 
   // A layer named in a link: its file name, Fabcheck's label ("L1 Top copper"), or a plain name such as
@@ -652,15 +669,21 @@
   }
 
   // A scrubbed Dovetail board made by tools/make_sample.py, with planted problems. Fetched from this site, so
-  // the button only shows when the page is served (not opened from file://).
+  // the buttons only show when the page is served (not opened from file://). The demo also has the suite's
+  // made-up Smart Thermostat boards (tools/make_demo_boards.py, demo/boards.js), which Signoff EE's demo opens.
   const SAMPLE = 'demo/fabcheck-sample-board.zip';
+  const demoBoards = () => Fab.DEMO ? Fab.demoBoards || [] : [];
+  const sampleButtons = () => Fab.DEMO && location.protocol !== 'file:'
+    ? demoBoards().map(b => `<button class="btn" data-act="sample" data-file="${esc(b.file)}" data-name="${esc(b.name)}">${esc(b.label)}</button>`).join('') +
+      `<button class="btn" data-act="sample" data-file="${SAMPLE}" data-name="fabcheck-sample-board.zip">${demoBoards().length ? 'Another sample board' : 'Try a sample board'}</button>`
+    : '';
 
   function emptyHtml() {
     return `<div class="page"><div class="drop" id="drop">
       <div class="empty-art">${ICON.upload}</div>
       <h2>Check a fab package before it goes out</h2>
       <p>Drop an Altium output .zip or folder anywhere on this window: Gerber (RS-274X or X2), NC drill, pick-and-place, BOM, ODB++ and drawings.</p>
-      <div class="actions"><button class="btn btn-primary" data-act="open">Choose .zip…</button><button class="btn" data-act="open-dir">Choose folder…</button>${Fab.DEMO && location.protocol !== 'file:' ? '<button class="btn" data-act="sample">Try a sample board</button>' : ''}</div>
+      <div class="actions"><button class="btn btn-primary" data-act="open">Choose .zip…</button><button class="btn" data-act="open-dir">Choose folder…</button>${sampleButtons()}</div>
       <div class="drop-tiles">
         <div><b>Package</b>Every file classified; missing items, units, drill report</div>
         <div><b>Build</b>PnP, BOM and ODB++ agree; variant and stencil</div>
@@ -1693,7 +1716,7 @@
       case 'delete-run':
         if (confirm('Delete this run and, if no other run uses it, its stored package from this browser?')) Fab.store.deleteRun(t.dataset.id).then(() => renderAll());
         break;
-      case 'sample': openPackage(() => Fab.loader.fromUrl(SAMPLE), 'fabcheck-sample-board.zip'); break;
+      case 'sample': openPackage(() => Fab.loader.fromUrl(t.dataset.file || SAMPLE), t.dataset.name || 'fabcheck-sample-board.zip'); break;
       case 'rules-sel': state.rulesSel = t.dataset.id; renderAll(); break;
       case 'rules-tab': state.rulesTab = t.dataset.tab; state.checkSel = null; renderAll(); break;
       case 'check-doc': ev.preventDefault(); showCheckDoc(t.dataset.key); break;
