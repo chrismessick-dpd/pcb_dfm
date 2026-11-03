@@ -131,7 +131,11 @@ Fab releases (2026-11-03, branch `release-tags`, not merged or pushed):
   - the findings delta (`revisions.findingsDelta`).
 - **Revisions now compares apertures by shape** (`apKey`). Altium's D-code macro names made about
   200 unchanged pads look changed.
-- **Next:** R2 (stored in the project repo, store without send), R3 (Revisions as release history),
+- **Phase R2 is built:** `repo.js` `storeRelease`, `saveReleaseEdit`, `pullReleases`,
+  `fetchReleaseFiles` and `cleanRelease`, plus the home page's Fab releases list and the
+  superseded-send warning (`supersededOk`). It was tested with `tests/fake-github.js`; a real
+  token hasn't been tried.
+- **Next:** R3 (Revisions as release history),
   R5 (flat FAB and ASSY archives with a readme) and R4 (Signoff link). The doc's open questions are
   for Chris.
 

@@ -36,6 +36,7 @@
     pkgs: [], active: null, view: 'overview', filter: { error: true, warn: true, info: false }, cat: null, q: '',
     closed: new Set(), sel: null, showPnp: true, profile: 'standard', thickness: 1.6,
     repoProbe: new Map(), repoRuns: new Map(), // per Signoff project id: write access, stored runs
+    relRemote: new Map(), // per Signoff project id: its releases, read from its repo
   };
   let seq = 0;
   let viewer = null;
@@ -700,9 +701,20 @@
     try { runs = await Fab.store.recentRuns(); rels = await Fab.store.releases(); } catch (e) { return; }
     const tags = sha => rels.filter(r => r.package.sha256 === sha && r.status !== 'withdrawn').map(r => `<span class="pill" title="${esc(r.title || 'Fab release')}">${esc(r.label)}</span>`).join(' ');
     const el = $('#recent');
-    if (!el || !runs.length) return;
+    if (!el) return;
+    // Fab releases first: downloading one is why most visits to the home page happen.
+    const projects = Fab.repoRuns ? Fab.signoff.projects() : [];
+    let rh = '';
+    if (rels.length || projects.length) {
+      rh = `<div class="section-title">Fab releases <span class="chips"><span class="chip">${plural(rels.length, 'release')} in this browser</span></span></div><div class="card" style="padding:14px 18px">`;
+      if (rels.length) rh += `<div class="table-wrap"><table class="table compact"><thead><tr><th>Release</th><th>Status</th><th>Download</th><th></th></tr></thead><tbody>${rels.map(r => releaseRowHtml(r, rels, { pkg: true })).join('')}</tbody></table></div>`;
+      if (projects.length) rh += `<div class="filters" style="margin:${rels.length ? '12px' : '0'} 0 0"><label class="tb-field" style="font-size:13px">Signoff project <select id="rel-pull-project">${projects.map(p => `<option value="${esc(p.id)}"${p.id === state.relPullProject ? ' selected' : ''}>${esc(p.meta.name)}${p.meta.board ? ' · ' + esc(p.meta.board) : ''}</option>`).join('')}</select></label><button class="btn" data-act="rel-pull">Get its releases</button>${state.relPullNote ? `<span class="muted" style="font-size:12.5px">${esc(state.relPullNote)}</span>` : ''}</div>`;
+      else if (!rels.length) rh = '';
+      if (rh) rh += '</div>';
+    }
+    if (!runs.length) { el.innerHTML = rh; return; }
     const pill = (n, cls) => n ? `<span class="pill ${cls}">${n}</span>` : '';
-    el.innerHTML = `<div class="section-title">Recent runs <span class="chips"><span class="chip">${plural(runs.length, 'run')} in this browser</span></span></div>
+    el.innerHTML = rh + `<div class="section-title">Recent runs <span class="chips"><span class="chip">${plural(runs.length, 'run')} in this browser</span></span></div>
       <div class="card table-wrap"><table class="table compact"><thead><tr><th>Package</th><th>Run</th><th>Settings</th><th>Findings</th><th>Signoff EE</th><th></th></tr></thead><tbody>` +
       runs.map(r => {
         const run = r.run, c = run.summary || {};
@@ -1008,6 +1020,7 @@
     if (!target) { toast('That Signoff project is no longer in this browser'); return; }
     e.signoffBlocked = null; e.signoffResult = null;
     state.repoProbe.delete(target.id);
+    if (!supersededOk(e)) return;
     if (Fab.repoRuns && e.run && !anyway) {
       if (!confirmStore(Fab.repoRuns.home(target.id).repo, e.pkgRec, 'store this run and send its issues')) return;
       e.signoffBusy = true; renderAll();
@@ -1033,6 +1046,15 @@
       state.repoRuns.delete(r.projectId);
     } catch (err) { toast('Could not send: ' + err.message); }
     renderAll();
+  }
+
+  // Sending an older release after a newer one puts back the findings the newer one fixed.
+  function supersededOk(e) {
+    const all = state.releases || [];
+    const mine = all.filter(r => r.package.sha256 === pkgSha(e) && r.status !== 'withdrawn');
+    const later = mine.map(r => supersededBy(r, all)).find(Boolean);
+    if (!later || later.package.sha256 === pkgSha(e)) return true;
+    return confirm(`This package is release ${mine[0].label}, which ${later.label} supersedes. Sending it puts ${mine[0].label}'s findings back on the project's issues, and re-raises the ones ${later.label} fixed.\n\nTo keep ${mine[0].label} with the project without touching the issues, use "Store with" under Fab release instead.\n\nOK to send anyway.`);
   }
 
   // "Store in project" on a kept run that was sent without being stored.
@@ -1630,19 +1652,59 @@
       (ch ? `<div class="muted">${base ? 'Since ' + esc(base.label) + ': ' : ''}${esc(ch)}</div>` : '') + (rec.notes ? `<div class="muted">${esc(rec.notes)}</div>` : '') + `</td>` +
       `<td>${statusPill(rec, all)}<div style="margin-top:4px"><select data-act="rel-status" data-id="${esc(rec.id)}" aria-label="Status of ${esc(rec.label)}" style="font-size:12px">${Fab.releases.STATUS.map(([k, n]) => `<option value="${k}"${k === rec.status ? ' selected' : ''}>${n}</option>`).join('')}</select></div></td>` +
       `<td>${rec.files.length} files<div class="muted mono" title="SHA-256 of the download">${esc(rec.download.sha256.slice(0, 12))}… · ${(rec.download.size / 1048576).toFixed(2)} MB</div></td>` +
-      `<td><button class="btn" data-act="rel-download" data-id="${esc(rec.id)}">Download</button> <button class="btn btn-plain" data-act="copy" data-text="${esc(rec.download.sha256)}" title="Copy the download's SHA-256">Copy SHA</button></td></tr>`;
+      `<td><button class="btn" data-act="rel-download" data-id="${esc(rec.id)}">Download</button> <button class="btn btn-plain" data-act="copy" data-text="${esc(rec.download.sha256)}" title="Copy the download's SHA-256">Copy SHA</button>` +
+      `<div class="muted" style="font-size:12px;margin-top:3px">${rec.stored ? 'Stored in ' + esc(rec.stored.repo) : Fab.repoRuns && opts && opts.projectId ? `This browser only · <button class="btn btn-plain" style="padding:0 4px;font-size:12px" data-act="rel-store" data-id="${esc(rec.id)}" data-project="${esc(opts.projectId)}">Store with ${esc(opts.projectName || 'the project')}</button>` : 'This browser only'}</div></td></tr>`;
+  }
+
+  // The Signoff project a release here would be stored with: the one picked in the Send panel.
+  function relProject(e) {
+    if (!Fab.repoRuns) return null;
+    const ps = Fab.signoff.projects();
+    const p = ps.find(x => x.slug === e.signoffSlug) || (e.sentTo && ps.find(x => x.id === e.sentTo.projectId));
+    return p ? { id: p.id, name: p.meta.name } : null;
   }
 
   function releaseHtml(e) {
     loadReleases();
     const all = state.releases || [];
     const mine = all.filter(r => r.package.sha256 === pkgSha(e));
+    const proj = relProject(e);
+    const ro = { projectId: proj && proj.id, projectName: proj && proj.name };
     let h = `<div class="section-title">Fab release${mine.length ? ` <span class="chips"><span class="chip">${mine.map(r => esc(r.label)).join(', ')}</span></span>` : ''}</div><div class="card" style="padding:18px 20px">`;
-    if (mine.length) h += `<div class="table-wrap"><table class="table compact"><thead><tr><th>Release</th><th>Status</th><th>Download</th><th></th></tr></thead><tbody>${mine.map(r => releaseRowHtml(r, all)).join('')}</tbody></table></div>`;
-    h += `<p style="margin:${mine.length ? '12px' : '0'} 0 12px;color:var(--text-2)">${mine.length ? 'Tag it again if this package went out under another name.' : 'Tag this package as a release when it goes to a fab house.'} A release keeps what Fabcheck and the fab and assembly houses need, not everything Altium wrote, and downloads it later as the same zip, so its SHA-256 can go in a PO or an email. Releases are kept in this browser for now.</p>`;
-    h += `<div class="filters" style="margin:0"><button class="btn${e.relForm ? '' : ' btn-primary'} so-toggle${e.relForm ? ' open' : ''}" data-act="rel-form" aria-expanded="${!!e.relForm}">Tag release…${ICON.chev}</button></div>`;
+    if (mine.length) h += `<div class="table-wrap"><table class="table compact"><thead><tr><th>Release</th><th>Status</th><th>Download</th><th></th></tr></thead><tbody>${mine.map(r => releaseRowHtml(r, all, ro)).join('')}</tbody></table></div>`;
+    h += `<p style="margin:${mine.length ? '12px' : '0'} 0 12px;color:var(--text-2)">${mine.length ? 'Tag it again if this package went out under another name.' : 'Tag this package as a release when it goes to a fab house.'} A release keeps what Fabcheck and the fab and assembly houses need, not everything Altium wrote, and downloads it later as the same zip, so its SHA-256 can go in a PO or an email. ` +
+      (Fab.repoRuns ? (proj ? `Storing it with ${esc(proj.name)} (the project picked under Send to Signoff EE) puts it in that project's private repository, without sending any issues.` : 'Pick a Signoff EE project under Send to store releases with it.') : 'In this demo, releases stay in this browser.') + `</p>`;
+    h += `<div class="filters" style="margin:0"><button class="btn${e.relForm ? '' : ' btn-primary'} so-toggle${e.relForm ? ' open' : ''}" data-act="rel-form" aria-expanded="${!!e.relForm}">Tag release…${ICON.chev}</button>` +
+      (proj ? `<button class="btn btn-plain so-toggle${e.relRemoteOpen ? ' open' : ''}" data-act="rel-remote" aria-expanded="${!!e.relRemoteOpen}">Releases of ${esc(proj.name)}${ICON.chev}</button>` : '') + `</div>`;
     if (e.relForm) h += releaseFormHtml(e, all);
+    if (proj && e.relRemoteOpen) {
+      const got = state.relRemote.get(proj.id);
+      if (!got) {
+        state.relRemote.set(proj.id, { busy: true });
+        Fab.repoRuns.pullReleases(proj.id).then(r => { state.relRemote.set(proj.id, r); state.releases = null; renderAll(); }, err => { state.relRemote.set(proj.id, { error: err.message || String(err) }); renderAll(); });
+      }
+      if (!got || got.busy) h += `<p class="note">Reading ${esc(Fab.repoRuns.home(proj.id).repo)}…</p>`;
+      else if (got.error) h += `<p class="note" style="color:var(--warn)">Couldn't read the project's releases: ${esc(got.error)}.</p>`;
+      else {
+        const theirs = all.filter(r => r.project === proj.id);
+        h += theirs.length ? `<div class="table-wrap" style="margin-top:12px"><table class="table compact"><thead><tr><th>Release</th><th>Status</th><th>Download</th><th></th></tr></thead><tbody>${theirs.map(r => releaseRowHtml(r, all, Object.assign({ pkg: true }, ro))).join('')}</tbody></table></div>` : `<p class="note">No releases stored with ${esc(proj.name)} yet.</p>`;
+      }
+    }
     return h + '</div>';
+  }
+
+  // Store a release with a project, without sending issues (back-filling an older package too).
+  async function storeRelease(id, projectId) {
+    const rec = await Fab.store.getRelease(id);
+    if (!rec || !Fab.repoRuns) return;
+    const repo = Fab.repoRuns.home(projectId).repo;
+    const mb = rec.files.reduce((n, f) => n + (f.size || 0), 0) / 1048576;
+    if (!confirm(`Release ${rec.label}: ${plural(rec.files.length, 'file')} (${mb.toFixed(2)} MB) and its run will be stored in the private repository ${repo}, where everyone with access to the project can open and download them. No issues are sent.\n\nOK to store it. Cancel to keep it in this browser.`)) return;
+    const e = active();
+    toast(`Storing ${rec.label}…`);
+    const got = await Fab.repoRuns.storeRelease(rec, projectId, (cls, t) => { if (e) log(e, cls, t); });
+    toast(got.ok ? `Stored ${rec.label} in ${got.stored.repo}` : 'Not stored: ' + got.why);
+    state.releases = null; state.relRemote.delete(projectId); renderAll();
   }
 
   function relFormInit(e, all) {
@@ -1725,6 +1787,12 @@
     const rec = await Fab.store.getRelease(id);
     if (!rec) { toast('That release is no longer in this browser'); return; }
     try {
+      // A release stored with a project may have been tagged in another browser: read its files first.
+      if (rec.stored && Fab.repoRuns) {
+        let missing = 0;
+        for (const f of rec.files) if (!(await Fab.store.getBlob(f.sha256))) missing++;
+        if (missing) { toast(`Reading ${plural(missing, 'file')} of ${rec.label} from ${rec.stored.repo}…`); await Fab.repoRuns.fetchReleaseFiles(rec); }
+      }
       const got = await Fab.releases.assemble(rec, Fab.store.getBlob);
       const url = URL.createObjectURL(new Blob([got.bytes], { type: 'application/zip' }));
       const a = document.createElement('a'); a.href = url; a.download = got.name; document.body.appendChild(a); a.click(); a.remove();
@@ -1738,7 +1806,13 @@
     if (!rec || rec.status === status) return;
     if (status === 'withdrawn' && !confirm(`Withdraw ${rec.label}? It stays in the history, marked withdrawn, and can be restored by picking another status.`)) { renderAll(); return; }
     const t = new Date().toISOString();
-    await Fab.store.saveRelease(Object.assign(rec, { status, updatedAt: t, updatedBy: who() }));
+    Object.assign(rec, { status, updatedAt: t, updatedBy: who() });
+    if (rec.stored && Fab.repoRuns) {
+      // The repo's copy is the shared one: save there first, and take it if someone changed it since.
+      const got = await Fab.repoRuns.saveReleaseEdit(rec);
+      if (got.conflict) { await Fab.store.saveRelease(got.conflict); toast(`${rec.label} was changed in ${rec.stored.repo}${got.conflict.updatedBy ? ' by ' + got.conflict.updatedBy : ''}; showing that version. Change it again if needed.`); }
+      else if (!got.ok) { toast('Not saved: ' + got.why); }
+    } else await Fab.store.saveRelease(rec);
     state.releases = null; renderAll();
   }
 
@@ -1889,6 +1963,16 @@
       case 'rel-form': e.relForm = e.relForm ? null : relFormInit(e, state.releases || []); renderAll(); break;
       case 'rel-tag': tagRelease(e); break;
       case 'rel-download': downloadRelease(t.dataset.id); break;
+      case 'rel-store': storeRelease(t.dataset.id, t.dataset.project); break;
+      case 'rel-remote': e.relRemoteOpen = !e.relRemoteOpen; if (e.relRemoteOpen) { const p = relProject(e); if (p) state.relRemote.delete(p.id); } renderAll(); break;
+      case 'rel-pull': {
+        const sel = $('#rel-pull-project');
+        if (!sel || !Fab.repoRuns) break;
+        state.relPullProject = sel.value; state.relPullNote = 'Reading…'; renderAll();
+        Fab.repoRuns.pullReleases(sel.value).then(r => { state.relPullNote = `${plural(r.releases.length, 'release')} in ${r.repo}`; }, err => { state.relPullNote = `Couldn't read: ${err.message || err}`; })
+          .then(() => { state.releases = null; renderAll(); });
+        break;
+      }
       case 'signoff-details': e.signoffOpen = !e.signoffOpen; renderAll(); break;
       case 'back-signoff': {
         const pid = (e.sentTo && e.sentTo.projectId) || (e.link && e.link.project) || (e.need && e.need.link && e.need.link.project);
@@ -2024,6 +2108,7 @@
       }
       if (ev.target.matches('[data-act="baseline"]')) { e.baseline = ev.target.value; e.revCache = null; renderAll(); }
       if (ev.target.matches('[data-act="rel-status"]')) setReleaseStatus(ev.target.dataset.id, ev.target.value);
+      if (ev.target.id === 'rel-pull-project') state.relPullProject = ev.target.value;
       if (ev.target.matches('[data-rel]') && e && e.relForm) e.relForm[ev.target.dataset.rel] = ev.target.value;
       if (ev.target.matches('[data-act="rel-pick"]') && e && e.relForm) {
         e.relForm.picks[ev.target.checked ? 'add' : 'delete'](ev.target.dataset.path);

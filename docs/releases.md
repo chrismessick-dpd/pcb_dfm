@@ -3,7 +3,8 @@
 Status (2026-11-03, branch `release-tags`):
 - **Phase R1 (local releases) is built.** It was verified on the demo board and on a real pair
   of packages, before and after a fab DFM fix.
-- **R2 to R5 are planned.**
+- **Phase R2 (stored releases) is built.** It was verified with `tests/fake-github.js`.
+- **R3 to R5 are planned.**
 
 What fab houses ask for, with sources, is in `docs/fab-package.md`.
 
@@ -163,10 +164,24 @@ Storage:
 - **Repo:** `fabcheck/<projectId>/releases/<id>.json`, one file per release.
   - Writes are additive, and two people tagging at once can't collide.
   - Signoff's share-move already carries `fabcheck/<projectId>/` across.
-  - An edit reads the file, checks `updatedAt`, then writes with `putFiles` (which retries on a race
-    and refuses to overwrite a newer edit).
-- **This browser:** a new IndexedDB store `releases` (`VER` 1 → 2 in `store.js`).
-  - The release's extra files go into the package record.
+  - Files go under `packages/<key>/files/<path>`, beside the run's slimmed package.
+  - **Storing** a release also stores its run when this browser has it. It doesn't touch the
+    board pictures, because the release may be an older one being back-filled (`storeRelease`).
+  - **An edit** (`saveReleaseEdit`):
+    - reads the repo's copy first;
+    - if that copy was changed since this browser last read it (`updatedAt` later than the local
+      `syncedAt`), writes nothing and shows the repo's copy instead;
+    - otherwise writes with `putFiles`.
+
+    Two edits within the same second can still race.
+  - **Reading** (`pullReleases`) brings the project's records into this browser. A file comes
+    from the repo only when it's downloaded (`fetchReleaseFiles`), and each is checked against its
+    SHA-256.
+  - **Records read from a repo** go through `cleanRelease`, because contractors can write there:
+    ids, hashes and dates must have the expected shape, and paths may not contain `..`.
+- **This browser:** IndexedDB stores `releases` and `blobs` (`VER` 1 → 2 in `store.js`).
+  - Release files are kept by SHA-256 in `blobs`, so releases that share a file keep it once.
+  - `syncedAt` is local only; it's never written to the repo.
   - A release with no project yet stays local until it's stored, like an unsent run.
 - **Demo mode:** local only (`Fab.repoRuns` is null). Tag, compare and download all work, so the
   demo can show the whole flow.
@@ -300,7 +315,7 @@ Fabcheck's sessions don't edit these repos. Each change goes to that repo's own 
 | Phase | Scope | Proof |
 | --- | --- | --- |
 | **R1: Local releases** | The release set (defaults and per-file overrides); the `releases` IndexedDB store (VER 2); the tag dialog; deterministic download from this browser; Recent runs shows tags; the findings delta in the summary. **Done.** | Demo: tag, download twice, same sha256. Real pair: the defaults drop the duplicate ODB++ copies, the empty files and the reports. "Since rev 1": 6 layers changed, all at the swapped part except the plane fix; the sliver error fixed; one new spacing warning. Runs and their slimmed packages are unchanged |
-| **R2: Stored releases** | `releases/<id>.json` and release files in the repo; edit with the `updatedAt` check; store without send; download from the repo with per-file sha256 checks; the older-than-last-sent warning | `tests/fake-github.js`: tag, edit and download, and a second release of a package with one changed layer uploads only the changed files |
+| **R2: Stored releases** | `releases/<id>.json` and release files in the repo; edit with the `updatedAt` check; store without send (**Store with** on a release row); the project's releases on the Overview and the home page (**Get its releases**); download from the repo with per-file sha256 checks; a warning on sending a superseded release. **Done.** | `tests/fake-github.js`, run through the UI: storing writes one commit with the release, its run and 19 files, and no board pictures. A status edit is written. An edit after someone else's newer one keeps theirs and says so. A browser with nothing local reads the record, then 17 files on download, and the zip's sha256 matches. A record with `..` in a path or a bad id is ignored. Sending the superseded rev B-1 asks first, and Cancel sends nothing |
 | **R3: Revisions history** | The history list, stored and tagged baselines, the change scope and the findings delta | `make_demo_boards.py` writes one more zip, the rev B-1 candidate: the main board with a sliver neck planted in the L3 plane. The committed main board stays byte-identical as rev B-2, so EE's and PL's demos don't change. Compared, only L3 differs and the sliver is fixed |
 | **R5: Ideal package** | Flat fab and assembly archives with function-based names and a generated readme; part number and revision on the release; the new package checks | The demo boards and the real pair: both archives open in a Gerber viewer with every layer identified, and each file's SHA-256 in the readme matches |
 | **R4: Signoff link** | `source.release` and the release name in comments; the "Which release is this?" lookup on the Archive tab; the contract proposals handed to EE's and PL's sessions | Send rev B-1, then rev B-2: the sliver issue gets one "no longer found" comment that names rev B-2 |

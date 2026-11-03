@@ -125,7 +125,8 @@
       const names = c.layers.map(l => l.layer.split(/[\\/]/).pop());
       let pre = names.length > 1 ? names.reduce((p, x) => { while (x.indexOf(p) !== 0) p = p.slice(0, -1); return p; }) : names.length ? names[0].replace(/[^._-]*$/, '') : '';
       pre = pre.replace(/[^._-]*$/, '');
-      parts.push(names.length ? n(names.length, 'layer', 'layers') + ' changed (' + names.map(x => x.slice(pre.length) || x).join(', ') + ')' : 'Gerbers same');
+      const short = names.map(x => x.slice(pre.length) || x);
+      parts.push(names.length ? n(names.length, 'layer', 'layers') + ' changed (' + short.slice(0, 6).join(', ') + (short.length > 6 ? `, +${short.length - 6} more` : '') + ')' : 'Gerbers same');
     }
     for (const [k, one, many] of [['bom', 'BOM line', 'BOM lines'], ['placements', 'placement', 'placements'], ['drill', 'drill hit', 'drill hits']]) {
       if (c[k] == null) continue;
