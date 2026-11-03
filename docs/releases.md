@@ -6,7 +6,8 @@ Status (2026-11-03, branch `release-tags`):
 - **Phase R2 (stored releases) is built.** It was verified with `tests/fake-github.js`.
 - **Phase R3 (Revisions as release history) is built.** It was verified on the real pair and in
   demo mode.
-- **R4 and R5 are planned.**
+- **Phase R5 (the ideal package) is built.** It was verified on the demo boards and the real pair.
+- **R4 is planned.**
 
 What fab houses ask for, with sources, is in `docs/fab-package.md`.
 
@@ -281,6 +282,41 @@ The tab becomes the board's **release history**, with the compare below it.
 The release set is today's Altium output, minus what doesn't belong in it. R5 goes further: the
 download is laid out the way `docs/fab-package.md` recommends, whatever folder Altium wrote.
 
+**As built (2026-11-03):**
+- A release row offers **Fab zip**, **Assembly zip** and **As sent**.
+- Names come from `releases.js` `role`:
+  - copper `L<n>_Top|Inner|Bottom.gbr`;
+  - `Mask_`, `Silk_` and `Paste_` per side;
+  - `Outline.gbr` and `Mech<n>.gbr`;
+  - `PTH.drl`, `NPTH.drl`, or `Drill.drl` when a file mixes plating;
+  - `Drill_PTH.gbr` and `Drill_NPTH.gbr` for Gerber drill;
+  - `Drill_Report`, `IPC356.ipc`, `FAB.pdf`, `ASSY.pdf`, `BOM` and `PNP`;
+  - `Notes_<name>` for the package's own text files.
+- **Every name gets the `<PN>-<REV>_` prefix.** Part number and revision are suggested from the
+  package name (`suggestPnRev`) and can be edited on the tag form.
+- **Assembly copies fab layers.** The assembly archive gets the outer copper, masks, silk, outline
+  and paste, so it stands alone.
+- **Duplicate names** get `-2`. The generated README's name is reserved, so a package's own
+  README can't overwrite it.
+- **Gerber drill files are off by default** when Excellon is present (send drill data once).
+- **The record keeps the layout.** `rec.layout` holds each file's archive name, the README texts
+  and each archive's SHA-256. A download rebuilds the archive and checks it.
+  - `cleanRelease` keeps a stored layout only if its names are safe zip paths and its files are
+    the release's own.
+- **New info-only Package check `structure`:**
+  - Gerber with ODB++ or IPC-2581;
+  - Excellon with Gerber drill;
+  - a drill file mixing plated and non-plated holes;
+  - a local path in the first 4 kB of a text file.
+- **Findings on the real package:**
+  - ODB++ three times;
+  - the round-holes drill file mixes plating;
+  - Altium wrote the output file's full local path into the pick-and-place header.
+- **The same bytes:** files keep their exact bytes, and the same release always downloads as the
+  same zips.
+- **Demo boards:** errors and warnings are unchanged (4/13 and 1/5). Info rose by one on each,
+  because both demo drill files mix plating.
+
 - **Two archives, each flat:** `<PN>-<REV>_FAB.zip` and `<PN>-<REV>_ASSY.zip`.
   - Files are renamed by function: the classifier already knows each layer's function, side and
     copper order.
@@ -325,7 +361,7 @@ Fabcheck's sessions don't edit these repos. Each change goes to that repo's own 
 | **R1: Local releases** | The release set (defaults and per-file overrides); the `releases` IndexedDB store (VER 2); the tag dialog; deterministic download from this browser; Recent runs shows tags; the findings delta in the summary. **Done.** | Demo: tag, download twice, same sha256. Real pair: the defaults drop the duplicate ODB++ copies, the empty files and the reports. "Since rev 1": 6 layers changed, all at the swapped part except the plane fix; the sliver error fixed; one new spacing warning. Runs and their slimmed packages are unchanged |
 | **R2: Stored releases** | `releases/<id>.json` and release files in the repo; edit with the `updatedAt` check; store without send (**Store with** on a release row); the project's releases on the Overview and the home page (**Get its releases**); download from the repo with per-file sha256 checks; a warning on sending a superseded release. **Done.** | `tests/fake-github.js`, run through the UI: storing writes one commit with the release, its run and 19 files, and no board pictures. A status edit is written. An edit after someone else's newer one keeps theirs and says so. A browser with nothing local reads the record, then 17 files on download, and the zip's sha256 matches. A record with `..` in a path or a bad id is ignored. Sending the superseded rev B-1 asks first, and Cancel sends nothing |
 | **R3: Revisions history** | The history list, stored and tagged baselines, the change scope and the findings delta. **Done.** Baselines are open packages, releases and runs kept in this browser (`p:`, `l:` and `r:` keys). A release's baseline is parsed from its kept package, or from the release's own files when it was tagged elsewhere, read from the repo if needed. The default baseline is what this package's release supersedes | The real pair: rev 2's default baseline is rev 1. The scope reads "6 layers changed (GBL, GP3, GTL, GTO, GTP, GTS); 1 BOM line changed; 1 placement changed; drill same; 1 finding fixed, 1 new finding", the same with the baseline built from the release's files alone. A fixed or new finding jumps to the board. **Not done:** the demo's rev B-1 candidate zip with a planted sliver (`make_demo_boards.py`), so the demo can tell this story |
-| **R5: Ideal package** | Flat fab and assembly archives with function-based names and a generated readme; part number and revision on the release; the new package checks | The demo boards and the real pair: both archives open in a Gerber viewer with every layer identified, and each file's SHA-256 in the readme matches |
+| **R5: Ideal package** | Flat fab and assembly archives with function-based names and a generated readme; part number and revision on the release; the new package checks. **Done.** | Real pair: `<PN>-<REV>_FAB.zip` holds 18 files (6 copper layers by order, masks, silk, outline, Mech5, PTH and mixed drill, drill report, IPC-356, FAB.pdf, README; the Gerber drill files are left out). `_ASSY.zip` holds 13 (ASSY.pdf, BOM, PNP, outer copper, masks, silk, paste, outline, README). The structure check finds all four problems there. Both download twice to the same SHA-256. A tampered layout is dropped. **Not checked:** opening the archives in an outside Gerber viewer |
 | **R4: Signoff link** | `source.release` and the release name in comments; the "Which release is this?" lookup on the Archive tab; the contract proposals handed to EE's and PL's sessions | Send rev B-1, then rev B-2: the sliver issue gets one "no longer found" comment that names rev B-2 |
 
 ## Back-filling a real board

@@ -137,8 +137,16 @@ Fab releases (2026-11-03, branch `release-tags`, not merged or pushed):
   token hasn't been tried.
 - **Phase R3 is built:** Revisions lists the releases and compares against open packages,
   releases or kept runs (`baselineOptions`, `loadBaseline`, `scopeHtml`, `findingsDeltaHtml`).
-- **Next:**
-  R5 (flat FAB and ASSY archives with a readme) and R4 (Signoff link). The doc's open questions are
+- **Phase R5 is built:**
+  - A release also downloads as `<PN>-<REV>_FAB.zip` and `_ASSY.zip`: flat, named by function
+    (`releases.js` `role`, `plan`), each with a generated README listing every file's SHA-256.
+  - `rec.layout` holds the names, the readmes and both archives' hashes. "As sent" is still
+    offered.
+  - New info-only Package check `structure`: two image formats, drill data in two formats, a
+    drill file mixing plated and non-plated holes, and local paths in file headers.
+  - The demo boards' errors and warnings are unchanged. Info rose by one on each (EE's demo run
+    record still says info 36 for the main board).
+- **Next:** R4 (Signoff link). The doc's open questions are
   for Chris.
 
 Open:

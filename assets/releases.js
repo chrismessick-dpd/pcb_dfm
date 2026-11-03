@@ -36,6 +36,8 @@
       let [on, group, why] = SET[t] || SET.other;
       if (t === 'odb-archive' && keepOdb && f !== keepOdb) { on = false; why = 'another copy of the ODB++ data (' + keepOdb.name + ' is kept)'; }
       if (t === 'odb' && keepOdb) { on = false; why = 'ODB++ folder, already in ' + keepOdb.name; }
+      // Drill data goes once: Excellon, or Gerber drill files, not both (Ucamco).
+      if (t === 'gerber' && f.cls.fn === 'drill-gerber') { on = !files.some(x => x.cls && x.cls.type === 'drill'); why = on ? 'Gerber drill file' : 'Gerber drill file: a second copy of the Excellon drill data; tick it if the fab wants Gerber drill'; }
       if (!f.size) { on = false; why = 'empty file'; }
       const avail = !f.stub;
       if (!avail) { on = false; why = 'not kept in this browser: drop the package in again to include it'; }
@@ -70,6 +72,17 @@
     const sent = /^\d{4}-\d{2}-\d{2}$/.test((form.fab || {}).sentAt || '') ? new Date(form.fab.sentAt + 'T12:00:00Z') : at;
     const bytes = await zip(listed, sent);
     const run = entry.run || {};
+    // R5: the fab and assembly archives, named by function, each with its README.
+    const p = plan(entry, form.picks, form.pn, form.rev);
+    const byPath = new Map(listed.map(f => [f.path, f]));
+    const ctx = context(entry, form, sent.toISOString().slice(0, 10));
+    const lay = { v: 1, pn: (form.pn || '').trim(), rev: (form.rev || '').trim(), pre: p.pre, files: p.files, readme: {} };
+    for (const which of ['fab', 'assy']) {
+      const list = p.files.filter(f => f[which]).map(f => ({ name: f[which], size: byPath.get(f.path).size, sha256: byPath.get(f.path).sha256 }));
+      if (list.length) lay.readme[which] = readme(which, ctx, list);
+    }
+    const zips = await layoutZips(lay, path => byPath.get(path).bytes, sent);
+    for (const which of Object.keys(zips)) lay[which] = { name: zips[which].name, sha256: await Fab.archive.sha256(zips[which].bytes), size: zips[which].bytes.length };
     const rec = {
       v: 1, id: newId(), label: form.label.trim(), title: (form.title || '').trim(), status: form.status || 'sent',
       package: run.package || { key: entry.pkgRec && entry.pkgRec.key, sha256: entry.pkgRec && entry.pkgRec.sha256, name: entry.label, size: 0 },
@@ -81,6 +94,7 @@
       files: listed.map(f => ({ path: f.path, size: f.size, sha256: f.sha256 })),
       download: { name: downloadName(run.package ? run.package.name : entry.label, form.label), sha256: await Fab.archive.sha256(bytes), size: bytes.length, date: sent.toISOString().slice(0, 10) },
       changes: form.changes || null,
+      layout: lay,
       project: (entry.sentTo && entry.sentTo.projectId) || null,
       stored: null,
       at: at.toISOString(), by: by || '', updatedAt: at.toISOString(), updatedBy: by || '',
@@ -102,6 +116,25 @@
     const sha = await Fab.archive.sha256(bytes);
     if (sha !== rec.download.sha256) throw new Error(`the rebuilt zip's SHA-256 (${sha.slice(0, 12)}…) isn't the recorded one (${rec.download.sha256.slice(0, 12)}…)`);
     return { name: rec.download.name, bytes };
+  }
+
+  // Rebuild the fab or assembly archive (R5) and check it against its recorded SHA-256.
+  async function assembleLayout(rec, which, getBlob) {
+    const lay = rec.layout;
+    if (!lay || !lay[which]) throw new Error(`${rec.label} has no ${which === 'fab' ? 'fabrication' : 'assembly'} archive`);
+    const byPath = new Map(rec.files.map(f => [f.path, f])), bytes = new Map();
+    for (const f of lay.files.filter(x => x[which])) {
+      const meta = byPath.get(f.path);
+      const b = meta && await getBlob(meta.sha256);
+      if (!b) throw new Error(`${f.path} is not in this browser`);
+      if (await Fab.archive.sha256(b) !== meta.sha256) throw new Error(`${f.path} doesn't match its recorded SHA-256`);
+      bytes.set(f.path, b);
+    }
+    const one = { pre: lay.pre, files: lay.files.filter(x => x[which]).map(x => ({ path: x.path, [which]: x[which] })), readme: lay.readme };
+    const got = (await layoutZips(one, p => bytes.get(p), new Date(rec.download.date + 'T12:00:00Z')))[which];
+    const sha = await Fab.archive.sha256(got.bytes);
+    if (sha !== lay[which].sha256) throw new Error(`the rebuilt ${got.name} (${sha.slice(0, 12)}…) isn't the recorded one (${lay[which].sha256.slice(0, 12)}…)`);
+    return got;
   }
 
   // What changed against the superseded release, in one line for the history.
@@ -137,5 +170,130 @@
     return parts.join('; ');
   }
 
-  Fab.releases = { STATUS, SET, WARN_MB, MAX_MB, defaults, zip, build, assemble, changes, changesText, downloadName };
+  // ---- R5: the package laid out the way fab houses ask for it (docs/fab-package.md) ----
+  // Two flat archives, <PN>-<REV>_FAB.zip and _ASSY.zip, files named by function, each with a
+  // generated README. Files keep their bytes; only names change, and the record keeps both.
+
+  // Part number and revision from a package name: "PCB-1042-03_manufacturing" → PCB-1042, 03.
+  function suggestPnRev(name) {
+    const tok = stem(baseNameOf(name)).split(/[_ ]/)[0] || '';
+    const m = /^(.+?)[-_.](?:rev[-_]?)?([A-Z]{1,2}|\d{1,2})$/.exec(tok);
+    return m ? { pn: m[1], rev: m[2] } : { pn: tok, rev: '' };
+  }
+  function baseNameOf(p) { return String(p || '').split(/[\\/]/).pop(); }
+
+  const SIDE = { top: 'Top', bottom: 'Bottom' };
+  // Where a file goes and what it's called (without the PN-REV prefix): [name, fab, assy].
+  function role(f, pkg) {
+    const c = f.cls || {}, t = c.type, ext = (f.ext || '').toLowerCase();
+    const keepExt = n => n + (ext ? '.' + ext : '');
+    const other = pkg && pkg.set && c.set && c.set !== pkg.set.dir ? '_' + safe(baseNameOf(c.set)) : '';
+    if (t === 'gerber') {
+      const side = SIDE[c.side] || '';
+      if (c.fn === 'copper') {
+        const n = (f.layer && f.layer.cuOrder) || c.cu || '';
+        const outer = c.side === 'top' || c.side === 'bottom';
+        return [`L${n}_${outer ? side : 'Inner'}${other}.gbr`, true, outer];
+      }
+      if (c.fn === 'mask') return [`Mask_${side}${other}.gbr`, true, true];
+      if (c.fn === 'silk') return [`Silk_${side}${other}.gbr`, true, true];
+      if (c.fn === 'paste') return [`Paste_${side}${other}.gbr`, false, true];
+      if (c.fn === 'outline' || c.outline) return [`Outline${other}.gbr`, true, true];
+      if (c.fn === 'keepout') return [`Keepout${other}.gbr`, true, false];
+      if (c.fn === 'mech') return [`Mech${c.mech || ''}${other}.gbr`, true, false];
+      if (c.fn === 'drill-gerber') return [`Drill_${c.plated === false ? 'NPTH' : c.plated ? 'PTH' : 'Holes'}${other}.gbr`, true, false];
+      const m = /^gm(\d+)$/.exec(ext);
+      if (m) return [`Mech${m[1]}${other}.gbr`, true, false];
+      return [c.x2fn ? safe(c.x2fn.replace(/,/g, '_')) + other + '.gbr' : safe(f.name), true, false];
+    }
+    if (t === 'drill') {
+      const pl = new Set(Object.values((f.drill || {}).tools || {}).filter(x => x.hits || x.slots).map(x => x.plated));
+      const kind = pl.size === 1 ? (pl.has(true) ? 'PTH' : pl.has(false) ? 'NPTH' : 'Drill') : 'Drill';
+      return [`${kind}.drl`, true, false];
+    }
+    if (t === 'drill-report') return [keepExt('Drill_Report'), true, false];
+    if (t === 'ipc356') return ['IPC356.ipc', true, false];
+    if (t === 'ipc2581') return [keepExt('IPC2581'), true, false];
+    if (t === 'odb-archive') return [/\.(tgz|tar\.gz)$/i.test(f.name) ? 'ODB.tgz' : keepExt('ODB'), true, false];
+    if (t === 'odb') { const i = f.path.toLowerCase().lastIndexOf('odb/'); return ['ODB/' + f.path.slice(i + 4), true, false]; }
+    if (t === 'fab-pdf') return ['FAB.pdf', true, false];
+    if (t === 'assy-pdf') return ['ASSY.pdf', false, true];
+    if (t === 'bom') return [keepExt('BOM'), false, true];
+    if (t === 'pnp') return [keepExt('PNP'), false, true];
+    if (t === 'text') return ['Notes_' + safe(f.name), true, false];
+    return [safe(f.name), true, false];
+  }
+
+  // The layout of a release: names in each archive, made unique (L2_Inner.gbr, L2_Inner-2.gbr).
+  function plan(entry, picks, pn, rev) {
+    const pre = (safe(pn) || safe(stem(entry.label))) + (safe(rev) ? '-' + safe(rev) : '') + '_';
+    // The generated README's name is taken first, so no package file can overwrite it in the zip.
+    const used = { fab: new Set([(pre + 'README.txt').toLowerCase()]), assy: new Set([(pre + 'README.txt').toLowerCase()]) };
+    const uniq = (set, n) => {
+      if (!used[set].has(n.toLowerCase())) { used[set].add(n.toLowerCase()); return n; }
+      const dot = n.lastIndexOf('.'), a = dot > 0 ? n.slice(0, dot) : n, b = dot > 0 ? n.slice(dot) : '';
+      for (let i = 2; ; i++) if (!used[set].has((a + '-' + i + b).toLowerCase())) { used[set].add((a + '-' + i + b).toLowerCase()); return a + '-' + i + b; }
+    };
+    const files = [];
+    const order = (entry.files || []).filter(f => picks.has(f.path) && !f.stub).sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+    for (const f of order) {
+      const [name, fab, assy] = role(f, entry.pkg);
+      const o = { path: f.path };
+      if (fab) o.fab = uniq('fab', pre + name);
+      if (assy) o.assy = uniq('assy', pre + name);
+      files.push(o);
+    }
+    return { pre, files };
+  }
+
+  // A plain-text README for one archive: what the board is and every file with its SHA-256.
+  function readme(which, ctx, list) {
+    const L = [];
+    L.push(`${ctx.pn || ctx.name}${ctx.rev ? ' rev ' + ctx.rev : ''}: ${which === 'fab' ? 'fabrication' : 'assembly'} data`);
+    L.push(`Release ${ctx.label}${ctx.title ? ' (' + ctx.title + ')' : ''}, ${ctx.date}`);
+    L.push('');
+    if (ctx.board) L.push(`Board: ${ctx.board}`);
+    if (ctx.gerber) L.push(`Gerber: ${ctx.gerber}. Drill: Excellon. All files share one origin.`);
+    if (which === 'assy') {
+      if (ctx.pnp) L.push(`Pick-and-place: ${ctx.pnp}`);
+      if (ctx.dnp) L.push(`Do not place: ${ctx.dnp}`);
+      L.push('Fabrication layers are included so this set stands alone.');
+    }
+    L.push('');
+    L.push('Files (SHA-256):');
+    for (const f of list) L.push(`  ${f.name}  ${f.size} bytes  ${f.sha256}`);
+    L.push('');
+    L.push('Written by Fabcheck from the released package; file contents are as the CAD tool wrote them.');
+    return L.join('\r\n') + '\r\n';
+  }
+
+  // What the README says about the board, from the open package (fixed at tag time).
+  function context(entry, form, sent) {
+    const pkg = entry.pkg || {}, run = entry.run || {}, L = pkg.layers || {};
+    const bb = pkg.boardBBox;
+    const t = run.settings && run.settings.thickness;
+    const dnp = pkg.bom ? [...new Set(pkg.bom.lines.filter(l => l.dnp).flatMap(l => l.des))].sort(Fab.natCmp) : [];
+    return {
+      pn: form.pn, rev: form.rev, name: stem(entry.label), label: form.label.trim(), title: (form.title || '').trim(), date: sent,
+      board: bb && Fab.bbox.valid(bb) ? `${(bb[2] - bb[0]).toFixed(2)} × ${(bb[3] - bb[1]).toFixed(2)} mm, ${(L.copper || []).length} copper layers${t ? ', ' + t + ' mm thick' : ''}` : '',
+      gerber: pkg.set && pkg.set.files && pkg.set.files.length ? (pkg.set.x2 ? 'Gerber X2' : 'RS-274X') : '',
+      pnp: pkg.pnp ? `${pkg.pnp.parts.length} placements, ${pkg.pnp.units || 'mm'}` : '',
+      dnp: dnp.length ? (dnp.length > 60 ? dnp.slice(0, 60).join(', ') + `, and ${dnp.length - 60} more (see the BOM)` : dnp.join(', ')) : '',
+    };
+  }
+
+  // Build both archives from (path → bytes) and a layout. Resolves { fab, assy } as { name, bytes }.
+  async function layoutZips(lay, bytesOf, date) {
+    const out = {};
+    for (const which of ['fab', 'assy']) {
+      const fs = lay.files.filter(f => f[which]);
+      if (!fs.length) continue;
+      const entries = fs.map(f => ({ path: f[which], bytes: bytesOf(f.path) }));
+      entries.push({ path: lay.pre + 'README.txt', bytes: new TextEncoder().encode(lay.readme[which]) });
+      out[which] = { name: lay.pre + (which === 'fab' ? 'FAB' : 'ASSY') + '.zip', bytes: await zip(entries, date) };
+    }
+    return out;
+  }
+
+  Fab.releases = { STATUS, SET, WARN_MB, MAX_MB, defaults, zip, build, assemble, assembleLayout, changes, changesText, downloadName, suggestPnRev, role, plan };
 })(window.Fab);

@@ -19,7 +19,9 @@
     ['Assembly drawing (PDF)', pkg => has(pkg, 'assy-pdf')], ['IPC-D-356 netlist (needed for electrical test)', pkg => pkg.ipc356],
     ['Drill report', pkg => pkg.drr], ['ODB++ or IPC-2581', pkg => has(pkg, 'odb') || has(pkg, 'odb-archive') || has(pkg, 'ipc2581')],
   ];
-  const T = { drrDia: 0.0015, alignError: 0.6, alignWarn: 0.95, extentsTol: 0.01, shown: 20 };
+  const T = { drrDia: 0.0015, alignError: 0.6, alignWarn: 0.95, extentsTol: 0.01, shown: 20, headBytes: 4096 };
+  // A local path or user name in a file the fab house receives (Fedevel forum; docs/fab-package.md).
+  const LOCAL_PATH = /[A-Za-z]:\\(?:Users|Documents and Settings)\\[^\\\s]+|\/(?:Users|home)\/[^/\s]+/;
 
   C.define('Package', 'checks/package.js', [
     { check: 'missing', name: 'Missing files', looks: 'Whether the package has each file a fab and assembler need, and the ones that are recommended.',
@@ -54,6 +56,11 @@
       sev: { error: 'a drill hit is outside the board', warn: 'a copper layer reaches past the outline bounding box' }, uses: ['Outline', 'Drill files', 'Copper layers'],
       rules: () => [`Copper may pass the outline box by ${Fab.fmtLen(T.extentsTol)}.`, `The first ${T.shown} hits outside are listed.`],
       example: `Drill hit outside the board: ⌀${Fab.fmtLen(0.3)}` },
+    { check: 'structure', name: 'Package structure', looks: 'How the package is put together, as fab houses ask for it: one image format, plated and non-plated holes in separate drill files, and no local paths in the files.',
+      sev: { info: 'Gerber and ODB++ (or IPC-2581) are both included; drill data comes as both Excellon and Gerber; a drill file mixes plated and non-plated holes; a file names a local folder or user' },
+      uses: ['File classification', 'Excellon tool plating', 'The first 4 kB of each text file'],
+      rules: () => ['Sources: Ucamco\'s PCB Fabrication Data guide, Sierra Circuits, Advanced Circuits, the Fedevel forum (docs/fab-package.md).'],
+      example: 'Gerber and ODB++ both in the package' },
     { check: 'align', name: 'Drill to copper alignment', looks: 'Whether plated holes land on top copper, which shows the drill file and Gerbers share an origin and units.',
       sev: { error: `under ${T.alignError * 100}% land on copper`, warn: `under ${T.alignWarn * 100}% land on copper`, info: 'the share that lands' }, uses: ['Drill files', 'Top copper'],
       example: 'Drill file does not line up with copper' },
@@ -156,6 +163,27 @@
         if (!Fab.bbox.contains(bb, lay.bbox, T.extentsTol)) add('extents', 'warn', 'Copper extends past the outline bounding box', lay.file.name, { bbox: lay.bbox, layer: lay.file.name });
       }
     } else if (o) add('outline', 'error', 'No closed board outline found', 'Using the copper extents instead. Checks that need the edge are approximate.');
+
+    // ---- package structure (docs/fab-package.md) ----
+    yield 'Package structure';
+    const second = pkg.files.filter(f => ['odb-archive', 'ipc2581'].includes(f.cls.type)).map(f => f.name);
+    if (pkg.files.some(f => f.cls.type === 'odb')) second.push('an odb/ folder');
+    if (pkg.set.files.length && second.length) add('structure', 'info', `Gerber and ${pkg.files.some(f => f.cls.type === 'ipc2581') ? 'IPC-2581' : 'ODB++'} both in the package`,
+      `Besides the Gerbers: ${second.join(', ')}. With two image formats the fab has to ask which one wins; send one, or say which is authoritative. A fab release leaves ODB++ out unless it is ticked.`);
+    const gerberDrill = pkg.files.filter(f => f.cls.type === 'gerber' && f.cls.fn === 'drill-gerber');
+    if (gerberDrill.length && pkg.drills.length) add('structure', 'info', 'Drill data in two formats', `Excellon (${pkg.drills.map(f => f.name).join(', ')}) and Gerber drill files (${gerberDrill.map(f => f.name).join(', ')}). Send the drill data once; a fab release leaves the Gerber drill files out unless they are ticked.`);
+    for (const f of pkg.drills) {
+      const pl = new Set(Object.values(f.drill.tools).filter(t => t.hits || t.slots).map(t => t.plated));
+      if (pl.has(true) && pl.has(false)) add('structure', 'info', 'Drill file mixes plated and non-plated holes', `${f.name} has both. Most fabs ask for plated and non-plated holes in separate files (in Altium's NC drill setup, split by plating rather than by round and slot holes).`);
+    }
+    const leaks = [];
+    for (const f of pkg.files) {
+      if (f.stub || !f.size || /^(pdf|fab-pdf|assy-pdf|archive|odb-archive|other)$/.test(f.cls.type)) continue;
+      const m = LOCAL_PATH.exec(Fab.decodeText(f.bytes.subarray(0, T.headBytes)));
+      if (m) leaks.push(f.name);
+    }
+    if (leaks.length) add('structure', 'info', `${leaks.length === 1 ? 'A file names' : leaks.length + ' files name'} a local folder or user`,
+      `${leaks.slice(0, 8).join(', ')}${leaks.length > 8 ? ', …' : ''}. Whoever receives the package sees it; leave the file out, or regenerate it without the path.`);
 
     // ---- drill ↔ copper alignment ----
     yield 'Drill ↔ copper alignment';

@@ -1653,8 +1653,11 @@
     return `<tr><td><b style="font-weight:600">${esc(rec.label)}</b>${rec.title ? ' · ' + esc(rec.title) : ''}<div class="muted">${opts && opts.pkg ? esc(baseName(rec.package.name)) + ' · ' : ''}${fab || esc(new Date(rec.at).toLocaleDateString())}</div>` +
       (ch ? `<div class="muted">${base ? 'Since ' + esc(base.label) + ': ' : ''}${esc(ch)}</div>` : '') + (rec.notes ? `<div class="muted">${esc(rec.notes)}</div>` : '') + `</td>` +
       `<td>${statusPill(rec, all)}<div style="margin-top:4px"><select data-act="rel-status" data-id="${esc(rec.id)}" aria-label="Status of ${esc(rec.label)}" style="font-size:12px">${Fab.releases.STATUS.map(([k, n]) => `<option value="${k}"${k === rec.status ? ' selected' : ''}>${n}</option>`).join('')}</select></div></td>` +
-      `<td>${rec.files.length} files<div class="muted mono" title="SHA-256 of the download">${esc(rec.download.sha256.slice(0, 12))}… · ${(rec.download.size / 1048576).toFixed(2)} MB</div></td>` +
-      `<td>${opts && opts.compare ? (rec.package.sha256 === opts.sha ? '<div class="muted" style="margin-bottom:4px">This package</div>' : opts.baseline === 'l:' + rec.id ? '<div class="muted" style="margin-bottom:4px">Baseline below</div>' : `<button class="btn btn-plain" data-act="rev-base" data-key="l:${esc(rec.id)}">Compare</button> `) : ''}<button class="btn" data-act="rel-download" data-id="${esc(rec.id)}">Download</button> <button class="btn btn-plain" data-act="copy" data-text="${esc(rec.download.sha256)}" title="Copy the download's SHA-256">Copy SHA</button>` +
+      `<td>${rec.files.length} files${releaseHashes(rec)}</td>` +
+      `<td>${opts && opts.compare ? (rec.package.sha256 === opts.sha ? '<div class="muted" style="margin-bottom:4px">This package</div>' : opts.baseline === 'l:' + rec.id ? '<div class="muted" style="margin-bottom:4px">Baseline below</div>' : `<button class="btn btn-plain" data-act="rev-base" data-key="l:${esc(rec.id)}">Compare</button> `) : ''}` +
+      // R5 releases download as the fab and assembly archives; "As sent" is the package's own layout.
+      (rec.layout && rec.layout.fab ? `<button class="btn" data-act="rel-download" data-id="${esc(rec.id)}" data-which="fab" title="${esc(rec.layout.fab.name)}">Fab zip</button> ` + (rec.layout.assy ? `<button class="btn" data-act="rel-download" data-id="${esc(rec.id)}" data-which="assy" title="${esc(rec.layout.assy.name)}">Assembly zip</button> ` : '') + `<button class="btn btn-plain" data-act="rel-download" data-id="${esc(rec.id)}" data-which="sent" title="${esc(rec.download.name)}: the package's own folders and names">As sent</button>`
+        : `<button class="btn" data-act="rel-download" data-id="${esc(rec.id)}" data-which="sent">Download</button> <button class="btn btn-plain" data-act="copy" data-text="${esc(rec.download.sha256)}" title="Copy the download's SHA-256">Copy SHA</button>`) +
       `<div class="muted" style="font-size:12px;margin-top:3px">${rec.stored ? 'Stored in ' + esc(rec.stored.repo) : Fab.repoRuns && opts && opts.projectId ? `This browser only · <button class="btn btn-plain" style="padding:0 4px;font-size:12px" data-act="rel-store" data-id="${esc(rec.id)}" data-project="${esc(opts.projectId)}">Store with ${esc(opts.projectName || 'the project')}</button>` : 'This browser only'}</div></td></tr>`;
   }
 
@@ -1714,7 +1717,8 @@
     const prev = all.filter(r => r.package.sha256 !== pkgSha(e) && r.status !== 'withdrawn');
     const proj = e.sentTo && e.sentTo.projectId;
     const base = (proj && prev.find(r => r.project === proj)) || null;
-    return { label: '', title: '', status: 'sent', house: base ? base.fab.house : '', sentAt: new Date().toISOString().slice(0, 10), ref: '', notes: '', supersedes: base ? base.id : '', picks: new Set([...d].filter(([, v]) => v.on).map(([p]) => p)) };
+    const pr = Fab.releases.suggestPnRev((e.run && e.run.package.name) || e.label);
+    return { pn: pr.pn, rev: pr.rev, label: '', title: '', status: 'sent', house: base ? base.fab.house : '', sentAt: new Date().toISOString().slice(0, 10), ref: '', notes: '', supersedes: base ? base.id : '', picks: new Set([...d].filter(([, v]) => v.on).map(([p]) => p)) };
   }
 
   function releaseFormHtml(e, all) {
@@ -1727,6 +1731,7 @@
     const others = all.filter(r => r.package.sha256 !== pkgSha(e));
     let h = `<div class="rel-form" style="margin-top:14px;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px">` +
       field('label', 'Release name', 'placeholder="rev B-2" required') + field('title', 'Title', 'placeholder="DFM updates"') +
+      field('pn', 'Part number', 'placeholder="PCB-1042" title="Starts every file name in the fab and assembly archives"') + field('rev', 'Revision', 'placeholder="B"') +
       `<label class="tb-field" style="font-size:13px;display:flex;flex-direction:column;align-items:stretch;gap:3px">Status<select data-rel="status">${Fab.releases.STATUS.filter(s => s[0] !== 'withdrawn').map(([k, n]) => `<option value="${k}"${k === f.status ? ' selected' : ''}>${n}</option>`).join('')}</select></label>` +
       field('house', 'Fab house') + field('sentAt', 'Date sent', 'type="date"') + field('ref', 'Order or quote ref') +
       `<label class="tb-field" style="font-size:13px;display:flex;flex-direction:column;align-items:stretch;gap:3px">Supersedes<select data-rel="supersedes"><option value="">Nothing (first release)</option>${others.map(r => `<option value="${esc(r.id)}"${r.id === f.supersedes ? ' selected' : ''}>${esc(r.label)}${r.title ? ' · ' + esc(r.title) : ''} (${esc(baseName(r.package.name))})</option>`).join('')}</select></label>` +
@@ -1775,7 +1780,7 @@
           changes = Fab.releases.changes(cmp, delta, base.id);
         } catch (err) { log(e, 'warn', `Couldn't compare with ${base.label}: ${err.message || err}`); }
       }
-      const got = await Fab.releases.build(e, { label: f.label, title: f.title, status: f.status, fab: { house: f.house, sentAt: f.sentAt, ref: f.ref }, notes: f.notes, supersedes: f.supersedes || null, picks: f.picks, changes }, who());
+      const got = await Fab.releases.build(e, { pn: f.pn, rev: f.rev, label: f.label, title: f.title, status: f.status, fab: { house: f.house, sentAt: f.sentAt, ref: f.ref }, notes: f.notes, supersedes: f.supersedes || null, picks: f.picks, changes }, who());
       await Fab.store.saveRelease(got.rec, got.blobs);
       log(e, 'ok', `Tagged release ${got.rec.label}: ${plural(got.rec.files.length, 'file')}, download ${got.rec.download.name} (${(got.rec.download.size / 1048576).toFixed(2)} MB, SHA-256 ${got.rec.download.sha256.slice(0, 12)}…)` + (changes ? `. Since ${base.label}: ${Fab.releases.changesText(changes)}` : ''));
       toast(`Tagged ${got.rec.label}`);
@@ -1785,7 +1790,15 @@
     renderAll();
   }
 
-  async function downloadRelease(id) {
+  // Each archive's SHA-256 and size, with a copy button: the hashes to quote in a PO or an email.
+  function releaseHashes(rec) {
+    const row = (what, d) => `<div class="muted mono" style="font-size:12px" title="SHA-256 of ${esc(d.name)}">${what}${esc(d.sha256.slice(0, 12))}… · ${(d.size / 1048576).toFixed(2)} MB <button class="btn btn-plain" style="padding:0 3px;font-size:11.5px" data-act="copy" data-text="${esc(d.sha256)}">copy</button></div>`;
+    const L = rec.layout;
+    if (!L || !L.fab) return row('', rec.download);
+    return row('Fab ', L.fab) + (L.assy ? row('Assy ', L.assy) : '');
+  }
+
+  async function downloadRelease(id, which) {
     const rec = await Fab.store.getRelease(id);
     if (!rec) { toast('That release is no longer in this browser'); return; }
     try {
@@ -1795,7 +1808,7 @@
         for (const f of rec.files) if (!(await Fab.store.getBlob(f.sha256))) missing++;
         if (missing) { toast(`Reading ${plural(missing, 'file')} of ${rec.label} from ${rec.stored.repo}…`); await Fab.repoRuns.fetchReleaseFiles(rec); }
       }
-      const got = await Fab.releases.assemble(rec, Fab.store.getBlob);
+      const got = which === 'fab' || which === 'assy' ? await Fab.releases.assembleLayout(rec, which, Fab.store.getBlob) : await Fab.releases.assemble(rec, Fab.store.getBlob);
       const url = URL.createObjectURL(new Blob([got.bytes], { type: 'application/zip' }));
       const a = document.createElement('a'); a.href = url; a.download = got.name; document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 10000);
@@ -2086,7 +2099,7 @@
       case 'store-run': storeKeptRun(t.dataset.id); break;
       case 'rel-form': e.relForm = e.relForm ? null : relFormInit(e, state.releases || []); renderAll(); break;
       case 'rel-tag': tagRelease(e); break;
-      case 'rel-download': downloadRelease(t.dataset.id); break;
+      case 'rel-download': downloadRelease(t.dataset.id, t.dataset.which); break;
       case 'rel-store': storeRelease(t.dataset.id, t.dataset.project); break;
       case 'rel-remote': e.relRemoteOpen = !e.relRemoteOpen; if (e.relRemoteOpen) { const p = relProject(e); if (p) state.relRemote.delete(p.id); } renderAll(); break;
       case 'rel-pull': {
