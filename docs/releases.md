@@ -1,0 +1,303 @@
+# Fab releases: tagged, stored, downloadable packages (plan)
+
+Status: **plan, nothing built yet** (2026-11-03, branch `release-tags`). The open questions at the
+end need answers before Phase R1.
+
+## Why
+
+A board's fab package rarely goes out once. A typical history:
+
+1. The released design's package goes to the fab house as the **candidate**. In the demo story:
+   DT-1042 rev B-1, "release candidate".
+2. The fab house's own DFM finds something. For example, an inner plane is joined to the rest of the
+   pour only by a sliver. Part shortages cause the same kind of churn on the assembly side.
+3. The Gerbers are fixed and the package regenerated and re-sent: DT-1042 rev B-2, "DFM updates".
+   **This** is what gets built.
+
+Two packages were sent, and both matter. The second is the one to reorder from, and the first
+explains why the second exists. Today only the person who made them has them, as zips on their
+own disk that are easily lost. The goal:
+
+- **Tag** a package with a release name and a note, such as "rev B-2, DFM updates".
+- **Store** what Fabcheck and the fab house need, with the project, not on someone's disk.
+- **Compare** a release with the one before it. The comparison should show that only the plane
+  changed, and that the sliver finding went away.
+- **Download** the package for the fab house from Fabcheck, later, from any computer with access.
+
+## What exists today
+
+- **Runs are kept** in IndexedDB with a slimmed package (`store.js`).
+- **Send to Signoff stores the run first.** It goes in the project's private repo, under
+  `fabcheck/<projectId>/` (`repo.js`). Sending again updates the same issues (stable `xfc…` ids) and
+  notes the ones that are no longer found. The DFM-update case already works on the issue side.
+- **Revisions compares only packages open in this tab:** BOM, placements, Gerber geometry and
+  drill hits (`revisions.js`).
+- **The stored package is not a fab package.** Slimming keeps only what Fabcheck parses by content:
+  - it drops the fab and assembly drawings (PDF), nested archives (the ODB++ zip or tgz), most of
+    the ODB++ tree, and images and CAD files;
+  - a re-run doesn't need them, but the fab house does.
+
+## Concepts
+
+| | What it is | Identity |
+| --- | --- | --- |
+| **Package** | The files as uploaded | `key` (first 16 hex digits of the upload's sha256) |
+| **Run** | One check of a package with given settings | run id; immutable |
+| **Release** | A name for a package that was (or will be) sent to a fab house | release id; label and status editable |
+
+A release points at a **package**, with the run that checked it as evidence. It does not point at a
+run, because one package can be run several times: another profile, another thickness, a newer
+Fabcheck. Re-running keeps the same release. A new package needs a new release.
+
+## The release set: what is stored for a release
+
+There are two sets per package:
+
+- **Fabcheck set:** today's slimmed files. This is what a re-run needs, and it is stored on every
+  Send, as now.
+- **Release set:** the Fabcheck set plus what the fab house and assembler need. It is stored only
+  when a package is tagged.
+
+Anything not in either set stays on the uploader's disk, and the manifest still lists its name,
+size and sha256.
+
+Proposed defaults, by classifier type (`classify.js`):
+
+| Type | Fabcheck set | Release set | Notes |
+| --- | --- | --- | --- |
+| `gerber`, `drill` | yes | yes | Both 274X and X2 if both are present (see the open questions) |
+| `pnp`, `bom` | yes | yes | |
+| `ipc356` | yes | yes | Netlist for the fab's electrical test |
+| `drill-report` (`.DRR`) | yes | yes | |
+| `fab-pdf`, `assy-pdf` | no | **yes** | The fab and assembly drawings |
+| `pdf` (other) | no | ask | Ticked by default; often schematics, sometimes notes |
+| `odb-archive` | no | **yes** | One copy of ODB++ |
+| `odb` tree | `comp_+_*` only | only if there's no archive | The Archive tab already checks that the archive and tree agree |
+| `ipc2581` | yes (small) | yes | |
+| `text` (`.txt`, `.csv`) | yes | yes | READMEs and fab notes |
+| `report` (Altium `.REP`, `.LOG`, `.html`, status reports, `.LDP`) | yes | no | Fabcheck reads variants from these; the fab house doesn't need them |
+| `archive` (other nested zips) | no | ask | Unticked by default |
+| `other` (images, STEP, DXF, DWG) | no | no | Unticked; can be ticked per file |
+
+- **Per-file override.** The tag dialog lists the release set with sizes and checkboxes, ticked as
+  in the table above. Unticking a file is remembered per package. The defaults table lives in one
+  object next to `keep()`, so the dialog, the docs and storage can't drift.
+- **Size limits.** GitHub's blob API refuses files over 100 MB, and a browser base64-encodes every
+  blob in memory.
+  - A file over 25 MB gets a warning in the dialog.
+  - A file over 90 MB can't be tagged and must be unticked.
+  - A large ODB++ archive is the likely case.
+- **Every release costs its full size.** Release files go in the package's existing
+  `packages/<key>/files/` folder. Checked on a real pair of packages, before and after a fab DFM
+  fix, regenerated from Altium a week apart: all 68 files differ byte for byte, unchanged layers
+  included. The reasons:
+  - each Gerber X2 file carries a new `%TF.SameCoordinates` GUID;
+  - reports and ODB++ carry the date and time;
+  - the pick-and-place file carries the VCS revision;
+  - one new aperture renumbers every D-code after it.
+
+  So git can't share unchanged files between two releases, and each release adds its whole
+  release set, a few MB. That's still fine for a repo, so the plan doesn't try to deduplicate.
+- **ODB++ often comes three times.** The real package had the ODB++ data as a `.tgz`, a `.zip` and
+  an extracted `odb/` tree (about 3.4 MB of copies). The release set keeps exactly one copy.
+
+## The download, and its hash
+
+- **Built from the release set:** the release's files at their original paths, in one zip named
+  `<package name>_<label>.zip` (for example `DT-1042_revB-2.zip`). Nothing is added to the zip by
+  default. A fab house shouldn't find a Fabcheck file in its package (see the open questions).
+- **Deterministic.** Entries are sorted by path, with a fixed date (the release's date) and fixed
+  DEFLATE settings in JSZip 3.10.1, so the same release always downloads as the same bytes.
+- **Two hashes, stated plainly:**
+  - **Download sha256.** It is recorded in the release when it's tagged. Quote this one in a PO or
+    an email, and Fabcheck checks it on every download.
+  - **Upload sha256** (the package key). It is kept for provenance. It never matches the download,
+    because the download is rebuilt from fewer files, and the UI says so beside it.
+- **Verified.** Each file's sha256 is checked against the manifest before zipping. A mismatch stops
+  the download and names the file.
+- **"Which release is this?"** Dropping a zip on the Archive tab looks it up against the project's
+  releases, by download sha256 or by upload sha256. That answers "is the file on my desktop the one
+  that was built?".
+
+## Release record and storage
+
+A release:
+
+```json
+{
+  "v": 1,
+  "id": "l<time36><rand>",
+  "label": "rev B-2",
+  "title": "DFM updates",
+  "status": "candidate | sent | built | withdrawn",
+  "package": { "key": "…", "sha256": "…", "name": "…", "size": 0 },
+  "run": "r…",
+  "supersedes": "l…",
+  "fab": { "house": "", "sentAt": "2026-10-28", "ref": "" },
+  "notes": "Fab DFM: L3 plane joined by a sliver near U4; widened the neck.",
+  "files": [{ "path": "…", "size": 0, "sha256": "…" }],
+  "download": { "name": "DT-1042_revB-2.zip", "sha256": "…", "size": 0 },
+  "changes": { "base": "l…", "layers": ["L3"], "bom": 0, "placements": 0, "drill": 0, "findings": { "fixed": 1, "new": 0 } },
+  "at": "…", "by": "…", "updatedAt": "…", "updatedBy": "…"
+}
+```
+
+Field notes:
+- `status`:
+  - `candidate`: tagged, not sent yet.
+  - `sent`: sent to the fab house.
+  - `built`: what was built.
+  - `withdrawn`: tagged by mistake.
+  - **Superseded** is shown, not stored: it means a later release's `supersedes` names this one.
+- `changes`: a summary of the compare with `supersedes`, made at tag time, so the history reads
+  without re-parsing anything.
+- `files` and `download` are fixed at tag time. A different file set is a new release.
+- `label`, `title`, `status`, `fab` and `notes` can be edited. A release is never deleted, only
+  withdrawn, so review data is never lost.
+
+Storage:
+- **Repo:** `fabcheck/<projectId>/releases/<id>.json`, one file per release.
+  - Writes are additive, and two people tagging at once can't collide.
+  - Signoff's share-move already carries `fabcheck/<projectId>/` across.
+  - An edit reads the file, checks `updatedAt`, then writes with `putFiles` (which retries on a race
+    and refuses to overwrite a newer edit).
+- **This browser:** a new IndexedDB store `releases` (`VER` 1 → 2 in `store.js`).
+  - The release's extra files go into the package record.
+  - A release with no project yet stays local until it's stored, like an unsent run.
+- **Demo mode:** local only (`Fab.repoRuns` is null). Tag, compare and download all work, so the
+  demo can show the whole flow.
+
+## Workflow
+
+### Tag
+
+- **Where.** A **Tag release…** button sits on the Overview beside Send, and on the Revisions tab.
+  Recent runs gets the same action, for a package kept from earlier.
+- **The dialog:**
+  - label, title, status (default *sent*), fab house, date sent, notes;
+  - **Supersedes**, which defaults to the project's latest release of the same board;
+  - the release-set file list.
+- **Saving the tag:**
+  - it shows the `changes` summary against the superseded release;
+  - the store confirm names the repo, the files and their size, as Send's does today.
+- **Store without sending.** Tagging stores the release (and its run) with the project, but doesn't
+  write any Signoff issues.
+  - That's needed for back-filling an older package.
+  - Sending an older package after a newer one would re-raise issues the newer one had fixed.
+  - If the release being sent is older than the one last sent, Send warns.
+
+### Send to Signoff, with a release
+
+- The issue `source` gains `release: { id, label, title }`.
+- Fabcheck's comments name the release instead of the file name:
+  - *"Fabcheck re-run on rev B-2 (DFM updates): no longer found."*
+  - *"Raised by Fabcheck from rev B-1 (release candidate): 1 finding."*
+- Nothing else changes. Issue ids, the reviewer's status, and the no-longer-found note work as now.
+
+### The demo story end to end
+
+The demo gets a second package for the main board: the rev B-1 candidate, with a sliver planted
+in the L3 plane. Today's main board is rev B-2, the fixed one (see R3 under *Phases*).
+
+1. **The candidate.** Open the rev B candidate and run it. Tag it "rev B-1", *release candidate*,
+   status *sent*, with the fab house and date. Send to Signoff.
+2. **The fab house reports a sliver plane.** Fix it and open the new package. Revisions compares it
+   with rev B-1:
+   - only L3 changed (+12 / −3 primitives) and the ODB++ archive;
+   - BOM, placements and drill are identical;
+   - findings: the `sliver` error on L3 is fixed, and nothing is new.
+3. **Tag the fix.** Tag it "rev B-2", *DFM updates*, superseding rev B-1, and send to Signoff. The
+   sliver issue gets "no longer found".
+4. **The board is built.** Mark rev B-2 *built*. Rev B-1 shows *superseded*.
+5. **Reorder.** Months later, Revisions › rev B-2 › **Download** gives the same zip, with the same
+   sha256 as the one recorded.
+
+## Revisions tab
+
+The tab becomes the board's **release history**, with the compare below it.
+
+1. **The project.** It comes from the run's `sentTo` or the deep link, or from a picker like the
+   Send panel's.
+2. **History.** One row per release, newest first:
+   - label, title and status chip;
+   - date, by, and the fab house;
+   - findings pills;
+   - the `changes` one-liner, for example "L3 changed; BOM, drill, placements same; 1 error fixed";
+   - actions: **Open**, **Compare**, **Download** and **Edit**.
+
+   Untagged runs stored with the project fold under a "Runs not tagged" row, with **Tag** on each.
+3. **Compare.** The baseline picker lists open packages, the project's releases and its stored runs.
+   - A stored baseline loads from IndexedDB, or from the repo through `fetchRun`'s path, and is
+     parsed with `classify.build` only, without a re-run.
+   - The default baseline is the latest release that isn't this package.
+4. **Change scope**, a new block above today's tables. On the real pair it reads:
+   - one part's footprint swapped (copper, paste, mask and silk at that part, plus 5 cutouts on the
+     bottom copper);
+   - 4 clearance lines on one inner plane, which is the DFM fix;
+   - everything else identical.
+
+   That pair showed the compare's first bug. Altium names each macro aperture after its D-code
+   (`ROUNDEDRECTD55`), so one new aperture made about 200 unchanged pads look changed. Comparing
+   apertures by shape fixed it (`revisions.js` `apKey`, 2026-11-03).
+
+   The block itself: In one line it says which of the BOM,
+   placements, each Gerber layer, drill and ODB++ changed. Green means "only what you meant", for a
+   reviewer to confirm before re-sending. Today's BOM, placements, Gerber and drill tables stay as
+   they are.
+5. **Findings delta**, new: findings marked fixed, new or unchanged against the baseline's run.
+   - Two findings are the same if they share the check, severity and layer and lie within 0.25 mm of
+     each other. A finding without a location matches on check and title.
+   - Each fixed or new finding jumps to the board, like today's `rev-at` rows.
+
+## Contract changes in other repos (proposals only)
+
+Fabcheck's sessions don't edit these repos. Each change goes to that repo's own session.
+
+- **`ee_design_review/docs/fabcheck-link.md`:**
+  - the `releases/` folder in the stored layout;
+  - `source.release` on issues;
+  - the download sha256.
+- **Signoff EE:** optionally show the release label on Fabcheck issues and on the run link.
+- **Signoff PL:** read `fabcheck/<projectId>/releases/*.json` to show, per board Part, the release
+  that was built for each EVT, DVT or PVT build, with a Download link for FTEs. This is the natural
+  home for "what did we actually build". It's a later phase, after Phase 3 gates.
+
+## Phases
+
+| Phase | Scope | Proof |
+| --- | --- | --- |
+| **R1: Local releases** | The release set (defaults and per-file overrides); the `releases` IndexedDB store (VER 2); the tag dialog; deterministic download from this browser; Recent runs shows tags | The demo: tag both thermostat boards, download twice, and get the same sha256. Re-run findings stay identical, because the release set is a superset of the Fabcheck set |
+| **R2: Stored releases** | `releases/<id>.json` and release files in the repo; edit with the `updatedAt` check; store without send; download from the repo with per-file sha256 checks; the older-than-last-sent warning | `tests/fake-github.js`: tag, edit and download, and a second release of a package with one changed layer uploads only the changed files |
+| **R3: Revisions history** | The history list, stored and tagged baselines, the change scope and the findings delta | `make_demo_boards.py` writes one more zip, the rev B-1 candidate: the main board with a sliver neck planted in the L3 plane. The committed main board stays byte-identical as rev B-2, so EE's and PL's demos don't change. Compared, only L3 differs and the sliver is fixed |
+| **R4: Signoff link** | `source.release` and the release name in comments; the "Which release is this?" lookup on the Archive tab; the contract proposals handed to EE's and PL's sessions | Send rev B-1, then rev B-2: the sliver issue gets one "no longer found" comment that names rev B-2 |
+
+## Back-filling a real board
+
+A real board whose candidate went out before Fabcheck stored runs can be back-filled once R2 is
+in:
+1. Drop the candidate zip, run it, and tag it with its real sent date, status *sent*. Use **Store
+   only**, not Send.
+2. Drop the DFM-fixed zip, run it, and tag it as superseding the first. Then Send.
+3. Mark it *built*.
+
+The order matters. Back-filling with Send would put the candidate's findings back on the issues.
+
+## Open questions for Chris
+
+1. **The release set defaults.** Are the drawings, one ODB++ archive, IPC-356, `.DRR` and text
+   files right? Should other PDFs (often schematics) be in by default, and should Altium reports be
+   out?
+2. **274X and X2.** When a package has both sets, keep both, or only the set that was actually sent?
+3. **ODB++.** When there's both an archive and a tree, keeping only the archive saves space but
+   changes the download's layout. Is that acceptable?
+4. **Size.** Is a 90 MB per-file ceiling (warning at 25 MB) fine, or should big ODB++ archives go to
+   GitHub Releases assets instead? That avoids repo growth, but browser uploads there are unproven
+   (CORS on `uploads.github.com`), so it would need a probe first.
+5. **Labels.** Free text ("rev B-2"), or a scheme Fabcheck can sort and suggest? One scheme:
+   board rev plus a sequence number, with the next number filled in.
+6. **Immutability.** Files and the download are fixed per release, and label, title and status can
+   be edited. Should a *built* release lock its label too?
+7. **A note inside the zip.** Should a `RELEASE.txt` (label, sha256, date) go in the download, or
+   should the zip hold only the fab files? The default proposed here is fab files only.
+8. **Tagging without Signoff.** Should tagging require a Signoff EE project, or can a release live
+   only in this browser until there is one? The proposal allows local releases.

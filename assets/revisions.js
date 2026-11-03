@@ -50,10 +50,34 @@
     return { moved: moved.sort((x, y) => Fab.natCmp(x.des, y.des)), added, removed };
   }
 
+  // An aperture by its shape, not its name: Altium names each macro after its D-code
+  // (ROUNDEDRECTD55), so one new aperture renumbers the rest and every pad after it would differ.
+  // A polygon's outline doesn't depend on which corner it starts at or which way it runs (a
+  // rotated macro may list the same corners from the opposite one).
+  function polyKey(pts, r) {
+    const v = [];
+    for (let i = 0; i < pts.length; i += 2) v.push(r(pts[i]) + ',' + r(pts[i + 1]));
+    let best = null;
+    for (const seq of [v, v.slice().reverse()]) for (let i = 0; i < seq.length; i++) {
+      const s = seq.slice(i).concat(seq.slice(0, i)).join(' ');
+      if (best === null || s < best) best = s;
+    }
+    return best || '';
+  }
+  const apKeys = new WeakMap();
+  function apKey(ap) {
+    if (!apKeys.has(ap)) {
+      const r = v => Math.round(v * 1000);
+      apKeys.set(ap, /^[CROP]$/.test(ap.tpl) ? ap.tpl + ':' + r(ap.w) + 'x' + r(ap.h) + (ap.tpl === 'P' ? ':' + ap.params.join(',') : '')
+        : 'M:' + (ap.shapes || []).map(s => (s.on ? '' : '-') + (s.t === 'c' ? `c${r(s.x)},${r(s.y)},${r(s.r)}` : 'p' + polyKey(s.pts, r))).join(';'));
+    }
+    return apKeys.get(ap);
+  }
+
   // Geometry signature per primitive, rounded to 1 µm, so re-ordered or re-numbered files compare equal.
   function primKey(p) {
     const r = v => Math.round(v * 1000);
-    const ap = p.ap ? p.ap.tpl + ':' + r(p.ap.w) + 'x' + r(p.ap.h) : '';
+    const ap = p.ap ? apKey(p.ap) : '';
     if (p.k === 'F') return `F${p.dark ? '' : 'C'}|${r(p.x)},${r(p.y)}|${ap}`;
     if (p.k === 'L' || p.k === 'A') {
       let a = [r(p.x1), r(p.y1)], b = [r(p.x2), r(p.y2)];

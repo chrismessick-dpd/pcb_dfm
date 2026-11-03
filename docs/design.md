@@ -484,7 +484,7 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
 - **Revisions.** Compare against a baseline package (or a lone BOM): BOM designators
   added/removed/changed (grouped by identical change), placements moved/rotated/re-footprinted,
   Gerber geometry per layer (primitive signatures rounded to 1 µm, so re-ordered files compare equal),
-  and drill hits.
+  and drill hits. The plan for tagged, stored and downloadable fab releases is in `docs/releases.md`.
 - **Archive.** SHA-256 of the package archive (WebCrypto, with a JS fallback for `file://`), nested
   ODB++ `.zip`/`.tgz` vs the extracted `odb/` tree, and a byte-for-byte comparison with another copy.
 
