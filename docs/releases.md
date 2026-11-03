@@ -1,7 +1,11 @@
 # Fab releases: tagged, stored, downloadable packages (plan)
 
-Status: **plan, nothing built yet** (2026-11-03, branch `release-tags`). The open questions at the
-end need answers before Phase R1.
+Status (2026-11-03, branch `release-tags`):
+- **Phase R1 (local releases) is built.** It was verified on the demo board and on a real pair
+  of packages, before and after a fab DFM fix.
+- **R2 to R5 are planned.**
+
+What fab houses ask for, with sources, is in `docs/fab-package.md`.
 
 ## Why
 
@@ -71,8 +75,8 @@ Proposed defaults, by classifier type (`classify.js`):
 | `drill-report` (`.DRR`) | yes | yes | |
 | `fab-pdf`, `assy-pdf` | no | **yes** | The fab and assembly drawings |
 | `pdf` (other) | no | ask | Ticked by default; often schematics, sometimes notes |
-| `odb-archive` | no | **yes** | One copy of ODB++ |
-| `odb` tree | `comp_+_*` only | only if there's no archive | The Archive tab already checks that the archive and tree agree |
+| `odb-archive` | no | off; one copy if ticked | A second image format beside the Gerbers. Fabs then ask which one wins (Ucamco, see `fab-package.md`). Tick it when the fab or assembler asks for ODB++ |
+| `odb` tree | `comp_+_*` only | off | Copies of the archive |
 | `ipc2581` | yes (small) | yes | |
 | `text` (`.txt`, `.csv`) | yes | yes | READMEs and fab notes |
 | `report` (Altium `.REP`, `.LOG`, `.html`, status reports, `.LDP`) | yes | no | Fabcheck reads variants from these; the fab house doesn't need them |
@@ -249,6 +253,35 @@ The tab becomes the board's **release history**, with the compare below it.
      each other. A finding without a location matches on check and title.
    - Each fixed or new finding jumps to the board, like today's `rev-at` rows.
 
+## Phase R5: Fabcheck writes the ideal package
+
+The release set is today's Altium output, minus what doesn't belong in it. R5 goes further: the
+download is laid out the way `docs/fab-package.md` recommends, whatever folder Altium wrote.
+
+- **Two archives, each flat:** `<PN>-<REV>_FAB.zip` and `<PN>-<REV>_ASSY.zip`.
+  - Files are renamed by function: the classifier already knows each layer's function, side and
+    copper order.
+  - Each archive holds one image format.
+- **A generated `README.txt` in each archive:**
+  - the file list with each file's SHA-256;
+  - board size, layer count, thickness and the fab profile used;
+  - the pick-and-place origin and units;
+  - for the assembly archive, the BOM's DNP list.
+
+  This answers open question 7 below: a readme the fab house can read, not a Fabcheck file.
+- **Part number and revision** come from the release (two new fields, suggested from the package
+  name).
+- **The original paths stay in the release record**, so the as-sent layout can still be rebuilt.
+- **Hashes:** the download's SHA-256 is still the one to quote. The renamed files are byte for
+  byte the originals, apart from the readme.
+- **The checks in `fab-package.md`** that Fabcheck doesn't have yet join the Package checks:
+  - one board per archive;
+  - one image format;
+  - a plated and non-plated drill split;
+  - a `.gbrjob` present;
+  - part number and revision consistent;
+  - no local paths in headers.
+
 ## Contract changes in other repos (proposals only)
 
 Fabcheck's sessions don't edit these repos. Each change goes to that repo's own session.
@@ -266,9 +299,10 @@ Fabcheck's sessions don't edit these repos. Each change goes to that repo's own 
 
 | Phase | Scope | Proof |
 | --- | --- | --- |
-| **R1: Local releases** | The release set (defaults and per-file overrides); the `releases` IndexedDB store (VER 2); the tag dialog; deterministic download from this browser; Recent runs shows tags | The demo: tag both thermostat boards, download twice, and get the same sha256. Re-run findings stay identical, because the release set is a superset of the Fabcheck set |
+| **R1: Local releases** | The release set (defaults and per-file overrides); the `releases` IndexedDB store (VER 2); the tag dialog; deterministic download from this browser; Recent runs shows tags; the findings delta in the summary. **Done.** | Demo: tag, download twice, same sha256. Real pair: the defaults drop the duplicate ODB++ copies, the empty files and the reports. "Since rev 1": 6 layers changed, all at the swapped part except the plane fix; the sliver error fixed; one new spacing warning. Runs and their slimmed packages are unchanged |
 | **R2: Stored releases** | `releases/<id>.json` and release files in the repo; edit with the `updatedAt` check; store without send; download from the repo with per-file sha256 checks; the older-than-last-sent warning | `tests/fake-github.js`: tag, edit and download, and a second release of a package with one changed layer uploads only the changed files |
 | **R3: Revisions history** | The history list, stored and tagged baselines, the change scope and the findings delta | `make_demo_boards.py` writes one more zip, the rev B-1 candidate: the main board with a sliver neck planted in the L3 plane. The committed main board stays byte-identical as rev B-2, so EE's and PL's demos don't change. Compared, only L3 differs and the sliver is fixed |
+| **R5: Ideal package** | Flat fab and assembly archives with function-based names and a generated readme; part number and revision on the release; the new package checks | The demo boards and the real pair: both archives open in a Gerber viewer with every layer identified, and each file's SHA-256 in the readme matches |
 | **R4: Signoff link** | `source.release` and the release name in comments; the "Which release is this?" lookup on the Archive tab; the contract proposals handed to EE's and PL's sessions | Send rev B-1, then rev B-2: the sliver issue gets one "no longer found" comment that names rev B-2 |
 
 ## Back-filling a real board
@@ -288,8 +322,9 @@ The order matters. Back-filling with Send would put the candidate's findings bac
    files right? Should other PDFs (often schematics) be in by default, and should Altium reports be
    out?
 2. **274X and X2.** When a package has both sets, keep both, or only the set that was actually sent?
-3. **ODB++.** When there's both an archive and a tree, keeping only the archive saves space but
-   changes the download's layout. Is that acceptable?
+3. **ODB++.** It's off by default now, because research says two image formats make fabs ask which
+   one wins. Does your fab or assembler want it? If so, it can be ticked per release, or made the
+   default per fab house.
 4. **Size.** Is a 90 MB per-file ceiling (warning at 25 MB) fine, or should big ODB++ archives go to
    GitHub Releases assets instead? That avoids repo growth, but browser uploads there are unproven
    (CORS on `uploads.github.com`), so it would need a probe first.
@@ -297,7 +332,7 @@ The order matters. Back-filling with Send would put the candidate's findings bac
    board rev plus a sequence number, with the next number filled in.
 6. **Immutability.** Files and the download are fixed per release, and label, title and status can
    be edited. Should a *built* release lock its label too?
-7. **A note inside the zip.** Should a `RELEASE.txt` (label, sha256, date) go in the download, or
-   should the zip hold only the fab files? The default proposed here is fab files only.
+7. **A note inside the zip.** R1 downloads only the fab files. R5 proposes a generated
+   `README.txt`, which fab houses ask for anyway. Is that OK?
 8. **Tagging without Signoff.** Should tagging require a Signoff EE project, or can a release live
    only in this browser until there is one? The proposal allows local releases.

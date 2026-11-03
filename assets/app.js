@@ -696,8 +696,9 @@
 
   // Recent runs kept in this browser (IndexedDB), on the home page.
   async function loadRecent() {
-    let runs = [];
-    try { runs = await Fab.store.recentRuns(); } catch (e) { return; }
+    let runs = [], rels = [];
+    try { runs = await Fab.store.recentRuns(); rels = await Fab.store.releases(); } catch (e) { return; }
+    const tags = sha => rels.filter(r => r.package.sha256 === sha && r.status !== 'withdrawn').map(r => `<span class="pill" title="${esc(r.title || 'Fab release')}">${esc(r.label)}</span>`).join(' ');
     const el = $('#recent');
     if (!el || !runs.length) return;
     const pill = (n, cls) => n ? `<span class="pill ${cls}">${n}</span>` : '';
@@ -705,7 +706,7 @@
       <div class="card table-wrap"><table class="table compact"><thead><tr><th>Package</th><th>Run</th><th>Settings</th><th>Findings</th><th>Signoff EE</th><th></th></tr></thead><tbody>` +
       runs.map(r => {
         const run = r.run, c = run.summary || {};
-        return `<tr data-act="open-run" data-id="${run.id}"><td><b style="font-weight:500">${esc(baseName(run.package.name))}</b><div class="muted mono">${run.package.sha256.slice(0, 12)}… · ${(run.package.size / 1048576).toFixed(1)} MB</div></td>` +
+        return `<tr data-act="open-run" data-id="${run.id}"><td><b style="font-weight:500">${esc(baseName(run.package.name))}</b> ${tags(run.package.sha256)}<div class="muted mono">${run.package.sha256.slice(0, 12)}… · ${(run.package.size / 1048576).toFixed(1)} MB</div></td>` +
           `<td>${esc(new Date(run.at).toLocaleString())}<div class="muted">${esc(run.by || '')}${run.stored ? ' · stored in ' + esc(run.stored.repo) : ' · this browser only'}</div></td>` +
           `<td>${esc(runProfileName(run.settings))}<div class="muted">${Fab.fmtLen(run.settings.thickness)}</div></td>` +
           `<td>${pill(c.error, 'error')}${pill(c.warn, 'warn')}${pill(c.info, '')}${r.rerun && r.rerun.differs ? '<div class="muted">re-run differed</div>' : ''}</td>` +
@@ -787,7 +788,7 @@
         `<div class="cl-card-foot"><span><b>${cc.error}</b> errors</span><span><b>${cc.warn}</b> warnings</span><span><b>${cc.info}</b> info</span></div></button>`;
     }
     h += `</div>`;
-    if (e.status === 'ready') h += signoffHtml(e);
+    if (e.status === 'ready') h += signoffHtml(e) + releaseHtml(e);
     if (!stageHtml) h += `<div class="section-title">Run log <span class="chips"><span class="chip">${busy ? 'Running' : e.status === 'error' ? 'Failed' : 'Finished'}</span></span></div>` + consoleHtml(e);
     return h + '</div>';
   }
@@ -1602,6 +1603,145 @@
   }
 
   // ── Revisions ──
+  // ── Fab releases (docs/releases.md) ──
+  // A release names a package that went, or will go, to a fab house. It keeps the release set (what
+  // Fabcheck and the fab and assembly houses need) in this browser and downloads it as the same zip
+  // every time.
+  const who = () => { try { return (JSON.parse(localStorage.getItem(Fab.signoffNs + 'settings') || '{}') || {}).user || ''; } catch (err) { return ''; } };
+  function loadReleases() {
+    if (state.releases || state.releasesBusy) return;
+    state.releasesBusy = true;
+    Fab.store.releases().catch(() => []).then(rs => { state.releases = rs; state.releasesBusy = false; renderAll(); });
+  }
+  const pkgSha = e => (e.run && e.run.package.sha256) || (e.pkgRec && e.pkgRec.sha256) || null;
+  const statusName = s => (Fab.releases.STATUS.find(x => x[0] === s) || [s, s])[1];
+  // Shown, not stored: a release that a later one supersedes.
+  const supersededBy = (rec, all) => all.find(r => r.supersedes === rec.id && r.status !== 'withdrawn') || null;
+  function statusPill(rec, all) {
+    const by = supersededBy(rec, all);
+    if (by && rec.status !== 'withdrawn') return `<span class="pill" title="Superseded by ${esc(by.label)}">superseded</span>`;
+    return `<span class="pill ${rec.status === 'built' ? 'ok' : rec.status === 'withdrawn' ? 'error' : rec.status === 'sent' ? 'warn' : ''}">${esc(statusName(rec.status).toLowerCase())}</span>`;
+  }
+  function releaseRowHtml(rec, all, opts) {
+    const fab = [rec.fab.house, rec.fab.sentAt && 'sent ' + rec.fab.sentAt, rec.fab.ref && 'ref ' + rec.fab.ref].filter(Boolean).map(esc).join(' · ');
+    const ch = Fab.releases.changesText(rec.changes);
+    const base = rec.supersedes && all.find(r => r.id === rec.supersedes);
+    return `<tr><td><b style="font-weight:600">${esc(rec.label)}</b>${rec.title ? ' · ' + esc(rec.title) : ''}<div class="muted">${opts && opts.pkg ? esc(baseName(rec.package.name)) + ' · ' : ''}${fab || esc(new Date(rec.at).toLocaleDateString())}</div>` +
+      (ch ? `<div class="muted">${base ? 'Since ' + esc(base.label) + ': ' : ''}${esc(ch)}</div>` : '') + (rec.notes ? `<div class="muted">${esc(rec.notes)}</div>` : '') + `</td>` +
+      `<td>${statusPill(rec, all)}<div style="margin-top:4px"><select data-act="rel-status" data-id="${esc(rec.id)}" aria-label="Status of ${esc(rec.label)}" style="font-size:12px">${Fab.releases.STATUS.map(([k, n]) => `<option value="${k}"${k === rec.status ? ' selected' : ''}>${n}</option>`).join('')}</select></div></td>` +
+      `<td>${rec.files.length} files<div class="muted mono" title="SHA-256 of the download">${esc(rec.download.sha256.slice(0, 12))}… · ${(rec.download.size / 1048576).toFixed(2)} MB</div></td>` +
+      `<td><button class="btn" data-act="rel-download" data-id="${esc(rec.id)}">Download</button> <button class="btn btn-plain" data-act="copy" data-text="${esc(rec.download.sha256)}" title="Copy the download's SHA-256">Copy SHA</button></td></tr>`;
+  }
+
+  function releaseHtml(e) {
+    loadReleases();
+    const all = state.releases || [];
+    const mine = all.filter(r => r.package.sha256 === pkgSha(e));
+    let h = `<div class="section-title">Fab release${mine.length ? ` <span class="chips"><span class="chip">${mine.map(r => esc(r.label)).join(', ')}</span></span>` : ''}</div><div class="card" style="padding:18px 20px">`;
+    if (mine.length) h += `<div class="table-wrap"><table class="table compact"><thead><tr><th>Release</th><th>Status</th><th>Download</th><th></th></tr></thead><tbody>${mine.map(r => releaseRowHtml(r, all)).join('')}</tbody></table></div>`;
+    h += `<p style="margin:${mine.length ? '12px' : '0'} 0 12px;color:var(--text-2)">${mine.length ? 'Tag it again if this package went out under another name.' : 'Tag this package as a release when it goes to a fab house.'} A release keeps what Fabcheck and the fab and assembly houses need, not everything Altium wrote, and downloads it later as the same zip, so its SHA-256 can go in a PO or an email. Releases are kept in this browser for now.</p>`;
+    h += `<div class="filters" style="margin:0"><button class="btn${e.relForm ? '' : ' btn-primary'} so-toggle${e.relForm ? ' open' : ''}" data-act="rel-form" aria-expanded="${!!e.relForm}">Tag release…${ICON.chev}</button></div>`;
+    if (e.relForm) h += releaseFormHtml(e, all);
+    return h + '</div>';
+  }
+
+  function relFormInit(e, all) {
+    const d = Fab.releases.defaults(e.files || []);
+    const prev = all.filter(r => r.package.sha256 !== pkgSha(e) && r.status !== 'withdrawn');
+    const proj = e.sentTo && e.sentTo.projectId;
+    const base = (proj && prev.find(r => r.project === proj)) || null;
+    return { label: '', title: '', status: 'sent', house: base ? base.fab.house : '', sentAt: new Date().toISOString().slice(0, 10), ref: '', notes: '', supersedes: base ? base.id : '', picks: new Set([...d].filter(([, v]) => v.on).map(([p]) => p)) };
+  }
+
+  function releaseFormHtml(e, all) {
+    const f = e.relForm;
+    const d = Fab.releases.defaults(e.files || []);
+    const byPath = new Map((e.files || []).map(x => [x.path, x]));
+    const picked = [...f.picks].filter(p => byPath.has(p) && d.get(p).avail);
+    const mb = picked.reduce((n, p) => n + byPath.get(p).size, 0) / 1048576;
+    const field = (k, label, attrs) => `<label class="tb-field" style="font-size:13px;display:flex;flex-direction:column;align-items:stretch;gap:3px">${label}<input data-rel="${k}" value="${esc(f[k] || '')}" ${attrs || ''}></label>`;
+    const others = all.filter(r => r.package.sha256 !== pkgSha(e));
+    let h = `<div class="rel-form" style="margin-top:14px;display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px">` +
+      field('label', 'Release name', 'placeholder="rev B-2" required') + field('title', 'Title', 'placeholder="DFM updates"') +
+      `<label class="tb-field" style="font-size:13px;display:flex;flex-direction:column;align-items:stretch;gap:3px">Status<select data-rel="status">${Fab.releases.STATUS.filter(s => s[0] !== 'withdrawn').map(([k, n]) => `<option value="${k}"${k === f.status ? ' selected' : ''}>${n}</option>`).join('')}</select></label>` +
+      field('house', 'Fab house') + field('sentAt', 'Date sent', 'type="date"') + field('ref', 'Order or quote ref') +
+      `<label class="tb-field" style="font-size:13px;display:flex;flex-direction:column;align-items:stretch;gap:3px">Supersedes<select data-rel="supersedes"><option value="">Nothing (first release)</option>${others.map(r => `<option value="${esc(r.id)}"${r.id === f.supersedes ? ' selected' : ''}>${esc(r.label)}${r.title ? ' · ' + esc(r.title) : ''} (${esc(baseName(r.package.name))})</option>`).join('')}</select></label>` +
+      `</div><label class="tb-field" style="font-size:13px;display:flex;flex-direction:column;align-items:stretch;gap:3px;margin-top:10px">Notes<textarea data-rel="notes" rows="2" placeholder="Why this release: what the fab house asked for, what changed">${esc(f.notes || '')}</textarea></label>`;
+    // The release set, grouped as a fab house reads a package.
+    const groups = [['fab', 'Fabrication'], ['assembly', 'Assembly'], ['other', 'Other files']];
+    h += `<div class="table-wrap" style="margin-top:12px;max-height:340px;overflow:auto"><table class="table compact"><thead><tr><th></th><th>File</th><th class="num">Size</th><th>Why</th></tr></thead><tbody>`;
+    let i = 0;
+    for (const [g, title] of groups) {
+      const fs = (e.files || []).filter(x => d.get(x.path).group === g).sort((a, b) => Fab.natCmp(a.path, b.path));
+      if (!fs.length) continue;
+      h += `<tr><td colspan="4" style="font-weight:600;padding-top:10px">${title}</td></tr>`;
+      for (const x of fs) {
+        const v = d.get(x.path), id = 'relf-' + (i++);
+        h += `<tr><td><input type="checkbox" id="${id}" data-act="rel-pick" data-path="${esc(x.path)}"${f.picks.has(x.path) && v.avail ? ' checked' : ''}${v.avail && x.size <= Fab.releases.MAX_MB * 1048576 ? '' : ' disabled'}></td>` +
+          `<td class="mono" style="font-size:12px"><label for="${id}">${esc(x.path)}</label></td><td class="num">${x.size >= 1048576 ? (x.size / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(x.size / 1024)) + ' kB'}</td>` +
+          `<td class="muted"${v.big ? ' style="color:var(--warn)"' : ''}>${esc(v.why)}${v.big ? ` (over ${Fab.releases.WARN_MB} MB)` : ''}</td></tr>`;
+      }
+    }
+    h += `</tbody></table></div>`;
+    const stubs = (e.files || []).filter(x => x.stub).length;
+    if (stubs) h += `<p class="note" style="color:var(--warn)">${plural(stubs, 'file')} of this package aren't kept in this browser (it was reopened from a kept run). Drop the package in again to include them.</p>`;
+    h += `<div class="filters" style="margin:12px 0 0"><button class="btn btn-primary" data-act="rel-tag"${picked.length && !e.relBusy ? '' : ' disabled'}>${e.relBusy ? 'Tagging…' : 'Tag release'}</button><span class="muted" style="font-size:12.5px">${plural(picked.length, 'file')}, ${mb.toFixed(2)} MB before compression</span></div>`;
+    return h;
+  }
+
+  async function tagRelease(e) {
+    const f = e.relForm;
+    if (!f || e.relBusy) return;
+    if (!f.label.trim()) { toast('Give the release a name, like "rev B-2"'); const el = document.querySelector('[data-rel="label"]'); if (el) el.focus(); return; }
+    e.relBusy = true; renderAll();
+    try {
+      const all = state.releases || [];
+      // What changed since the superseded release: its package, parsed again from this browser,
+      // and its run's findings.
+      let changes = null;
+      const base = f.supersedes && all.find(r => r.id === f.supersedes);
+      if (base) {
+        try {
+          const open = state.pkgs.find(p => p.pkg && pkgSha(p) === base.package.sha256);
+          let bpkg = open && open.pkg;
+          if (!bpkg) { const rec = await Fab.store.getPackage(base.package.key); if (rec) bpkg = Fab.classify.build(Fab.store.restoreFiles(rec)); }
+          const brun = base.run && await Fab.store.getRun(base.run);
+          const cmp = bpkg ? Fab.revisions.compare(bpkg, e.pkg) : null;
+          const delta = brun ? Fab.revisions.findingsDelta(brun.findings, Fab.store.compactFindings(e.findings)) : null;
+          changes = Fab.releases.changes(cmp, delta, base.id);
+        } catch (err) { log(e, 'warn', `Couldn't compare with ${base.label}: ${err.message || err}`); }
+      }
+      const got = await Fab.releases.build(e, { label: f.label, title: f.title, status: f.status, fab: { house: f.house, sentAt: f.sentAt, ref: f.ref }, notes: f.notes, supersedes: f.supersedes || null, picks: f.picks, changes }, who());
+      await Fab.store.saveRelease(got.rec, got.blobs);
+      log(e, 'ok', `Tagged release ${got.rec.label}: ${plural(got.rec.files.length, 'file')}, download ${got.rec.download.name} (${(got.rec.download.size / 1048576).toFixed(2)} MB, SHA-256 ${got.rec.download.sha256.slice(0, 12)}…)` + (changes ? `. Since ${base.label}: ${Fab.releases.changesText(changes)}` : ''));
+      toast(`Tagged ${got.rec.label}`);
+      e.relForm = null; state.releases = null;
+    } catch (err) { toast('Could not tag: ' + (err.message || err)); }
+    e.relBusy = false;
+    renderAll();
+  }
+
+  async function downloadRelease(id) {
+    const rec = await Fab.store.getRelease(id);
+    if (!rec) { toast('That release is no longer in this browser'); return; }
+    try {
+      const got = await Fab.releases.assemble(rec, Fab.store.getBlob);
+      const url = URL.createObjectURL(new Blob([got.bytes], { type: 'application/zip' }));
+      const a = document.createElement('a'); a.href = url; a.download = got.name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      toast(`Downloaded ${got.name} (SHA-256 checked)`);
+    } catch (err) { toast('Not downloaded: ' + (err.message || err)); }
+  }
+
+  async function setReleaseStatus(id, status) {
+    const rec = await Fab.store.getRelease(id);
+    if (!rec || rec.status === status) return;
+    if (status === 'withdrawn' && !confirm(`Withdraw ${rec.label}? It stays in the history, marked withdrawn, and can be restored by picking another status.`)) { renderAll(); return; }
+    const t = new Date().toISOString();
+    await Fab.store.saveRelease(Object.assign(rec, { status, updatedAt: t, updatedBy: who() }));
+    state.releases = null; renderAll();
+  }
+
   function revisionsHtml(e) {
     const others = state.pkgs.filter(p => p.id !== e.id && p.pkg);
     let h = `<div class="page wide">` + pageHead(e, 'Revision compare', e.label, 'What changed against a baseline: BOM lines, placements, Gerber geometry and drill hits.');
@@ -1746,6 +1886,9 @@
       case 'signoff-send': case 'signoff-send-anyway': sendToSignoff(e, t.dataset.act === 'signoff-send-anyway'); break;
       case 'signoff-runs': e.signoffRunsOpen = !e.signoffRunsOpen; renderAll(); break;
       case 'store-run': storeKeptRun(t.dataset.id); break;
+      case 'rel-form': e.relForm = e.relForm ? null : relFormInit(e, state.releases || []); renderAll(); break;
+      case 'rel-tag': tagRelease(e); break;
+      case 'rel-download': downloadRelease(t.dataset.id); break;
       case 'signoff-details': e.signoffOpen = !e.signoffOpen; renderAll(); break;
       case 'back-signoff': {
         const pid = (e.sentTo && e.sentTo.projectId) || (e.link && e.link.project) || (e.need && e.need.link && e.need.link.project);
@@ -1880,9 +2023,19 @@
         const el = document.getElementById(id); if (el) el.focus({ preventScroll: true });
       }
       if (ev.target.matches('[data-act="baseline"]')) { e.baseline = ev.target.value; e.revCache = null; renderAll(); }
+      if (ev.target.matches('[data-act="rel-status"]')) setReleaseStatus(ev.target.dataset.id, ev.target.value);
+      if (ev.target.matches('[data-rel]') && e && e.relForm) e.relForm[ev.target.dataset.rel] = ev.target.value;
+      if (ev.target.matches('[data-act="rel-pick"]') && e && e.relForm) {
+        e.relForm.picks[ev.target.checked ? 'add' : 'delete'](ev.target.dataset.path);
+        const id = ev.target.id;
+        renderAll();
+        const el = document.getElementById(id); if (el) el.focus({ preventScroll: true });
+      }
       if (ev.target.matches('[data-layer]')) { viewer.layers[+ev.target.dataset.layer].visible = ev.target.checked; viewer.draw(); }
     });
     document.addEventListener('input', ev => {
+      // The tag form keeps what is typed, so a re-render (a log line) doesn't lose it.
+      if (ev.target.matches('[data-rel]')) { const e = active(); if (e && e.relForm) e.relForm[ev.target.dataset.rel] = ev.target.value; return; }
       if (ev.target.id === 'f-search' || ev.target.id === 'rail-search') {
         state.q = ev.target.value;
         dropHiddenSel(active());

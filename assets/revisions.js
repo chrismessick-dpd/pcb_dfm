@@ -119,6 +119,28 @@
     return { added: b.hits.filter(h => !sa.has(key(h))), removed: a.hits.filter(h => !sb.has(key(h))) };
   }
 
+  // Findings fixed, new and unchanged between two runs. The same finding has the same check, severity
+  // and layer within 0.25 mm. One without a location is a summary ("230 pads with…"), so it matches
+  // on check, severity and layer whatever its count, preferring the same title.
+  function findingsDelta(a, b, tol) {
+    tol = tol || 0.25;
+    const k = f => [f.check, f.severity, f.layer || ''].join('|');
+    const pool = new Map();
+    for (const f of a) { const key = k(f); if (!pool.has(key)) pool.set(key, []); pool.get(key).push(f); }
+    const same = [], added = [];
+    for (const f of b) {
+      const cands = pool.get(k(f)) || [];
+      let best = -1, bd = Infinity;
+      cands.forEach((g, i) => {
+        if (f.at && g.at) { const d = Math.hypot(f.at.x - g.at.x, f.at.y - g.at.y); if (d <= tol && d < bd) { bd = d; best = i; } }
+        else if (!f.at && !g.at) { const d = g.title === f.title ? 0 : 1; if (d < bd) { bd = d; best = i; } }
+      });
+      if (best < 0) added.push(f); else same.push([cands.splice(best, 1)[0], f]);
+    }
+    const fixed = [].concat(...pool.values());
+    return { fixed, added, same };
+  }
+
   function compare(a, b) {
     return {
       bom: a.bom && b.bom ? bomDiff(a, b) : null,
@@ -128,5 +150,5 @@
     };
   }
 
-  Fab.revisions = { compare, bomDiff, pnpDiff, gerberDiff, drillDiff };
+  Fab.revisions = { compare, bomDiff, pnpDiff, gerberDiff, drillDiff, findingsDelta };
 })(window.Fab);

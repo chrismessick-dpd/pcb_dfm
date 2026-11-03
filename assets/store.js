@@ -3,7 +3,7 @@
 // original upload and can be stored in a Signoff project's repo.
 (function (Fab) {
   'use strict';
-  const DB = Fab.DEMO ? 'fabcheck-demo' : 'fabcheck', VER = 1;
+  const DB = Fab.DEMO ? 'fabcheck-demo' : 'fabcheck', VER = 2;
 
   // ---- IndexedDB ----
   let dbp = null;
@@ -15,6 +15,9 @@
         const d = r.result;
         if (!d.objectStoreNames.contains('runs')) d.createObjectStore('runs', { keyPath: 'id' });
         if (!d.objectStoreNames.contains('packages')) d.createObjectStore('packages', { keyPath: 'key' });
+        // v2: fab releases, and their files by sha256 (shared by releases that hold the same file).
+        if (!d.objectStoreNames.contains('releases')) d.createObjectStore('releases', { keyPath: 'id' });
+        if (!d.objectStoreNames.contains('blobs')) d.createObjectStore('blobs', { keyPath: 'sha256' });
       };
       r.onsuccess = () => {
         // Let another tab delete or upgrade the database (the demo's Reset) instead of blocking it.
@@ -152,7 +155,20 @@
     await new Promise(res => { const r = indexedDB.deleteDatabase(DB); r.onsuccess = r.onerror = r.onblocked = () => res(); });
   }
 
+  // ---- fab releases (docs/releases.md) ----
+  async function saveRelease(rec, blobs) {
+    for (const b of blobs || []) if (!(await get('blobs', b.sha256))) await put('blobs', b);
+    await put('releases', rec);
+    return rec;
+  }
+  async function releases() {
+    const rs = await all('releases');
+    return rs.sort((a, b) => b.at.localeCompare(a.at));
+  }
+  async function getBlob(sha) { const b = await get('blobs', sha); return b ? b.bytes : null; }
+
   Fab.store = {
+    saveRelease, releases, getBlob, getRelease: id => get('releases', id),
     clearAll, keep, manifest, packageRecord, restoreFiles, compactFindings, runRecord, saveRun, updateRun, recentRuns, deleteRun, runFromSignoff,
     getRun: id => get('runs', id), getPackage: key => get('packages', key), putRun: v => put('runs', v), putPackage: v => put('packages', v),
   };
