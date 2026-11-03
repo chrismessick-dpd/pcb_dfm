@@ -1037,7 +1037,8 @@
         const h = Fab.repoRuns.home(target.id);
         if (run.stored.repo !== h.repo || run.stored.dir !== h.dir) run.stored = null;
       }
-      const r = Fab.signoff.send(e.signoffSlug, Fab.signoff.plan(e.findings), { label: e.label, sha: run ? run.package.sha256 : null, run, profileName: run ? run.settings.profileName : profileName(e) }, e.signoffSkip);
+      const rel = releaseOf(e, target.id);
+      const r = Fab.signoff.send(e.signoffSlug, Fab.signoff.plan(e.findings), { label: e.label, sha: run ? run.package.sha256 : null, run, profileName: run ? run.settings.profileName : profileName(e), release: rel ? { id: rel.id, label: rel.label, title: rel.title } : null }, e.signoffSkip);
       if (run) Fab.rules.remember(run.settings.profile, { projectId: r.projectId });
       e.sentTo = { projectId: r.projectId, name: r.name };
       if (run) await Fab.store.updateRun(run.id, { sentTo: e.sentTo });
@@ -1049,6 +1050,30 @@
     } catch (err) { toast('Could not send: ' + err.message); }
     renderAll();
   }
+
+  // The release this package is, for Send: one of the target project's if there is one, else the
+  // latest one tagged here that isn't withdrawn.
+  function releaseOf(e, projectId) {
+    const mine = (state.releases || []).filter(r => r.package.sha256 === pkgSha(e) && r.status !== 'withdrawn');
+    return mine.find(r => r.project === projectId) || mine.find(r => !r.project) || null;
+  }
+
+  // Which release a zip is: the package a release was tagged from (its upload SHA-256), or one of
+  // the archives a release downloads as. Answers "is the file on my desktop the one we built?".
+  function releasesMatching(sha) {
+    const out = [];
+    if (!sha) return out;
+    for (const r of state.releases || []) {
+      if (r.package.sha256 === sha) out.push({ rec: r, what: 'the package it was tagged from' });
+      if (r.download.sha256 === sha) out.push({ rec: r, what: 'its "As sent" download' });
+      if (r.layout && r.layout.fab && r.layout.fab.sha256 === sha) out.push({ rec: r, what: 'its Fab zip' });
+      if (r.layout && r.layout.assy && r.layout.assy.sha256 === sha) out.push({ rec: r, what: 'its Assembly zip' });
+    }
+    return out;
+  }
+  // A candidate hasn't gone out yet, so its date is just a date.
+  const sentText = rec => rec.fab.sentAt ? (rec.status === 'candidate' ? 'dated ' : 'sent ') + rec.fab.sentAt : '';
+  const matchText = m => `${m.rec.label}${m.rec.title ? ' (' + m.rec.title + ')' : ''}: ${m.what}, ${statusName(m.rec.status).toLowerCase()}${m.rec.fab.sentAt ? ', ' + sentText(m.rec) : ''}`;
 
   // Sending an older release after a newer one puts back the findings the newer one fixed.
   function supersededOk(e) {
@@ -1647,7 +1672,7 @@
     return `<span class="pill ${rec.status === 'built' ? 'ok' : rec.status === 'withdrawn' ? 'error' : rec.status === 'sent' ? 'warn' : ''}">${esc(statusName(rec.status).toLowerCase())}</span>`;
   }
   function releaseRowHtml(rec, all, opts) {
-    const fab = [rec.fab.house, rec.fab.sentAt && 'sent ' + rec.fab.sentAt, rec.fab.ref && 'ref ' + rec.fab.ref].filter(Boolean).map(esc).join(' · ');
+    const fab = [rec.fab.house, sentText(rec), rec.fab.ref && 'ref ' + rec.fab.ref].filter(Boolean).map(esc).join(' · ');
     const ch = Fab.releases.changesText(rec.changes);
     const base = rec.supersedes && all.find(r => r.id === rec.supersedes);
     return `<tr><td><b style="font-weight:600">${esc(rec.label)}</b>${rec.title ? ' · ' + esc(rec.title) : ''}<div class="muted">${opts && opts.pkg ? esc(baseName(rec.package.name)) + ' · ' : ''}${fab || esc(new Date(rec.at).toLocaleDateString())}</div>` +
@@ -1676,6 +1701,9 @@
     const proj = relProject(e);
     const ro = { projectId: proj && proj.id, projectName: proj && proj.name };
     let h = `<div class="section-title">Fab release${mine.length ? ` <span class="chips"><span class="chip">${mine.map(r => esc(r.label)).join(', ')}</span></span>` : ''}</div><div class="card" style="padding:18px 20px">`;
+    // A zip Fabcheck itself wrote for a release (its Fab, Assembly or As-sent download).
+    const dl = releasesMatching(pkgSha(e)).filter(m => m.rec.package.sha256 !== pkgSha(e));
+    if (dl.length) h += `<p class="note" style="margin:0 0 12px;color:var(--pass)">This zip is release ${dl.map(m => esc(matchText(m))).join('; ')}. Its SHA-256 matches the recorded one.</p>`;
     if (mine.length) h += `<div class="table-wrap"><table class="table compact"><thead><tr><th>Release</th><th>Status</th><th>Download</th><th></th></tr></thead><tbody>${mine.map(r => releaseRowHtml(r, all, ro)).join('')}</tbody></table></div>`;
     h += `<p style="margin:${mine.length ? '12px' : '0'} 0 12px;color:var(--text-2)">${mine.length ? 'Tag it again if this package went out under another name.' : 'Tag this package as a release when it goes to a fab house.'} A release keeps what Fabcheck and the fab and assembly houses need, not everything Altium wrote, and downloads it later as the same zip, so its SHA-256 can go in a PO or an email. ` +
       (Fab.repoRuns ? (proj ? `Storing it with ${esc(proj.name)} (the project picked under Send to Signoff EE) puts it in that project's private repository, without sending any issues.` : 'Pick a Signoff EE project under Send to store releases with it.') : 'In this demo, releases stay in this browser.') + `</p>`;
@@ -1986,6 +2014,16 @@
     return h + '</div>';
   }
 
+  // "Which release is this?" for the open package, by its SHA-256.
+  function releaseMatchHtml(e) {
+    loadReleases();
+    const ms = releasesMatching((e.archive && e.archive.fingerprint && e.archive.fingerprint.sha256) || pkgSha(e));
+    const known = (state.releases || []).length;
+    return `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--hair)"><b style="font-weight:600">Fab release</b> ` +
+      (ms.length ? ms.map(m => `<div>${esc(matchText(m))}</div>`).join('')
+        : `<span class="muted">Not a release Fabcheck knows: no match among ${plural(known, 'release')} in this browser${Fab.repoRuns ? ' (Get a project\'s releases from the home page to check against those too)' : ''}.</span>`) + '</div>';
+  }
+
   // ── Archive ──
   function archiveHtml(e) {
     let h = `<div class="page wide">` + pageHead(e, 'Archive checks', e.label, 'Fingerprint the package, check nested ODB++ archives against the extracted tree, and compare with another copy.');
@@ -1994,7 +2032,7 @@
     if (!a) return h + `<div class="card" style="padding:18px;color:var(--text-3)">Hashing and unpacking nested archives…</div></div>`;
     h += `<div class="section-title">Fingerprint</div><div class="card" style="padding:16px 18px">` + (a.fingerprint
       ? `<dl class="kv" style="margin:0"><dt>Archive</dt><dd>${esc(a.fingerprint.name)}</dd><dt>Size</dt><dd>${a.fingerprint.size.toLocaleString()} bytes</dd><dt>SHA-256</dt><dd class="hash">${a.fingerprint.sha256} <button class="btn btn-plain" data-act="copy" data-text="${a.fingerprint.sha256}">Copy</button></dd></dl>`
-      : '<span class="muted">Opened as loose files, so there is no single archive to fingerprint.</span>') + '</div>';
+      : '<span class="muted">Opened as loose files, so there is no single archive to fingerprint.</span>') + releaseMatchHtml(e) + '</div>';
     h += `<div class="section-title">Nested archives</div>`;
     if (!a.archives.length) h += `<div class="card" style="padding:16px 18px;color:var(--text-3)">No nested archives in this package.</div>`;
     else {

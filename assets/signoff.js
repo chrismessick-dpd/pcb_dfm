@@ -105,6 +105,9 @@
     const picked = groups.filter(g => !(skip && skip.has(g.key)));
     let created = 0, updated = 0, resolvedNotes = 0;
     const comment = (item, text) => { const id = uid('c'); p.comments[id] = stamp({ id, item, author: who, at: t, text }, who); };
+    // A tagged package is named by its release in comments: "rev B-2 (DFM updates)", not a file name.
+    const rel = source.release && source.release.label ? source.release : null;
+    const on = rel ? `release ${rel.label}${rel.title ? ' (' + rel.title + ')' : ''}` : source.label;
     for (const g of picked) {
       const id = stableId(p.id, g.check, g.severity);
       const first = g.list[0];
@@ -112,31 +115,33 @@
       const text = issueText(g);
       const lines = g.list.slice(0, 25).map(f => `• ${f.title}${where(f)}`);
       if (n > 25) lines.push(`• … ${n - 25} more`);
-      const hint = `${n} ${g.severity === 'error' ? 'error' : 'warning'}${n === 1 ? '' : 's'} from Fabcheck check "${g.check}" on ${source.label}${source.sha ? ' (SHA-256 ' + source.sha.slice(0, 12) + '…)' : ''}${source.profileName ? ', fab profile "' + source.profileName + '"' : ''}.\n${first.detail || ''}\n\n${lines.join('\n')}`;
+      const hint = `${n} ${g.severity === 'error' ? 'error' : 'warning'}${n === 1 ? '' : 's'} from Fabcheck check "${g.check}" on ${on}${rel ? ', package ' + source.label : ''}${source.sha ? ' (SHA-256 ' + source.sha.slice(0, 12) + '…)' : ''}${source.profileName ? ', fab profile "' + source.profileName + '"' : ''}.\n${first.detail || ''}\n\n${lines.join('\n')}`;
       const refs = [...new Set(g.list.flatMap(f => f.refs || []))].slice(0, 40).join(', ');
       const severity = g.severity === 'error' ? 'major' : 'minor';
       const existing = p.custom[id];
       p.custom[id] = stamp(Object.assign({}, existing || { id, createdAt: t }, { id, checklist: 'fab', section: sectionFor(first), text, hint, severity, deleted: false, source: {
         tool: 'fabcheck', check: g.check, gone: false, run: source.run || null,
+        // The fab release this run checked, when the package was tagged (docs/releases.md, R4).
+        release: rel ? { id: rel.id, label: rel.label, title: rel.title || '' } : null,
         // Up to 50 clickable locations per check (contract: docs/fabcheck-link.md); the rest stay in the hint.
         locations: g.list.filter(f => f.at || f.bbox).slice(0, 50).map(f => { const c = f.at || Fab.bbox.center(f.bbox); return { x: +c.x.toFixed(4), y: +c.y.toFixed(4), layer: f.layer || null, label: f.title }; }),
       } }), who);
       const prev = p.items[id] || {};
       if (!existing || existing.deleted) {
         p.items[id] = stamp(Object.assign({}, prev, { status: 'issue', severity, resolution: '', ref: refs, text, checklist: 'fab' }), who);
-        comment(id, `Raised by Fabcheck from ${source.label}: ${n} finding${n === 1 ? '' : 's'}.`);
+        comment(id, `Raised by Fabcheck from ${on}: ${n} finding${n === 1 ? '' : 's'}.`);
         created++;
       } else {
         // Keep the reviewer's status and resolution; refresh the wording and say what the new run saw.
         p.items[id] = stamp(Object.assign({}, prev, { text, ref: refs || prev.ref, checklist: 'fab' }), who);
-        comment(id, `Fabcheck re-run on ${source.label}: still ${n} finding${n === 1 ? '' : 's'}.`);
+        comment(id, `Fabcheck re-run on ${on}: still ${n} finding${n === 1 ? '' : 's'}.`);
         updated++;
       }
     }
     // Issues Fabcheck raised before that this run no longer finds.
     for (const id of goneIds(p, seen)) {
       const c = p.custom[id];
-      comment(id, `Fabcheck re-run on ${source.label}: no longer found. Mark it Fixed if that is expected.`);
+      comment(id, `Fabcheck re-run on ${on}: no longer found. Mark it Fixed if that is expected.`);
       p.custom[id] = stamp(Object.assign({}, c, { source: Object.assign({}, c.source, { gone: true }) }), who);
       resolvedNotes++;
     }

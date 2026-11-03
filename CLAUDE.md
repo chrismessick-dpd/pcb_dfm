@@ -146,8 +146,13 @@ Fab releases (2026-11-03, branch `release-tags`, not merged or pushed):
     drill file mixing plated and non-plated holes, and local paths in file headers.
   - The demo boards' errors and warnings are unchanged. Info rose by one on each (EE's demo run
     record still says info 36 for the main board).
-- **Next:** R4 (Signoff link). The doc's open questions are
-  for Chris.
+- **Phase R4 is built:**
+  - `source.release` on Fabcheck issues, and comments that name the release (`signoff.js`);
+  - "Which release is this?" on the Archive tab and the Overview (`releasesMatching`), by
+    upload, As-sent, Fab or Assembly SHA-256.
+- **Contract changes for EE and PL** are proposed in `docs/releases.md`, not made.
+- **Next:** merge to `main` when Chris says so. First, a live "Store with" on a real project with a
+  real token. The doc's open questions are for Chris.
 
 Open:
 - Not built yet: acid traps (needs a trace graph), text-height check, microvia/HDI profile, revision

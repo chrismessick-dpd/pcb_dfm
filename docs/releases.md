@@ -7,7 +7,8 @@ Status (2026-11-03, branch `release-tags`):
 - **Phase R3 (Revisions as release history) is built.** It was verified on the real pair and in
   demo mode.
 - **Phase R5 (the ideal package) is built.** It was verified on the demo boards and the real pair.
-- **R4 is planned.**
+- **Phase R4 (the Signoff link) is built.** It was verified in a test origin with a made-up Signoff
+  project. The contract changes for Signoff EE and PL are proposals below.
 
 What fab houses ask for, with sources, is in `docs/fab-package.md`.
 
@@ -343,13 +344,36 @@ download is laid out the way `docs/fab-package.md` recommends, whatever folder A
 
 ## Contract changes in other repos (proposals only)
 
-Fabcheck's sessions don't edit these repos. Each change goes to that repo's own session.
+Fabcheck's sessions don't edit these repos. Each change goes to that repo's own session. As of R4
+(2026-11-03), Fabcheck already writes the following; the contract doc doesn't describe it yet.
 
-- **`ee_design_review/docs/fabcheck-link.md`:**
-  - the `releases/` folder in the stored layout;
-  - `source.release` on issues;
-  - the download sha256.
-- **Signoff EE:** optionally show the release label on Fabcheck issues and on the run link.
+- **`ee_design_review/docs/fabcheck-link.md`.** Add to *Stage 2*'s layout:
+
+  ```
+  fabcheck/<projectId>/releases/<releaseId>.json      a fab release (docs/releases.md in pcb_dfm)
+  fabcheck/<projectId>/packages/<key>/files/<path>    also holds a release's files
+  ```
+
+  - **The record:**
+    - `id` (`l…`), `label`, `title`, `status` (`candidate`, `sent`, `built` or `withdrawn`);
+    - `package {key, sha256, name, size}`, `run`, `supersedes`;
+    - `fab {house, sentAt, ref}`, `notes`;
+    - `files [{path, size, sha256}]`;
+    - `download {name, sha256, size, date}`;
+    - `layout {pn, rev, pre, files [{path, fab, assy}], readme {fab, assy}, fab {name, sha256, size}, assy {…}}`;
+    - `changes`;
+    - `at`, `by`, `updatedAt`, `updatedBy`.
+  - **Readers** must treat it as untrusted. Fabcheck's `cleanRelease` (`repo.js`) is the reference.
+  - **Sharing** a project already moves `releases/` with the rest of `fabcheck/<projectId>/`
+    (`moveFabcheck`).
+  - **Issues:** a Fabcheck issue's `source` gains `release: {id, label, title} | null`, the release
+    the sent package was tagged as. Comments and the hint name it ("Raised by Fabcheck from
+    release rev B-1 (release candidate)") instead of the file name.
+- **Signoff EE.** Optionally show `source.release.label` on Fabcheck issues and beside the run
+  link, and say "superseded" when the project has a later release.
+- **Signoff EE demo.** The main board's stored run summary (`config.js`, `rdemo1042b`) says
+  `info: 36`. Fabcheck now finds 37, because the new `structure` check notes the demo's mixed
+  plating. Errors and warnings are unchanged. Updating it is optional; it's display only.
 - **Signoff PL:** read `fabcheck/<projectId>/releases/*.json` to show, per board Part, the release
   that was built for each EVT, DVT or PVT build, with a Download link for FTEs. This is the natural
   home for "what did we actually build". It's a later phase, after Phase 3 gates.
@@ -362,7 +386,7 @@ Fabcheck's sessions don't edit these repos. Each change goes to that repo's own 
 | **R2: Stored releases** | `releases/<id>.json` and release files in the repo; edit with the `updatedAt` check; store without send (**Store with** on a release row); the project's releases on the Overview and the home page (**Get its releases**); download from the repo with per-file sha256 checks; a warning on sending a superseded release. **Done.** | `tests/fake-github.js`, run through the UI: storing writes one commit with the release, its run and 19 files, and no board pictures. A status edit is written. An edit after someone else's newer one keeps theirs and says so. A browser with nothing local reads the record, then 17 files on download, and the zip's sha256 matches. A record with `..` in a path or a bad id is ignored. Sending the superseded rev B-1 asks first, and Cancel sends nothing |
 | **R3: Revisions history** | The history list, stored and tagged baselines, the change scope and the findings delta. **Done.** Baselines are open packages, releases and runs kept in this browser (`p:`, `l:` and `r:` keys). A release's baseline is parsed from its kept package, or from the release's own files when it was tagged elsewhere, read from the repo if needed. The default baseline is what this package's release supersedes | The real pair: rev 2's default baseline is rev 1. The scope reads "6 layers changed (GBL, GP3, GTL, GTO, GTP, GTS); 1 BOM line changed; 1 placement changed; drill same; 1 finding fixed, 1 new finding", the same with the baseline built from the release's files alone. A fixed or new finding jumps to the board. **Not done:** the demo's rev B-1 candidate zip with a planted sliver (`make_demo_boards.py`), so the demo can tell this story |
 | **R5: Ideal package** | Flat fab and assembly archives with function-based names and a generated readme; part number and revision on the release; the new package checks. **Done.** | Real pair: `<PN>-<REV>_FAB.zip` holds 18 files (6 copper layers by order, masks, silk, outline, Mech5, PTH and mixed drill, drill report, IPC-356, FAB.pdf, README; the Gerber drill files are left out). `_ASSY.zip` holds 13 (ASSY.pdf, BOM, PNP, outer copper, masks, silk, paste, outline, README). The structure check finds all four problems there. Both download twice to the same SHA-256. A tampered layout is dropped. **Not checked:** opening the archives in an outside Gerber viewer |
-| **R4: Signoff link** | `source.release` and the release name in comments; the "Which release is this?" lookup on the Archive tab; the contract proposals handed to EE's and PL's sessions | Send rev B-1, then rev B-2: the sliver issue gets one "no longer found" comment that names rev B-2 |
+| **R4: Signoff link** | `source.release` and the release name in comments; the "Which release is this?" lookup on the Archive tab; the contract proposals handed to EE's and PL's sessions. **Done.** | Sent the demo main board, tagged rev B-1 (release candidate), to a made-up Signoff project. Its 8 issues carry `source.release`, and the hint and comment read "…from release rev B-1 (release candidate)". The "still found" and "no longer found" comments use the same name. The release's own Fab zip, dropped back in, is recognized as "rev B-1 (release candidate): its Fab zip", on the Overview and the Archive tab. Fabcheck reads that Fab zip with the same DFM and package findings as the original; only pick-and-place and BOM are missing, because they're in the Assembly zip |
 
 ## Back-filling a real board
 
