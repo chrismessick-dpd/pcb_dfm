@@ -121,6 +121,20 @@ flag: realistic look, transparent, no scale bar; written in `repo.js` `upload`).
 them on its tiles. Contract: EE's `docs/fabcheck-link.md`, *Board previews*. "Store in project" for a
 kept run has no parsed board, so it leaves the previews alone.
 
+Fab releases (2026-11-03, branch `release-tags`, not merged or pushed):
+- **The plan** is in `docs/releases.md`, and the fab house research in `docs/fab-package.md`.
+- **Phase R1 is built:**
+  - the release set (`assets/releases.js` `SET` and `defaults`), with ODB++ off by default;
+  - IndexedDB v2, which adds the `releases` and `blobs` stores;
+  - the Overview's Fab release section, with the tag form;
+  - the deterministic download;
+  - the findings delta (`revisions.findingsDelta`).
+- **Revisions now compares apertures by shape** (`apKey`). Altium's D-code macro names made about
+  200 unchanged pads look changed.
+- **Next:** R2 (stored in the project repo, store without send), R3 (Revisions as release history),
+  R5 (flat FAB and ASSY archives with a readme) and R4 (Signoff link). The doc's open questions are
+  for Chris.
+
 Open:
 - Not built yet: acid traps (needs a trace graph), text-height check, microvia/HDI profile, revision
   Gerber diff beyond what `revisions.js` does, ODB++ archive vs folder equality.
