@@ -1,9 +1,29 @@
 # Revisions move to Signoff (design)
 
-Status: **design, agreed with Chris 2026-11-03, nothing built yet.** It supersedes the versions
-UI in `docs/releases.md`. The Fabcheck side changes on the `release-tags` branch. The Signoff side
-is built in `ee_design_review` on a branch of its own, by that repo's session. Nothing goes to
-`main` until Chris says so.
+Status (2026-11-03): **design agreed with Chris; Fabcheck's side is built** on the `release-tags`
+branch. It supersedes the versions UI in `docs/releases.md`. The Signoff side is not built yet; it
+goes in `ee_design_review` on a branch of its own, by that repo's session. Nothing goes to `main`
+until Chris says so.
+
+**Fabcheck's side, as built:**
+- **Send stores one commit** with exactly the run record (now with `package.zip`), the fab package
+  zip and the board pictures (`repo.js` `store`; `releases.js` `packageFor`). It writes no loose
+  files and no `releases/` records.
+- **Removed:** the versions UI, the home page's Versions, version records in the browser,
+  `source.release`, and all repo reads for runs (`fetchRun`, `listRuns`, the trusted-repo list).
+- **The hand-off** (`store.js` `takeHandoff`, `purgeHandoff`; `openRunLink`) opens a run Signoff
+  left in IndexedDB `dovetail-handoff`. The entry is taken when read, so a failed open needs
+  another click in Signoff.
+- **Revisions** compares against open packages and runs kept in this browser.
+- **The Archive tab** says whether this package was checked before in this browser.
+- **Verified** with `tests/fake-github.js` on the real DFM-fixed package:
+  - sign-in, then one commit of five files: the zip (its SHA-256 matches `package.zip`), the run
+    and three pictures;
+  - the issues carry the run with its zip;
+  - a hand-off in a browser with no token and no kept run opens the run on the Board, zoomed to
+    the linked check, with the stored findings and no request to GitHub.
+
+  In demo mode, Send writes issues only, and the Files tab export saves the structured zip.
 
 ## Why
 

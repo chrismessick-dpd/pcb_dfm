@@ -553,6 +553,10 @@ The contract shared with Signoff EE is `ee_design_review/docs/fabcheck-link.md`.
   `signoff.v1.ui` and opens `dovetail-signoff-ee`.
 - **Send to Signoff.** It puts `source.run` and up to 50 `source.locations` on each issue.
 
+> On the `release-tags` branch, Stage 2 changes: Send stores the run with one fab package zip,
+> Fabcheck no longer reads runs back from any repo, and Signoff hands runs over in the browser.
+> See `docs/signoff-revisions.md`. What follows is how `main` works.
+
 **Stage 2: storing runs in the project's repo (`assets/repo.js`).** After Send to Signoff, the run is
 also stored in the project's home repository, found the way Signoff EE finds it: the shared repo from
 `signoff.v1.roster`, else `signoff.v1.homes`, else `settings.owner/dataRepo` under `dataPath`. Layout:

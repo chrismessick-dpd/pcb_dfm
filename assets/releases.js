@@ -1,26 +1,13 @@
-// Fab releases (docs/releases.md): a named package that was, or will be, sent to a fab house. A
-// release keeps the release set (what Fabcheck and the fab and assembly houses need, not everything
-// Altium wrote) and downloads it as the same zip every time, so its sha256 can be quoted.
+// The fab package (docs/fab-package.md, docs/signoff-revisions.md): what Fabcheck and the fab and
+// assembly houses need, not everything the CAD tool wrote, laid out as one zip with Fabrication/ and
+// Assembly/ folders. Send stores it with the run; the Files tab exports it for anyone.
 (function (Fab) {
   'use strict';
 
-  // A version starts as Checked when Send stores it; marking it later says what it was used for.
-  // Candidate is from before versions and only shows on a record that has it.
-  const STATUS = [['checked', 'Checked'], ['sent', 'Sent to fab'], ['built', 'Used for builds'], ['withdrawn', 'Withdrawn'], ['candidate', 'Candidate']];
-
-  // The next version name after the last one: v1.1 → v1.2, 3.1 → 3.2, rev B-1 → rev B-2, rev B → rev C.
-  function nextLabel(prev) {
-    const s = String(prev || '').trim();
-    if (!s) return 'v1';
-    const n = /^(.*?)(\d+)(\D*)$/.exec(s);
-    if (n) return n[1] + String(+n[2] + 1).padStart(n[2].length, '0') + n[3];
-    const l = /^(.*?)([A-Y])$/.exec(s);
-    return l ? l[1] + String.fromCharCode(l[2].charCodeAt(0) + 1) : s + '-2';
-  }
   const WARN_MB = 25, MAX_MB = 90; // GitHub's blob API refuses 100 MB; the browser base64s each blob in memory
 
-  // The release set, by classifier type: [in by default, group, why]. Per-file overrides come from
-  // the tag form. Kept in one place so the form, the docs and storage can't drift.
+  // What goes in the fab package, by classifier type: [in by default, group, why]. Per-file overrides come from
+  // Send's Details. Kept in one place so the picks, the docs and storage can't drift.
   const SET = {
     gerber: [true, 'fab', 'Gerber'], drill: [true, 'fab', 'NC drill'], 'drill-report': [true, 'fab', 'drill report'],
     ipc356: [true, 'fab', 'IPC-356 netlist, for electrical test'], ipc2581: [true, 'fab', 'IPC-2581'],
@@ -70,64 +57,7 @@
 
   const stem = n => String(n || 'package').replace(/\.(zip|tgz|tar\.gz)$/i, '');
   const safe = s => String(s || '').trim().replace(/[^\w.+-]+/g, '-').replace(/^-+|-+$/g, '');
-  const downloadName = (pkgName, label) => safe(stem(pkgName)) + (safe(label) ? '_' + safe(label) : '') + '.zip';
-  const newId = () => 'l' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-
-  // Build a release from an open package. form: { label, title, status, fab: {house, sentAt, ref},
-  // notes, supersedes, picks: Set of paths }. Resolves { rec, blobs } without saving anything.
-  async function build(entry, form, by) {
-    const files = entry.files.filter(f => form.picks.has(f.path) && !f.stub);
-    if (!files.length) throw new Error('No files picked for the release');
-    const listed = [];
-    for (const f of files) listed.push({ path: f.path, size: f.size, sha256: await Fab.archive.sha256(f.bytes), bytes: f.bytes });
-    const at = new Date();
-    const sent = /^\d{4}-\d{2}-\d{2}$/.test((form.fab || {}).sentAt || '') ? new Date(form.fab.sentAt + 'T12:00:00Z') : at;
-    const bytes = await zip(listed, sent);
-    const run = entry.run || {};
-    // The fab package: one zip with Fabrication/ and Assembly/ folders, named by function, with a README.
-    const p = plan(entry, form.picks, form.pn, form.rev);
-    const byPath = new Map(listed.map(f => [f.path, f]));
-    const ctx = context(entry, form, sent.toISOString().slice(0, 10));
-    const list = p.files.map(f => ({ to: f.to, size: byPath.get(f.path).size, sha256: byPath.get(f.path).sha256 }));
-    const lay = { v: 2, pn: (form.pn || '').trim(), rev: (form.rev || '').trim(), pre: p.pre, root: p.root, files: p.files, readme: readme(ctx, p.root, list) };
-    const z = await packageZip(lay, path => byPath.get(path).bytes, sent);
-    lay.zip = { name: z.name, sha256: await Fab.archive.sha256(z.bytes), size: z.bytes.length };
-    const rec = {
-      v: 1, id: newId(), label: form.label.trim(), title: (form.title || '').trim(), status: form.status || 'checked',
-      package: run.package || { key: entry.pkgRec && entry.pkgRec.key, sha256: entry.pkgRec && entry.pkgRec.sha256, name: entry.label, size: 0 },
-      run: run.id || null,
-      summary: run.summary || null,
-      supersedes: form.supersedes || null,
-      fab: { house: ((form.fab || {}).house || '').trim(), sentAt: (form.fab || {}).sentAt || '', ref: ((form.fab || {}).ref || '').trim() },
-      notes: (form.notes || '').trim(),
-      files: listed.map(f => ({ path: f.path, size: f.size, sha256: f.sha256 })),
-      download: { name: downloadName(run.package ? run.package.name : entry.label, form.label), sha256: await Fab.archive.sha256(bytes), size: bytes.length, date: sent.toISOString().slice(0, 10) },
-      changes: form.changes || null,
-      layout: lay,
-      project: (entry.sentTo && entry.sentTo.projectId) || null,
-      stored: null,
-      at: at.toISOString(), by: by || '', updatedAt: at.toISOString(), updatedBy: by || '',
-    };
-    return { rec, blobs: listed.map(f => ({ sha256: f.sha256, bytes: f.bytes })) };
-  }
-
-  // Rebuild the download from the release's files and check every hash on the way. getBlob(sha256)
-  // resolves the bytes or null. Resolves { name, bytes } or throws naming what is wrong.
-  async function assemble(rec, getBlob) {
-    const entries = [];
-    for (const f of rec.files) {
-      const b = await getBlob(f.sha256);
-      if (!b) throw new Error(`${f.path} is not in this browser`);
-      if (await Fab.archive.sha256(b) !== f.sha256) throw new Error(`${f.path} doesn't match its recorded SHA-256`);
-      entries.push({ path: f.path, bytes: b });
-    }
-    const bytes = await zip(entries, new Date(rec.download.date + 'T12:00:00Z'));
-    const sha = await Fab.archive.sha256(bytes);
-    if (sha !== rec.download.sha256) throw new Error(`the rebuilt zip's SHA-256 (${sha.slice(0, 12)}…) isn't the recorded one (${rec.download.sha256.slice(0, 12)}…)`);
-    return { name: rec.download.name, bytes };
-  }
-
-  // What changed against the superseded release, in one line for the history.
+  // What changed against a baseline, in one line (the Revisions tab).
   function changes(cmp, delta, baseId) {
     const out = { base: baseId || null };
     if (cmp) {
@@ -163,7 +93,7 @@
   // ---- The fab package as Fabcheck writes it (docs/fab-package.md) ----
   // One zip shaped like an Altium manufacturing folder: <PN>-<REV>_manufacturing/ with Fabrication/
   // (Gerber, NC Drill, Netlist…) and Assembly/ (BOM, Pick Place), files named by function, and a
-  // README listing each file's SHA-256. Files keep their bytes; the record keeps every name.
+  // README listing each file's SHA-256. Files keep their bytes; the run record lists every name.
 
   // Part number and revision from a package name: "PCB-1042-03_manufacturing" → PCB-1042, 03.
   function suggestPnRev(name) {
@@ -242,9 +172,8 @@
   function readme(ctx, root, list) {
     const L = [];
     L.push(`${ctx.pn || ctx.name}${ctx.rev ? ' rev ' + ctx.rev : ''}: fabrication and assembly data`);
-    L.push(ctx.label ? `Version ${ctx.label}${ctx.title ? ' (' + ctx.title + ')' : ''}, ${ctx.date}` : `Exported by Fabcheck, ${ctx.date}`);
+    L.push(`${ctx.head || 'Exported by Fabcheck'}, ${ctx.date}`);
     L.push('');
-    for (const line of ctx.lines || []) L.push(line);
     if (ctx.board) L.push(`Board: ${ctx.board}`);
     if (ctx.gerber) L.push(`Gerber: ${ctx.gerber}. Drill: Excellon. All files share one origin.`);
     if (ctx.pnp) L.push(`Pick-and-place: ${ctx.pnp}`);
@@ -281,47 +210,22 @@
     return { name: lay.root + '.zip', bytes: await zip(entries, date) };
   }
 
-  // Versions made before this layout recorded two flat archives (fab and assembly). Lay them out
-  // the current way from those names; their board lines come from the old READMEs.
-  function fromTwoArchives(rec) {
-    const old = rec.layout, pre = old.pre, id = pre.replace(/_$/, ''), root = id + '_manufacturing', uniq = uniquer(root);
-    const folderOf = n => /^(PTH|NPTH|Drill)(-\d+)?\.drl$|^Drill_/i.test(n) ? NC : /\.gbr$/i.test(n) ? GBR
-      : /^IPC356/.test(n) ? 'Fabrication/Netlist' : /^IPC2581/.test(n) ? 'Fabrication/IPC-2581' : /^ODB[./]/.test(n) ? 'Fabrication/ODB'
-      : /^FAB\.pdf$/.test(n) ? FAB : /^ASSY\.pdf$/.test(n) ? 'Assembly' : /^BOM\./.test(n) ? 'Assembly/BOM' : /^PNP\./.test(n) ? 'Assembly/Pick Place'
-      : /^Notes_/.test(n) ? '' : /\.pdf$/i.test(n) ? 'Documentation' : 'Other';
-    const files = old.files.map(f => {
-      const n = String(f.fab || f.assy || '').slice(pre.length).replace(/-\d+(\.[^.]+)$/, '$1');
-      const folder = folderOf(n);
-      return { path: f.path, to: uniq(root + '/' + (folder ? folder + '/' : '') + pre + n) };
-    });
-    const keep = /^(Board|Gerber|Pick-and-place|Do not place):/;
-    const lines = [...new Set(String((old.readme || {}).fab || '').split(/\r?\n/).concat(String((old.readme || {}).assy || '').split(/\r?\n/)).filter(l => keep.test(l)))];
-    const byPath = new Map(rec.files.map(f => [f.path, f]));
-    const list = files.map(f => ({ to: f.to, size: (byPath.get(f.path) || {}).size || 0, sha256: (byPath.get(f.path) || {}).sha256 || '' }));
-    const ctx = { pn: old.pn, rev: old.rev, name: id, label: rec.label, title: rec.title, date: rec.download.date, lines };
-    return { v: 2, pn: old.pn, rev: old.rev, pre, root, files, readme: readme(ctx, root, list), zip: null };
-  }
-  const layoutOf = rec => !rec.layout ? null : rec.layout.v === 2 ? rec.layout : rec.layout.fab ? fromTwoArchives(rec) : null;
-
-  // Rebuild the package download and check every file, and the zip when its hash was recorded.
-  async function assembleLayout(rec, getBlob) {
-    const lay = layoutOf(rec);
-    if (!lay) throw new Error(`${rec.label} has no fab package layout; use As sent`);
-    const byPath = new Map(rec.files.map(f => [f.path, f])), bytes = new Map();
-    for (const f of lay.files) {
-      const meta = byPath.get(f.path);
-      const b = meta && await getBlob(meta.sha256);
-      if (!b) throw new Error(`${f.path} is not in this browser`);
-      if (await Fab.archive.sha256(b) !== meta.sha256) throw new Error(`${f.path} doesn't match its recorded SHA-256`);
-      bytes.set(f.path, b);
-    }
-    const got = await packageZip(lay, p => bytes.get(p), new Date(rec.download.date + 'T12:00:00Z'));
-    if (lay.zip) {
-      const sha = await Fab.archive.sha256(got.bytes);
-      if (sha !== lay.zip.sha256) throw new Error(`the rebuilt ${got.name} (${sha.slice(0, 12)}…) isn't the recorded one (${lay.zip.sha256.slice(0, 12)}…)`);
-    }
-    return got;
+  // The fab package of an open package: form { pn, rev, picks, head }. head is the README's second
+  // line (what the package is: a run sent to Signoff, an export). Files keep their bytes; the zip
+  // is the same for the same files on the same day. Resolves { name, bytes, sha256, root, files },
+  // files listing each original path, its path in the zip, size and SHA-256.
+  async function packageFor(entry, form) {
+    const picked = (entry.files || []).filter(f => form.picks.has(f.path) && !f.stub);
+    if (!picked.length) throw new Error('no files are picked for the fab package');
+    const meta = new Map();
+    for (const f of picked) meta.set(f.path, { bytes: f.bytes, size: f.size, sha256: await Fab.archive.sha256(f.bytes) });
+    const p = plan(entry, form.picks, form.pn, form.rev);
+    const date = new Date();
+    const files = p.files.map(f => ({ path: f.path, to: f.to, size: meta.get(f.path).size, sha256: meta.get(f.path).sha256 }));
+    const ctx = Object.assign(context(entry, { pn: form.pn, rev: form.rev, label: '' }, date.toISOString().slice(0, 10)), { head: form.head || '' });
+    const z = await packageZip({ root: p.root, files: p.files, readme: readme(ctx, p.root, files) }, path => meta.get(path).bytes, date);
+    return { name: z.name, bytes: z.bytes, sha256: await Fab.archive.sha256(z.bytes), root: p.root, files };
   }
 
-  Fab.releases = { STATUS, SET, nextLabel, WARN_MB, MAX_MB, defaults, zip, build, assemble, assembleLayout, layoutOf, changes, changesText, downloadName, suggestPnRev, role, plan };
+  Fab.releases = { SET, WARN_MB, MAX_MB, defaults, zip, changes, changesText, suggestPnRev, role, plan, packageFor };
 })(window.Fab);

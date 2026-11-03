@@ -35,9 +35,8 @@
   const state = {
     pkgs: [], active: null, view: 'overview', filter: { error: true, warn: true, info: false }, cat: null, q: '',
     closed: new Set(), sel: null, showPnp: true, profile: 'standard', thickness: 1.6,
-    repoProbe: new Map(), repoRuns: new Map(), // per Signoff project id: write access, stored runs
-    relRemote: new Map(), // per Signoff project id: its releases, read from its repo
-    baseCache: new Map(), // Revisions baselines read from releases and kept runs, by key
+    repoProbe: new Map(), // per Signoff project id: write access to its repo
+    baseCache: new Map(), // Revisions baselines read from kept runs, by key
   };
   let seq = 0;
   let viewer = null;
@@ -509,13 +508,14 @@
         location.replace(location.pathname + (location.search ? location.search + '&demo' : '?demo') + location.hash);
         return;
       }
-      // The link's repo is the project's home now; where the run was first stored is the fallback.
-      const project = q.project || (known && known.project && known.project.id);
-      const repos = [q.repo, known && known.run.stored && known.run.stored.repo]
-        .filter((r, i, a) => r && a.indexOf(r) === i && Fab.repoRuns && Fab.repoRuns.trusted(r, project));
-      for (const repo of Fab.repoRuns && project ? repos : []) {
-        const got = await Fab.repoRuns.fetchRun(Object.assign({}, q, { repo, project }), (cls, t) => toast(t)).catch(err => { console.warn('Run not readable from ' + repo, err); return null; });
-        if (got) { await openPackage(async () => Fab.store.restoreFiles(got.pkgRec), got.stored.run.package.name, { stored: got.stored, pkgRec: got.pkgRec, link: q }); return; }
+      // Opened from Signoff, which read the run and its fab package with its own token and left them
+      // here: Fabcheck never reads a project's repo (docs/signoff-revisions.md, hand-off).
+      const ho = await Fab.store.takeHandoff(q.run).catch(err => { console.warn('Hand-off not readable', err); return null; });
+      if (ho && ho.run && ho.zip && ho.run.id === q.run) {
+        const name = (ho.run.package && ho.run.package.zip && ho.run.package.zip.name) || 'package.zip';
+        const stored = { run: ho.run, findings: ho.findings, where: 'Signoff EE', sentTo: q.project ? { projectId: q.project } : null };
+        await openPackage(() => Fab.loader.fromBlobs([{ path: name, blob: new Blob([ho.zip]) }]), ho.run.package.name || name, { stored, link: q });
+        return;
       }
       const entry = { id: 'p' + (++seq), label: known ? baseName(known.run.package.name) : 'Run ' + q.run, status: 'needs', pkg: null, findings: [], log: [], t0: performance.now(), progress: 0, need: { runId: q.run, known, link: q } };
       state.pkgs.push(entry);
@@ -699,32 +699,20 @@
 
   // Recent runs kept in this browser (IndexedDB), on the home page.
   async function loadRecent() {
-    let runs = [], rels = [];
-    try { runs = await Fab.store.recentRuns(); rels = await Fab.store.releases(); } catch (e) { return; }
-    const tags = sha => rels.filter(r => r.package.sha256 === sha && r.status !== 'withdrawn').map(r => `<span class="pill" title="${esc(r.title || 'Fab release')}">${esc(r.label)}</span>`).join(' ');
+    let runs = [];
+    try { runs = await Fab.store.recentRuns(); } catch (e) { return; }
     const el = $('#recent');
-    if (!el) return;
-    // Versions first: downloading one is why most visits to the home page happen.
-    const projects = Fab.repoRuns ? Fab.signoff.projects() : [];
-    let rh = '';
-    if (rels.length || projects.length) {
-      rh = `<div class="section-title">Versions <span class="chips"><span class="chip">${plural(rels.length, 'version')} in this browser</span></span></div><div class="card" style="padding:14px 18px">`;
-      if (rels.length) rh += `<div class="table-wrap"><table class="table compact"><thead><tr><th>Release</th><th>Status</th><th>Download</th><th></th></tr></thead><tbody>${rels.map(r => releaseRowHtml(r, rels, { pkg: true })).join('')}</tbody></table></div>`;
-      if (projects.length) rh += `<div class="filters" style="margin:${rels.length ? '12px' : '0'} 0 0"><label class="tb-field" style="font-size:13px">Signoff project <select id="rel-pull-project">${projects.map(p => `<option value="${esc(p.id)}"${p.id === state.relPullProject ? ' selected' : ''}>${esc(p.meta.name)}${p.meta.board ? ' · ' + esc(p.meta.board) : ''}</option>`).join('')}</select></label><button class="btn" data-act="rel-pull">Get its versions</button>${state.relPullNote ? `<span class="muted" style="font-size:12.5px">${esc(state.relPullNote)}</span>` : ''}</div>`;
-      else if (!rels.length) rh = '';
-      if (rh) rh += '</div>';
-    }
-    if (!runs.length) { el.innerHTML = rh; return; }
+    if (!el || !runs.length) return;
     const pill = (n, cls) => n ? `<span class="pill ${cls}">${n}</span>` : '';
-    el.innerHTML = rh + `<div class="section-title">Recent runs <span class="chips"><span class="chip">${plural(runs.length, 'run')} in this browser</span></span></div>
+    el.innerHTML = `<div class="section-title">Recent runs <span class="chips"><span class="chip">${plural(runs.length, 'run')} in this browser</span></span></div>
       <div class="card table-wrap"><table class="table compact"><thead><tr><th>Package</th><th>Run</th><th>Settings</th><th>Findings</th><th>Signoff EE</th><th></th></tr></thead><tbody>` +
       runs.map(r => {
         const run = r.run, c = run.summary || {};
-        return `<tr data-act="open-run" data-id="${run.id}"><td><b style="font-weight:500">${esc(baseName(run.package.name))}</b> ${tags(run.package.sha256)}<div class="muted mono">${run.package.sha256.slice(0, 12)}… · ${(run.package.size / 1048576).toFixed(1)} MB</div></td>` +
+        return `<tr data-act="open-run" data-id="${run.id}"><td><b style="font-weight:500">${esc(baseName(run.package.name))}</b><div class="muted mono">${run.package.sha256.slice(0, 12)}… · ${(run.package.size / 1048576).toFixed(1)} MB</div></td>` +
           `<td>${esc(new Date(run.at).toLocaleString())}<div class="muted">${esc(run.by || '')}${run.stored ? ' · stored in ' + esc(run.stored.repo) : ' · this browser only'}</div></td>` +
           `<td>${esc(runProfileName(run.settings))}<div class="muted">${Fab.fmtLen(run.settings.thickness)}</div></td>` +
           `<td>${pill(c.error, 'error')}${pill(c.warn, 'warn')}${pill(c.info, '')}${r.rerun && r.rerun.differs ? '<div class="muted">re-run differed</div>' : ''}</td>` +
-          `<td>${r.sentTo ? esc(r.sentTo.name || r.sentTo.projectId) + (!run.stored && Fab.repoRuns ? `<div><button class="btn btn-plain" style="padding:0 4px;font-size:12px" data-act="store-run" data-id="${esc(run.id)}">Store in project</button></div>` : '') : '<span class="muted">not sent</span>'}</td>` +
+          `<td>${r.sentTo ? esc(r.sentTo.name || r.sentTo.projectId) : '<span class="muted">not sent</span>'}</td>` +
           `<td><button class="btn btn-plain" data-act="delete-run" data-id="${esc(run.id)}">Delete</button></td></tr>`;
       }).join('') + '</tbody></table></div>';
     if (state.pendingTop != null) { jump($('#main'), state.pendingTop); state.pendingTop = null; }
@@ -987,7 +975,7 @@
     if (!projects.length) {
       if (Fab.DEMO) return h + `<p style="margin:0 0 12px;color:var(--text-2)">No Signoff EE demo projects in this browser yet. Open the <a href="${Fab.demoHref('../ee_design_review/index.html')}" style="color:var(--accent)">Signoff EE demo</a> once (it sets up its sample projects in this browser), then come back.</p></div>`;
       // Fabcheck is a public tool: this is only for people who review boards in Signoff.
-      return h + `<p style="margin:0 0 12px;color:var(--text-2)">For design reviews in Signoff EE: send this run's issues to a board's review, and keep each version of the package with it. ${signedIn ? 'Open <a href="../ee_design_review/index.html" style="color:var(--accent)">Signoff EE</a> once at this same address (it keeps its projects in this browser), then come back.' : 'Sign in with GitHub, then open Signoff EE once at this same address.'}</p>` +
+      return h + `<p style="margin:0 0 12px;color:var(--text-2)">For design reviews in Signoff EE: send this run's issues to a board's review, with the fab package, which Signoff keeps as one of the board's revisions. ${signedIn ? 'Open <a href="../ee_design_review/index.html" style="color:var(--accent)">Signoff EE</a> once at this same address (it keeps its projects in this browser), then come back.' : 'Sign in with GitHub, then open Signoff EE once at this same address.'}</p>` +
         (signedIn ? '' : `<button class="btn" data-act="gh-signin">Sign in with GitHub…</button>`) + '</div>';
     }
     // Guess the board's project from the package name (e.g. PCB-1042-03 → board PCB-1042).
@@ -997,104 +985,50 @@
         projects.find(p => (p.meta.checklists || []).includes('fab')) || projects[0];
       e.signoffSlug = guess.slug;
     }
-    loadReleases();
     const target = projects.find(p => p.slug === e.signoffSlug);
-    // The version this send stores: this package's own version in the project, else the next name.
-    // Filled once the versions are read (from this browser, then the repo), so it isn't a guess.
-    const reading = Fab.repoRuns && Fab.repoRuns.signedIn() && (state.relRemote.get(target.id) || { busy: true }).busy;
-    if (state.releases && !reading && e.verFor !== target.id) { const v = versionFor(e, target.id); e.verLabel = v ? v.label : suggestVersion(e, target.id); e.verFor = target.id; }
-    const ver = versionFor(e, target.id);
     const pv = Fab.signoff.preview(e.signoffSlug, groups);
     const picked = pv.rows.filter(r => !skip.has(r.group.key));
     const major = picked.filter(r => r.severity === 'major').length, fresh = picked.filter(r => r.state !== 'update').length;
     const sevs = [major && `${major} Major from errors`, picked.length - major && `${picked.length - major} Minor from warnings`].filter(Boolean).join(', ');
     const news = [fresh && `${fresh} new`, picked.length - fresh && `${picked.length - fresh} updating ${picked.length - fresh === 1 ? 'an issue' : 'issues'} sent before`].filter(Boolean).join(', ');
     const issues = !groups.length ? 'No errors or warnings to send; earlier Fabcheck issues get a "no longer found" note.' : picked.length ? `Sends ${picked.length < groups.length ? picked.length + ' of ' : ''}${plural(groups.length, 'issue')} to the Fabrication &amp; Release checklist (${sevs}; ${news}).` : `No issues picked; ${plural(groups.length, 'issue')} available.`;
-    h += `<p style="margin:0 0 12px;color:var(--text-2)">${issues} Sending ${Fab.repoRuns ? 'also stores this package as a version of the project, with the files the fab house needs,' : 'also keeps this package as a version of the project'} so it can be compared and downloaded later. Sending again updates the same issues and keeps the reviewer's status. ${Fab.DEMO ? 'In this demo everything stays in this browser.' : "Signoff's Sync then pushes the issues."}</p>
+    h += `<p style="margin:0 0 12px;color:var(--text-2)">${issues} Sending again updates the same issues and keeps the reviewer's status. ${Fab.DEMO ? 'In this demo they go to the Signoff EE demo in this browser.' : "Signoff's Sync then pushes the issues, and its Revisions tab lists the stored run, where it can be tagged and downloaded."}</p>
       <div class="filters" style="margin:0"><label class="tb-field" style="font-size:13px">Project <select data-act="signoff-project">${projects.map(p => `<option value="${esc(p.slug)}"${p.slug === e.signoffSlug ? ' selected' : ''}>${esc(p.meta.name)}${p.meta.board ? ' · ' + esc(p.meta.board) : ''}${(p.meta.checklists || []).includes('fab') ? '' : ' (no Fab checklist)'}</option>`).join('')}</select></label>
-      <label class="tb-field" style="font-size:13px">Version <input data-act="ver-label" value="${esc(e.verLabel || '')}" placeholder="v1.2" size="10" title="${ver ? 'This package is already ' + esc(ver.label) + ' of the project; sending again updates it' : 'A name for this package in the project, like v1.2'}"></label>
-      <button class="btn btn-primary" data-act="signoff-send"${(!groups.length || picked.length) && !e.signoffBusy ? '' : ' disabled'}>${e.signoffBusy ? 'Storing…' : 'Send to Signoff EE'}</button><button class="btn so-toggle${e.signoffOpen ? ' open' : ''}" data-act="signoff-details" aria-expanded="${!!e.signoffOpen}">Details${ICON.chev}</button>` +
-      `<button class="btn btn-plain" data-act="signoff-store" title="Keep this package as a version without sending issues (for an older package being added after a newer one)"${e.signoffBusy ? ' disabled' : ''}>Store version only</button>` +
-      `${e.signoffResult ? `<a class="btn btn-plain" href="${Fab.demoHref('../ee_design_review/index.html')}">Open Signoff EE</a>` : ''}</div>`;
-    if (e.signoffOpen) h += (groups.length ? signoffListHtml(e, pv, skip) : '') + filesPickHtml(e);
+      <button class="btn btn-primary" data-act="signoff-send"${(!groups.length || picked.length) && !e.signoffBusy ? '' : ' disabled'}>${e.signoffBusy ? 'Storing…' : 'Send to Signoff EE'}</button><button class="btn so-toggle${e.signoffOpen ? ' open' : ''}" data-act="signoff-details" aria-expanded="${!!e.signoffOpen}">Details${ICON.chev}</button>${e.signoffResult ? `<a class="btn btn-plain" href="${Fab.demoHref('../ee_design_review/index.html')}">Open Signoff EE</a>` : ''}</div>`;
+    if (e.signoffOpen) h += (groups.length ? signoffListHtml(e, pv, skip) : '') + (Fab.repoRuns ? filesPickHtml(e) : '');
     if (!(target.meta.checklists || []).includes('fab')) h += `<p class="note">This project doesn't use the Fabrication &amp; Release checklist, so the issues won't show until you add it in the project's details in Signoff EE.</p>`;
     h += storageHtml(e, target.id);
-    if (e.signoffBlocked) h += `<div class="note" style="color:var(--warn)">Not sent: the version couldn't be stored (${esc(e.signoffBlocked)}). Without it, Signoff's links need this package dropped in again.
+    if (e.signoffBlocked) h += `<div class="note" style="color:var(--warn)">Not sent: the run couldn't be stored (${esc(e.signoffBlocked)}). Without it, Signoff can't list the run or download its package.
       <div style="margin-top:8px"><button class="btn" data-act="signoff-send">Try again</button> <button class="btn btn-plain" data-act="signoff-send-anyway">Send without storing</button></div></div>`;
     if (e.signoffResult) h += `<p class="note" style="color:var(--pass)">${esc(e.signoffResult)}</p>`;
-    h += versionsHtml(e, target);
     if (Fab.repoRuns && signedIn) h += `<p class="note">Signed in to GitHub in this browser. <button class="btn btn-plain" style="padding:0 4px;font-size:12px" data-act="gh-signout">Sign out</button> (Signoff EE shares the sign-in)</p>`;
     return h + '</div>';
   }
 
-  // This package's version in a project (or kept in this browser before it had one).
-  function versionFor(e, projectId) {
-    const sha = pkgSha(e);
-    return (state.releases || []).find(r => r.package.sha256 === sha && r.status !== 'withdrawn' && r.project === projectId) ||
-      (state.releases || []).find(r => r.package.sha256 === sha && r.status !== 'withdrawn' && !r.project) || null;
-  }
-  const projectVersions = projectId => (state.releases || []).filter(r => r.project === projectId).sort((a, b) => b.at.localeCompare(a.at));
-  function suggestVersion(e, projectId) {
-    const last = projectVersions(projectId).find(r => r.package.sha256 !== pkgSha(e));
-    return last ? Fab.releases.nextLabel(last.label) : 'v1';
-  }
-
-  // What changed since another version: its package parsed again from this browser, and its run.
-  async function changesSince(e, base) {
-    if (!base) return null;
-    try {
-      const open = state.pkgs.find(p => p.pkg && pkgSha(p) === base.package.sha256);
-      let bpkg = open && open.pkg;
-      if (!bpkg) { const rec = await Fab.store.getPackage(base.package.key); if (rec) bpkg = Fab.classify.build(Fab.store.restoreFiles(rec)); }
-      const brun = base.run && await Fab.store.getRun(base.run);
-      return Fab.releases.changes(bpkg ? Fab.revisions.compare(bpkg, e.pkg) : null, brun ? Fab.revisions.findingsDelta(brun.findings, Fab.store.compactFindings(e.findings)) : null, base.id);
-    } catch (err) { log(e, 'warn', `Couldn't compare with ${base.label}: ${err.message || err}`); return null; }
-  }
-
-  // The version record a send stores: this package's existing one (renamed and pointed at the
-  // new run), or a new one with the fab files picked under Details.
-  async function versionRecord(e, projectId) {
-    const label = String(e.verLabel || '').trim();
-    const t = new Date().toISOString();
-    const have = versionFor(e, projectId);
-    if (have) return { rec: Object.assign({}, have, { label, project: projectId, run: e.run ? e.run.id : have.run, summary: e.run ? e.run.summary : have.summary, updatedAt: t, updatedBy: who() }), blobs: [] };
-    if (!e.files || e.files.some(f => f.stub)) throw new Error('this package was reopened from a kept run, so its drawings and other fab files are not here; drop the package in again');
-    const prev = projectVersions(projectId).find(r => r.package.sha256 !== pkgSha(e) && r.status !== 'withdrawn') || null;
-    const vf = verForm(e);
-    const got = await Fab.releases.build(e, { pn: vf.pn, rev: vf.rev, label, title: '', status: 'checked', fab: { house: prev ? prev.fab.house : '', sentAt: '', ref: '' }, notes: '', supersedes: prev ? prev.id : null, picks: vf.picks, changes: await changesSince(e, prev) }, who());
-    got.rec.project = projectId;
-    return got;
-  }
-
-  // Send to Signoff stores the run and this package as a version of the project first, so every
-  // issue carries where the run is and the version can be downloaded later. If it can't be stored,
-  // nothing is sent until the user picks "Send without storing". storeOnly keeps the version
-  // without touching the issues.
-  async function sendToSignoff(e, anyway, storeOnly) {
+  // Send to Signoff stores the run with its fab package in the project's repo first, so every issue
+  // carries where the run is, and Signoff lists it (docs/signoff-revisions.md). If it can't be
+  // stored, nothing is sent until the user picks "Send without storing".
+  async function sendToSignoff(e, anyway) {
     if (e.signoffBusy) return;
     const target = Fab.signoff.projects().find(p => p.slug === e.signoffSlug);
     if (!target) { toast('That Signoff project is no longer in this browser'); return; }
-    if (!String(e.verLabel || '').trim()) { toast('Name this version, like "v1.2"'); const el = document.querySelector('[data-act="ver-label"]'); if (el) el.focus(); return; }
     // Fabcheck is a public tool: GitHub sign-in comes only when someone sends.
-    if (Fab.repoRuns && !anyway && !Fab.repoRuns.signedIn()) { showSignIn(() => sendToSignoff(e, anyway, storeOnly)); return; }
+    if (Fab.repoRuns && !anyway && !Fab.repoRuns.signedIn()) { showSignIn(() => sendToSignoff(e, anyway)); return; }
     e.signoffBlocked = null; e.signoffResult = null;
     state.repoProbe.delete(target.id);
-    if (!storeOnly && !supersededOk(e)) return;
-    let ver;
-    try { ver = await versionRecord(e, target.id); } catch (err) { toast('Could not prepare the version: ' + (err.message || err)); return; }
     if (Fab.repoRuns && e.run && !anyway) {
-      if (!confirmStore(Fab.repoRuns.home(target.id).repo, ver.rec, storeOnly ? 'store this version' : 'store this version and send its issues')) return;
+      if (!e.files || e.files.some(f => f.stub)) { toast('This package was reopened from a kept run, so its drawings and other fab files are not here. Drop the package in again to send it.'); return; }
+      let pkg;
+      try {
+        const f = verForm(e);
+        pkg = await Fab.releases.packageFor(e, { pn: f.pn, rev: f.rev, picks: f.picks, head: `Sent to Signoff EE by Fabcheck (run ${e.run.id})` });
+      } catch (err) { toast('Could not make the fab package: ' + (err.message || err)); return; }
+      if (!confirmStore(Fab.repoRuns.home(target.id).repo, pkg)) return;
       e.signoffBusy = true; renderAll();
-      await Fab.store.saveRelease(ver.rec, ver.blobs);
-      const got = await Fab.repoRuns.storeRelease(ver.rec, target.id, (cls, t) => log(e, cls, t), e);
+      const got = await Fab.repoRuns.store(e, target.id, pkg, (cls, t) => log(e, cls, t));
       e.signoffBusy = false;
-      state.releases = null; state.relRemote.delete(target.id); state.repoRuns.delete(target.id);
       if (!got.ok) { e.signoffBlocked = got.why; renderAll(); return; }
-      ver.rec = got.rec;
-    } else await Fab.store.saveRelease(ver.rec, ver.blobs); // demo, or sent without storing: kept here
-    state.releases = null;
-    log(e, 'ok', `Version ${ver.rec.label} of ${target.meta.name}: ${plural(ver.rec.files.length, 'file')}${ver.rec.stored ? ', stored in ' + ver.rec.stored.repo : ', kept in this browser'}`);
-    if (storeOnly) { toast(`Stored ${ver.rec.label}`); renderAll(); return; }
+    }
     try {
       const run = e.run ? Object.assign({}, e.run) : null;
       // A run stored with another project isn't stored with this one.
@@ -1102,14 +1036,13 @@
         const h = Fab.repoRuns.home(target.id);
         if (run.stored.repo !== h.repo || run.stored.dir !== h.dir) run.stored = null;
       }
-      const rel = ver.rec;
-      const r = Fab.signoff.send(e.signoffSlug, Fab.signoff.plan(e.findings), { label: e.label, sha: run ? run.package.sha256 : null, run, profileName: run ? run.settings.profileName : profileName(e), release: { id: rel.id, label: rel.label, title: rel.title } }, e.signoffSkip);
+      const r = Fab.signoff.send(e.signoffSlug, Fab.signoff.plan(e.findings), { label: e.label, sha: run ? run.package.sha256 : null, run, profileName: run ? run.settings.profileName : profileName(e) }, e.signoffSkip);
       if (run) Fab.rules.remember(run.settings.profile, { projectId: r.projectId });
       e.sentTo = { projectId: r.projectId, name: r.name };
       if (run) await Fab.store.updateRun(run.id, { sentTo: e.sentTo });
-      e.signoffResult = `Sent ${rel.label} to "${r.name}": ${r.created} new, ${r.updated} updated${r.skipped ? `, ${r.skipped} left out` : ''}${r.resolvedNotes ? `, ${r.resolvedNotes} earlier issue(s) noted as no longer found` : ''}. ${Fab.DEMO ? 'Open Signoff EE to see them.' : 'Sync in Signoff EE to push them.'}`;
+      e.signoffResult = `Sent to "${r.name}": ${r.created} new, ${r.updated} updated${r.skipped ? `, ${r.skipped} left out` : ''}${r.resolvedNotes ? `, ${r.resolvedNotes} earlier issue(s) noted as no longer found` : ''}. ${Fab.DEMO ? 'Open Signoff EE to see them.' : 'Sync in Signoff EE to push them; its Revisions tab lists the run.'}`;
       log(e, 'ok', e.signoffResult);
-      if (anyway) log(e, 'warn', 'Sent without storing: Signoff\'s links need this package dropped in again until it is stored (send again, or Store version only).');
+      if (anyway) log(e, 'warn', 'Sent without storing: Signoff can\'t list this run or download its package until it is sent again and stored.');
       toast('Sent to Signoff EE');
     } catch (err) { toast('Could not send: ' + err.message); }
     renderAll();
@@ -1122,7 +1055,7 @@
     const w = document.createElement('div');
     w.className = 'sheet-wrap'; w.id = 'signin';
     w.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="si-title"><div class="sheet-head"><h2 id="si-title">Sign in to GitHub</h2>
-      <p>Signoff keeps each board's review in a private GitHub repository. To store versions there and send issues, Fabcheck needs a GitHub token that can read and write those repositories. It stays in this browser and is sent only to GitHub.</p></div>
+      <p>Signoff keeps each board's review in a private GitHub repository. To store the run and its fab package there and send issues, Fabcheck needs a GitHub token that can write to those repositories. It stays in this browser and is sent only to GitHub.</p></div>
       <div class="sheet-body"><label class="tb-field" style="font-size:13px;display:flex;flex-direction:column;align-items:stretch;gap:4px">Personal access token<input id="si-token" type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_…"></label>
       <p class="note"><a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener" style="color:var(--accent)">Create a token on GitHub</a>: fine-grained, with access to your Signoff repositories and Contents set to read and write. Signoff EE uses the same token.</p>
       <label class="check" style="margin-top:10px"><input type="checkbox" id="si-remember"> Remember it after closing the browser (avoid on shared computers)</label>
@@ -1135,7 +1068,7 @@
       msg.style.color = ''; msg.textContent = 'Checking with GitHub…';
       try {
         const login = await Fab.repoRuns.signIn(input.value, w.querySelector('#si-remember').checked);
-        close(); state.repoProbe.clear(); state.relRemote.clear(); state.repoRuns.clear();
+        close(); state.repoProbe.clear();
         toast(`Signed in to GitHub as ${login}`);
         renderAll();
         if (next) next();
@@ -1150,114 +1083,16 @@
     input.focus();
   }
 
-  // The project's versions (newest first), with the runs stored before versions existed folded in
-  // as unnamed ones. One list for everything Fabcheck keeps with the project.
-  function versionsHtml(e, target) {
-    const pid = target.id, name = target.meta.name;
-    if (Fab.repoRuns && Fab.repoRuns.signedIn()) {
-      if (!state.relRemote.has(pid)) {
-        state.relRemote.set(pid, { busy: true });
-        Fab.repoRuns.pullReleases(pid).then(r => { state.relRemote.set(pid, r); state.releases = null; renderAll(); }, err => { state.relRemote.set(pid, { error: err.message || String(err) }); renderAll(); });
-      }
-      if (!state.repoRuns.has(pid)) {
-        state.repoRuns.set(pid, { busy: true });
-        Fab.repoRuns.listRuns(pid).catch(err => ({ error: err.message || String(err) })).then(r => { state.repoRuns.set(pid, r); renderAll(); });
-      }
-    }
-    const all = state.releases || [];
-    const vers = all.filter(r => r.project === pid || (!r.project && r.package.sha256 === pkgSha(e))).sort((a, b) => b.at.localeCompare(a.at));
-    const shas = new Set(vers.map(r => r.package.sha256));
-    const got = state.repoRuns.get(pid) || {};
-    // The latest stored run of each package that has no version yet.
-    const loose = new Map();
-    for (const run of got.runs || []) if (!shas.has(run.package.sha256) && !loose.has(run.package.sha256)) loose.set(run.package.sha256, run);
-    const remote = state.relRemote.get(pid) || {};
-    let h = `<div class="section-title" style="margin-top:18px">Versions of ${esc(name)}${vers.length + loose.size ? ` <span class="chips"><span class="chip">${vers.length + loose.size}</span></span>` : ''}</div>`;
-    if (remote.busy || got.busy) h += `<p class="note">Reading ${esc(Fab.repoRuns.home(pid).repo)}…</p>`;
-    if (remote.error) h += `<p class="note" style="color:var(--warn)">Couldn't read the project's versions: ${esc(remote.error)}.</p>`;
-    if (!vers.length && !loose.size) return h + (remote.busy || got.busy ? '' : `<p class="note">No versions yet. Sending this package stores it as ${esc(e.verLabel || 'the first version')}.</p>`);
-    const pill = (n, cls) => +n ? `<span class="pill ${cls}">${+n}</span>` : '';
-    const ro = { pkg: true, projectId: pid, projectName: name, sha: pkgSha(e), edit: true };
-    h += `<div class="table-wrap"><table class="table compact"><thead><tr><th>Version</th><th>Status</th><th>Files</th><th></th></tr></thead><tbody>`;
-    for (const r of vers) {
-      h += releaseRowHtml(r, all, ro);
-      if (e.verEdit === r.id) h += versionEditHtml(r);
-    }
-    for (const run of loose.values()) {
-      const c = run.summary || {};
-      const href = '#/board?' + new URLSearchParams({ run: run.id, project: pid, repo: got.repo });
-      const mine = run.package.sha256 === pkgSha(e);
-      h += `<tr><td><b style="font-weight:600">Unnamed</b> <span class="muted">${esc(baseName(String(run.package.name || '')))}</span><div class="muted">${esc(new Date(run.at).toLocaleDateString())}${run.by ? ' · ' + esc(String(run.by)) : ''}</div></td>` +
-        `<td>${pill(c.error, 'error')}${pill(c.warn, 'warn')}${pill(c.info, '')}</td><td class="muted">The run only, from before versions: Fabcheck's files, not the fab package</td>` +
-        `<td>${mine ? '<span class="muted">This package: send it, or Store version only, to name it</span>' : `<a class="btn btn-plain" href="${esc(href)}">Open</a>`}</td></tr>`;
-    }
-    return h + '</tbody></table></div>';
-  }
-
-  // Edit a version's name and what it was used for, in place.
-  function versionEditHtml(r) {
-    const f = (id, label, v, attrs) => `<label class="tb-field" style="font-size:13px;display:flex;flex-direction:column;align-items:stretch;gap:3px">${label}<input id="ve-${id}" value="${esc(v || '')}" ${attrs || ''}></label>`;
-    return `<tr><td colspan="4"><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px">` +
-      f('label', 'Version', r.label) + f('title', 'Title', r.title, 'placeholder="DFM updates"') + f('house', 'Fab house', r.fab.house) + f('sentAt', 'Date sent', r.fab.sentAt, 'type="date"') + f('ref', 'Order or quote ref', r.fab.ref) +
-      `</div><label class="tb-field" style="font-size:13px;display:flex;flex-direction:column;align-items:stretch;gap:3px;margin-top:8px">Notes<textarea id="ve-notes" rows="2" placeholder="What the fab house asked for, what changed">${esc(r.notes || '')}</textarea></label>` +
-      `<div class="filters" style="margin:8px 0 0"><button class="btn btn-primary" data-act="ver-save" data-id="${esc(r.id)}">Save</button><button class="btn btn-plain" data-act="ver-edit" data-id="">Cancel</button></div></td></tr>`;
-  }
-
-  // Which release a zip is: the package a release was tagged from (its upload SHA-256), or one of
-  // the archives a release downloads as. Answers "is the file on my desktop the one we built?".
-  function releasesMatching(sha) {
-    const out = [];
-    if (!sha) return out;
-    for (const r of state.releases || []) {
-      if (r.package.sha256 === sha) out.push({ rec: r, what: 'the package of that version' });
-      if (r.download.sha256 === sha) out.push({ rec: r, what: 'its "As sent" download' });
-      if (r.layout && r.layout.zip && r.layout.zip.sha256 === sha) out.push({ rec: r, what: 'its fab package download' });
-      // Versions from before the one-package layout downloaded as two archives.
-      if (r.layout && r.layout.fab && r.layout.fab.sha256 === sha) out.push({ rec: r, what: 'its Fab zip (earlier layout)' });
-      if (r.layout && r.layout.assy && r.layout.assy.sha256 === sha) out.push({ rec: r, what: 'its Assembly zip (earlier layout)' });
-    }
-    return out;
-  }
-  // A candidate hasn't gone out yet, so its date is just a date.
-  const sentText = rec => rec.fab.sentAt ? (rec.status === 'sent' || rec.status === 'built' ? 'sent ' : 'dated ') + rec.fab.sentAt : '';
-  const matchText = m => `${m.rec.label}${m.rec.title ? ' (' + m.rec.title + ')' : ''}: ${m.what}, ${statusName(m.rec.status).toLowerCase()}${m.rec.fab.sentAt ? ', ' + sentText(m.rec) : ''}`;
-
-  // Sending an older release after a newer one puts back the findings the newer one fixed.
-  function supersededOk(e) {
-    const all = state.releases || [];
-    const mine = all.filter(r => r.package.sha256 === pkgSha(e) && r.status !== 'withdrawn');
-    const later = mine.map(r => supersededBy(r, all)).find(Boolean);
-    if (!later || later.package.sha256 === pkgSha(e)) return true;
-    return confirm(`This package is version ${mine[0].label}, which ${later.label} supersedes. Sending it puts ${mine[0].label}'s findings back on the project's issues, and re-raises the ones ${later.label} fixed.\n\nTo keep ${mine[0].label} with the project without touching the issues, use "Store version only" instead.\n\nOK to send anyway.`);
-  }
-
-  // "Store in project" on a kept run that was sent without being stored.
-  async function storeKeptRun(id) {
-    if (!Fab.repoRuns) return;
-    const kept = await Fab.store.getRun(id);
-    if (!kept || !kept.sentTo) { toast('That run is no longer in this browser'); return; }
-    if (!confirmStore(Fab.repoRuns.home(kept.sentTo.projectId).repo, await Fab.store.getPackage(kept.run.package.key), 'store this run')) return;
-    toast('Storing the run…');
-    const open = state.pkgs.find(x => x.run && x.run.id === id);
-    const got = await Fab.repoRuns.storeKept(id, (cls, t) => { if (open) log(open, cls, t); });
-    if (got.ok) {
-      if (open) open.run = Object.assign({}, open.run, { stored: got.stored });
-      toast(`Stored in ${got.stored.repo}. Sync in Signoff EE so its issues link to it.`);
-    } else toast('Not stored: ' + got.why);
-    renderAll();
-  }
-
   // Nothing leaves the browser without saying where it goes; Cancel keeps it all here.
-  function confirmStore(repo, ver, what) {
-    const mb = (ver.files || []).reduce((n, f) => n + (f.size || 0), 0) / 1048576;
-    return confirm(`Version ${ver.label}: this run, its findings and the package files the fab house and Fabcheck need (${plural((ver.files || []).length, 'file')}, ${mb.toFixed(2)} MB; files already stored are skipped), plus top and bottom pictures of the board, will be stored in the private repository ${repo}, where everyone with access to the project can open and download them.\n\nOK to ${what}. Cancel to keep everything in this browser.`);
+  function confirmStore(repo, pkg) {
+    return confirm(`This run, its findings and the fab package (${pkg.name}: ${plural(pkg.files.length, 'file')}, ${(pkg.bytes.length / 1048576).toFixed(2)} MB), plus top and bottom pictures of the board, will be stored in the private repository ${repo}, where everyone with access to the project can open and download them.\n\nOK to store them and send the issues. Cancel to keep everything in this browser.`);
   }
 
   // Where Send will store the run, or why it can't, from a cached check of the project's repo.
   function storageHtml(e, projectId) {
     if (!Fab.repoRuns) return '';
     if (!e.run) return `<p class="note">This run wasn't kept in this browser, so it can't be stored with the issues.</p>`;
-    if (!Fab.repoRuns.signedIn()) return `<p class="note">Sending stores the version in ${esc(Fab.repoRuns.home(projectId).repo)}, the project's private repository, and asks you to sign in to GitHub first.</p>`;
+    if (!Fab.repoRuns.signedIn()) return `<p class="note">Sending stores the run and its fab package in ${esc(Fab.repoRuns.home(projectId).repo)}, the project's private repository, and asks you to sign in to GitHub first.</p>`;
     const pr = state.repoProbe.get(projectId);
     if (!pr) {
       state.repoProbe.set(projectId, { busy: true });
@@ -1265,9 +1100,8 @@
     }
     if (!pr || pr.busy) return `<p class="note">Checking access to ${esc(Fab.repoRuns.home(projectId).repo)}…</p>`;
     if (!pr.ok) return `<p class="note" style="color:var(--warn)">Can't store the run in ${esc(pr.repo)}: ${esc(pr.text)}.</p>`;
-    const v = versionFor(e, projectId);
-    if (v && v.stored && v.stored.repo === pr.repo && e.run.stored && e.run.stored.repo === pr.repo) return `<p class="note">This run and version ${esc(v.label)} are stored in ${esc(pr.repo)}.</p>`;
-    return `<p class="note">Sending stores this run and the package as a version in ${esc(pr.repo)}, the project's private repository, so Signoff's links open it, and the version downloads, for everyone with access to the project.</p>`;
+    if (e.run.stored && e.run.stored.repo === pr.repo && e.run.package.zip) return `<p class="note">This run and its fab package are stored in ${esc(pr.repo)}.</p>`;
+    return `<p class="note">Sending stores this run and its fab package in ${esc(pr.repo)}, the project's private repository, where Signoff EE lists it and anyone with access to the project can download it.</p>`;
   }
 
   // The issues Send would write, one row each: what Signoff will show, where it goes, whether it's
@@ -1777,66 +1611,14 @@
   }
 
   // ── Revisions ──
-  // ── Fab releases (docs/releases.md) ──
-  // A release names a package that went, or will go, to a fab house. It keeps the release set (what
-  // Fabcheck and the fab and assembly houses need) in this browser and downloads it as the same zip
-  // every time.
+  // ── The fab package (docs/fab-package.md) ──
+  // What the fab and assembly houses need, as one zip with Fabrication/ and Assembly/ folders. Send
+  // stores it with the run (Signoff lists, tags and downloads it); the Files tab exports it for anyone.
   const who = () => { try { return (JSON.parse(localStorage.getItem(Fab.signoffNs + 'settings') || '{}') || {}).user || ''; } catch (err) { return ''; } };
-  function loadReleases() {
-    if (state.releases || state.releasesBusy) return;
-    state.releasesBusy = true;
-    Fab.store.releases().catch(() => []).then(rs => { state.releases = rs; state.releasesBusy = false; renderAll(); });
-  }
   const pkgSha = e => (e.run && e.run.package.sha256) || (e.pkgRec && e.pkgRec.sha256) || null;
-  const statusName = s => (Fab.releases.STATUS.find(x => x[0] === s) || [s, s])[1];
-  // Shown, not stored: a release that a later one supersedes.
-  const supersededBy = (rec, all) => all.find(r => r.supersedes === rec.id && r.status !== 'withdrawn') || null;
-  function statusPill(rec, all) {
-    // What it was used for stays visible; a later version superseding it is said beside it.
-    const by = supersededBy(rec, all);
-    return `<span class="pill ${rec.status === 'built' ? 'ok' : rec.status === 'withdrawn' ? 'error' : rec.status === 'sent' ? 'warn' : ''}">${esc(statusName(rec.status).toLowerCase())}</span>` +
-      (by && rec.status !== 'withdrawn' ? `<div class="muted" style="font-size:12px">superseded by ${esc(by.label)}</div>` : '');
-  }
-  function releaseRowHtml(rec, all, opts) {
-    const fab = [rec.fab.house, sentText(rec), rec.fab.ref && 'ref ' + rec.fab.ref].filter(Boolean).map(esc).join(' · ');
-    const ch = Fab.releases.changesText(rec.changes);
-    const base = rec.supersedes && all.find(r => r.id === rec.supersedes);
-    const here = opts && opts.sha && rec.package.sha256 === opts.sha;
-    return `<tr${here ? ' style="background:var(--accent-soft)"' : ''}><td><b style="font-weight:600">${esc(rec.label)}</b>${rec.title ? ' · ' + esc(rec.title) : ''}${here && !(opts && opts.compare) ? ' <span class="pill">this package</span>' : ''}<div class="muted">${opts && opts.pkg ? esc(baseName(rec.package.name)) + ' · ' : ''}${fab || esc(new Date(rec.at).toLocaleDateString())}</div>` +
-      (ch ? `<div class="muted">${base ? 'Since ' + esc(base.label) + ': ' : ''}${esc(ch)}</div>` : '') + (rec.notes ? `<div class="muted">${esc(rec.notes)}</div>` : '') +
-      (opts && opts.edit ? `<button class="btn btn-plain" style="padding:0 4px;font-size:12px" data-act="ver-edit" data-id="${esc(rec.id)}">Edit</button>` : '') + `</td>` +
-      `<td>${statusPill(rec, all)}<div style="margin-top:4px"><select data-act="rel-status" data-id="${esc(rec.id)}" aria-label="Status of ${esc(rec.label)}" style="font-size:12px">${Fab.releases.STATUS.filter(([k]) => k !== 'candidate' || rec.status === 'candidate').map(([k, n]) => `<option value="${k}"${k === rec.status ? ' selected' : ''}>${n}</option>`).join('')}</select></div></td>` +
-      `<td>${rec.files.length} files${releaseHashes(rec)}</td>` +
-      `<td>${opts && opts.compare ? (rec.package.sha256 === opts.sha ? '<div class="muted" style="margin-bottom:4px">This package</div>' : opts.baseline === 'l:' + rec.id ? '<div class="muted" style="margin-bottom:4px">Baseline below</div>' : `<button class="btn btn-plain" data-act="rev-base" data-key="l:${esc(rec.id)}">Compare</button> `) : ''}` +
-      // One download, the fab package (Fabrication and Assembly folders); "As sent" is the package's own layout.
-      (rec.layout ? `<button class="btn" data-act="rel-download" data-id="${esc(rec.id)}" data-which="pkg" title="${esc((rec.layout.root || rec.layout.pre.replace(/_$/, '') + '_manufacturing') + '.zip')}: Fabrication and Assembly folders">Download</button> <button class="btn btn-plain" data-act="rel-download" data-id="${esc(rec.id)}" data-which="sent" title="${esc(rec.download.name)}: the package's own folders and names">As sent</button>`
-        : `<button class="btn" data-act="rel-download" data-id="${esc(rec.id)}" data-which="sent">Download</button>`) +
-      `<div class="muted" style="font-size:12px;margin-top:3px">${rec.stored ? 'Stored in ' + esc(rec.stored.repo) : Fab.repoRuns && opts && opts.projectId ? `This browser only · <button class="btn btn-plain" style="padding:0 4px;font-size:12px" data-act="rel-store" data-id="${esc(rec.id)}" data-project="${esc(opts.projectId)}">Store with ${esc(opts.projectName || 'the project')}</button>` : 'This browser only'}</div></td></tr>`;
-  }
 
-  // The Signoff project a release here would be stored with: the one picked in the Send panel.
-  function relProject(e) {
-    if (!Fab.repoRuns) return null;
-    const ps = Fab.signoff.projects();
-    const p = ps.find(x => x.slug === e.signoffSlug) || (e.sentTo && ps.find(x => x.id === e.sentTo.projectId));
-    return p ? { id: p.id, name: p.meta.name } : null;
-  }
-
-  // "Store with <project>" on a version kept only in this browser (the demo, or sent without storing).
-  async function storeRelease(id, projectId) {
-    const rec = await Fab.store.getRelease(id);
-    if (!rec || !Fab.repoRuns) return;
-    if (!Fab.repoRuns.signedIn()) { showSignIn(() => storeRelease(id, projectId)); return; }
-    if (!confirmStore(Fab.repoRuns.home(projectId).repo, rec, 'store it, without sending issues')) return;
-    const e = active();
-    toast(`Storing ${rec.label}…`);
-    const got = await Fab.repoRuns.storeRelease(rec, projectId, (cls, t) => { if (e) log(e, cls, t); });
-    toast(got.ok ? `Stored ${rec.label} in ${got.stored.repo}` : 'Not stored: ' + got.why);
-    state.releases = null; state.relRemote.delete(projectId); renderAll();
-  }
-
-  // What a new version keeps, set under Send's Details: part number and revision (they start every
-  // file name in the fab and assembly archives) and the files, ticked as Fab.releases.SET says.
+  // What goes in the package, set under Send's Details: part number and revision (they start every
+  // file name) and the files, ticked as Fab.releases.SET says.
   function verForm(e) {
     if (!e.verForm) {
       const d = Fab.releases.defaults(e.files || []);
@@ -1852,11 +1634,9 @@
     const byPath = new Map((e.files || []).map(x => [x.path, x]));
     const picked = [...f.picks].filter(p => byPath.has(p) && d.get(p).avail);
     const mb = picked.reduce((n, p) => n + byPath.get(p).size, 0) / 1048576;
-    const have = (state.releases || []).some(r => r.package.sha256 === pkgSha(e) && r.status !== 'withdrawn');
     const field = (k, label, attrs) => `<label class="tb-field" style="font-size:13px;display:flex;flex-direction:column;align-items:stretch;gap:3px">${label}<input data-rel="${k}" value="${esc(f[k] || '')}" ${attrs || ''}></label>`;
-    let h = `<div style="margin-top:16px;font-weight:600">Files kept with the version</div>`;
-    if (have) return h + `<p class="note">This package is already a version; its files were picked when it was first stored.</p>`;
-    h += `<p class="note" style="margin-top:2px">What the fab and assembly houses need, not everything the CAD tool wrote. They download later as one fab package, with Fabrication and Assembly folders and files named by part number and revision.</p>` +
+    let h = `<div style="margin-top:16px;font-weight:600">The fab package</div>` +
+      `<p class="note" style="margin-top:2px">What the fab and assembly houses need, not everything the CAD tool wrote: one zip with Fabrication and Assembly folders, files named by part number and revision. Sending stores it with the run, and Signoff EE lists and downloads it.</p>` +
       `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-top:8px">` +
       field('pn', 'Part number', 'placeholder="PCB-1042"') + field('rev', 'Revision', 'placeholder="B"') + `</div>`;
     // Grouped as a fab house reads a package.
@@ -1876,87 +1656,30 @@
     }
     h += `</tbody></table></div><p class="note">${plural(picked.length, 'file')}, ${mb.toFixed(2)} MB before compression.</p>`;
     const stubs = (e.files || []).filter(x => x.stub).length;
-    if (stubs) h += `<p class="note" style="color:var(--warn)">${plural(stubs, 'file')} of this package aren't kept in this browser (it was reopened from a kept run). Drop the package in again to keep them with a version.</p>`;
+    if (stubs) h += `<p class="note" style="color:var(--warn)">${plural(stubs, 'file')} of this package aren't kept in this browser (it was reopened from a kept run). Drop the package in again to include them.</p>`;
     return h;
   }
 
-  // Save a version's edits: to the project's repo first when it's stored there, taking the repo's
-  // copy instead if someone changed it since this browser read it.
-  async function saveVersion(rec) {
-    rec.updatedAt = new Date().toISOString(); rec.updatedBy = who();
-    if (rec.stored && Fab.repoRuns) {
-      if (!Fab.repoRuns.signedIn()) { showSignIn(() => saveVersion(rec)); return; }
-      const got = await Fab.repoRuns.saveReleaseEdit(rec);
-      if (got.conflict) { await Fab.store.saveRelease(got.conflict); toast(`${rec.label} was changed in ${rec.stored.repo}${got.conflict.updatedBy ? ' by ' + got.conflict.updatedBy : ''}; showing that version. Change it again if needed.`); }
-      else if (!got.ok) toast('Not saved: ' + got.why);
-    } else await Fab.store.saveRelease(rec);
-    state.releases = null; renderAll();
-  }
-
-  async function saveVersionEdit(id) {
-    const rec = await Fab.store.getRelease(id);
-    if (!rec) return;
-    const v = k => { const el = document.getElementById('ve-' + k); return el ? el.value.trim() : ''; };
-    if (!v('label')) { toast('A version needs a name'); return; }
-    rec.label = v('label'); rec.title = v('title'); rec.notes = v('notes');
-    rec.fab = Object.assign({}, rec.fab, { house: v('house'), sentAt: v('sentAt'), ref: v('ref') });
-    const e = active(); if (e) e.verEdit = null;
-    await saveVersion(rec);
+  // Save a zip the browser made (the Files tab export).
+  function saveZip(name, bytes) {
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/zip' }));
+    const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
   }
 
   // Export the open package as the fab package, made here and saved, nothing stored.
   async function exportPackage(e) {
     try {
       const f = verForm(e);
-      const got = await Fab.releases.build(e, { pn: f.pn, rev: f.rev, label: '', picks: f.picks }, who());
-      const blobs = new Map(got.blobs.map(b => [b.sha256, b.bytes]));
-      const z = await Fab.releases.assembleLayout(got.rec, sha => blobs.get(sha));
-      const url = URL.createObjectURL(new Blob([z.bytes], { type: 'application/zip' }));
-      const a = document.createElement('a'); a.href = url; a.download = z.name; document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
+      const z = await Fab.releases.packageFor(e, { pn: f.pn, rev: f.rev, picks: f.picks });
+      saveZip(z.name, z.bytes);
       toast(`Saved ${z.name}`);
     } catch (err) { toast('Not exported: ' + (err.message || err)); }
   }
 
-  // The download's SHA-256 and size, with a copy button: the hash to quote in a PO or an email.
-  // A version from before the one-package layout has no recorded package hash; its As-sent one shows.
-  function releaseHashes(rec) {
-    const row = (what, d) => `<div class="muted mono" style="font-size:12px" title="SHA-256 of ${esc(d.name)}">${what}${esc(d.sha256.slice(0, 12))}… · ${(d.size / 1048576).toFixed(2)} MB <button class="btn btn-plain" style="padding:0 3px;font-size:11.5px" data-act="copy" data-text="${esc(d.sha256)}">copy</button></div>`;
-    const L = rec.layout;
-    return L && L.zip ? row('', L.zip) : row(L ? 'As sent ' : '', rec.download);
-  }
-
-  async function downloadRelease(id, which) {
-    const rec = await Fab.store.getRelease(id);
-    if (!rec) { toast('That release is no longer in this browser'); return; }
-    try {
-      // A release stored with a project may have been tagged in another browser: read its files first.
-      if (rec.stored && Fab.repoRuns) {
-        let missing = 0;
-        for (const f of rec.files) if (!(await Fab.store.getBlob(f.sha256))) missing++;
-        if (missing) { toast(`Reading ${plural(missing, 'file')} of ${rec.label} from ${rec.stored.repo}…`); await Fab.repoRuns.fetchReleaseFiles(rec); }
-      }
-      const got = which === 'pkg' ? await Fab.releases.assembleLayout(rec, Fab.store.getBlob) : await Fab.releases.assemble(rec, Fab.store.getBlob);
-      const url = URL.createObjectURL(new Blob([got.bytes], { type: 'application/zip' }));
-      const a = document.createElement('a'); a.href = url; a.download = got.name; document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
-      toast(`Downloaded ${got.name} (SHA-256 checked)`);
-    } catch (err) { toast('Not downloaded: ' + (err.message || err)); }
-  }
-
-  async function setReleaseStatus(id, status) {
-    const rec = await Fab.store.getRelease(id);
-    if (!rec || rec.status === status) return;
-    if (status === 'withdrawn' && !confirm(`Withdraw ${rec.label}? It stays in the list, marked withdrawn, and can be restored by picking another status.`)) { renderAll(); return; }
-    rec.status = status;
-    // Marked as sent today unless a date was given; Edit changes it.
-    if (status === 'sent' && !rec.fab.sentAt) rec.fab = Object.assign({}, rec.fab, { sentAt: new Date().toISOString().slice(0, 10) });
-    await saveVersion(rec);
-  }
-
-  // ── Revisions: the board's release history, and a compare against any baseline ──
-  // Baselines are keyed p:<open package>, l:<release> or r:<kept run>. Releases and kept runs are
-  // parsed again from this browser (or the release's files from the project's repo) without re-running.
+  // ── Revisions: what changed against a baseline ──
+  // Baselines are keyed p:<open package> or r:<kept run>. A kept run is parsed again from this
+  // browser without re-running. Tagging runs as a board's revisions is Signoff EE's (docs/signoff-revisions.md).
   function loadKeptRuns() {
     if (state.keptRuns || state.keptRunsBusy) return;
     state.keptRunsBusy = true;
@@ -1966,65 +1689,24 @@
   function baselineOptions(e) {
     const sha = pkgSha(e), opts = [];
     for (const p of state.pkgs) if (p.id !== e.id && p.pkg && pkgSha(p) !== sha) opts.push({ key: 'p:' + p.id, label: p.label, group: 'Open packages' });
-    for (const r of state.releases || []) if (r.package.sha256 !== sha && r.status !== 'withdrawn') opts.push({ key: 'l:' + r.id, label: r.label + (r.title ? ' · ' + r.title : '') + ' (' + baseName(r.package.name) + ')', group: 'Fab releases', at: r.at, rec: r });
-    const seen = new Set((state.releases || []).map(r => r.run));
-    for (const k of state.keptRuns || []) if (k.run.package.sha256 !== sha && !seen.has(k.run.id)) opts.push({ key: 'r:' + k.run.id, label: baseName(k.run.package.name) + ' · ' + new Date(k.run.at).toLocaleDateString(), group: 'Runs in this browser' });
+    for (const k of state.keptRuns || []) if (k.run.package.sha256 !== sha) opts.push({ key: 'r:' + k.run.id, label: baseName(k.run.package.name) + ' · ' + new Date(k.run.at).toLocaleDateString(), group: 'Runs in this browser', at: k.run.at });
     return opts;
   }
 
-  // The baseline a reviewer most likely wants: what this package's release supersedes, else the
-  // project's latest other release, else the package opened before this one.
+  // The baseline a reviewer most likely wants: the package opened before this one, else the latest
+  // other run kept in this browser.
   function defaultBaseline(e, opts) {
-    const all = state.releases || [];
-    const mine = all.find(r => r.package.sha256 === pkgSha(e) && r.status !== 'withdrawn' && r.supersedes);
-    const has = k => opts.some(o => o.key === k);
-    if (mine && has('l:' + mine.supersedes)) return 'l:' + mine.supersedes;
-    const proj = relProject(e);
-    const rel = opts.filter(o => o.rec && (!proj || o.rec.project === proj.id)).sort((a, b) => b.at.localeCompare(a.at))[0];
-    if (rel) return rel.key;
     const open = opts.filter(o => o.key[0] === 'p');
-    return (open.length ? open[open.length - 1] : opts[0] || {}).key || null;
+    if (open.length) return open[open.length - 1].key;
+    const kept = opts.filter(o => o.key[0] === 'r').sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    return kept.length ? kept[0].key : null;
   }
 
   async function loadBaseline(key) {
-    const kind = key[0], id = key.slice(2);
-    let files = null, findings = null, label = '';
-    if (kind === 'l') {
-      const rec = await Fab.store.getRelease(id);
-      if (!rec) throw new Error('that release is no longer in this browser');
-      label = rec.label;
-      const run = rec.run && await Fab.store.getRun(rec.run);
-      if (run) findings = run.findings;
-      const pk = await Fab.store.getPackage(rec.package.key);
-      if (pk) files = Fab.store.restoreFiles(pk);
-      else {
-        // Tagged elsewhere: the release's own files are enough to compare.
-        if (rec.stored && Fab.repoRuns) await Fab.repoRuns.fetchReleaseFiles(rec);
-        files = [];
-        for (const f of rec.files) { const b = await Fab.store.getBlob(f.sha256); if (b) files.push(Fab.loader.makeFile(f.path, b)); }
-        files.source = null;
-        if (!files.length) throw new Error(`${rec.label}'s files are not in this browser`);
-      }
-    } else {
-      const k = await Fab.store.getRun(id);
-      const pk = k && await Fab.store.getPackage(k.run.package.key);
-      if (!pk) throw new Error('that run is no longer in this browser');
-      files = Fab.store.restoreFiles(pk); findings = k.findings; label = baseName(k.run.package.name);
-    }
-    return { pkg: Fab.classify.build(files), findings, label };
-  }
-
-  // The versions of this board's project (or all, with no project), newest first.
-  function releaseHistoryHtml(e) {
-    const all = state.releases || [];
-    const proj = relProject(e);
-    const list = proj ? all.filter(r => r.project === proj.id || !r.project) : all;
-    const sha = pkgSha(e);
-    let h = `<div class="section-title">Versions${proj ? ` <span class="chips"><span class="chip">${esc(proj.name)}</span></span>` : ''}</div>`;
-    const pull = proj && Fab.repoRuns ? ` <button class="btn btn-plain" style="padding:0 4px;font-size:12.5px" data-act="rev-pull" data-project="${esc(proj.id)}">${state.revPulling ? 'Reading…' : 'Get ' + esc(proj.name) + '\'s versions'}</button>` : '';
-    if (!list.length) return h + `<div class="card" style="padding:14px 18px;color:var(--text-2)">No versions yet. Sending a package to Signoff EE (on the Overview) keeps it as a version of the project.${pull}</div>`;
-    const ro = { pkg: true, projectId: proj && proj.id, projectName: proj && proj.name, compare: true, sha, baseline: e.baseline };
-    return h + `<div class="card table-wrap"><table class="table compact"><thead><tr><th>Release</th><th>Status</th><th>Download</th><th></th></tr></thead><tbody>${list.map(r => releaseRowHtml(r, all, ro)).join('')}</tbody></table>${pull ? `<p class="note" style="margin:8px 14px 10px">${pull}</p>` : ''}</div>`;
+    const k = await Fab.store.getRun(key.slice(2));
+    const pk = k && await Fab.store.getPackage(k.run.package.key);
+    if (!pk) throw new Error('that run is no longer in this browser');
+    return { pkg: Fab.classify.build(Fab.store.restoreFiles(pk)), findings: k.findings, label: baseName(k.run.package.name) };
   }
 
   // One line on what changed, then the changed layers: the check before re-sending a fix.
@@ -2054,11 +1736,10 @@
   }
 
   function revisionsHtml(e) {
-    loadReleases(); loadKeptRuns();
+    loadKeptRuns();
     const opts = baselineOptions(e);
-    let h = `<div class="page wide">` + pageHead(e, 'Revisions', e.label, 'The board\'s versions, and what changed against a baseline: Gerber geometry, drill, BOM, placements and findings.');
-    h += releaseHistoryHtml(e);
-    if (!opts.length) return h + `<div class="card" style="padding:28px;text-align:center"><div class="empty-art">${ICON.upload}</div><h2 style="font:600 19px var(--display);margin:12px 0 6px">Open a baseline to compare against</h2><p style="color:var(--text-2);margin:0 auto 18px;max-width:52ch">Open the previous release package, or just the BOM that was used last time. It joins the package list, and this page shows the differences. Tagged releases and runs kept in this browser are offered here too.</p><button class="btn btn-primary" data-act="open">Open baseline…</button></div></div>`;
+    let h = `<div class="page wide">` + pageHead(e, 'Revisions', e.label, 'What changed against a baseline: Gerber geometry, drill, BOM, placements and findings. Tagging runs as the board\'s revisions is in Signoff EE.');
+    if (!opts.length) return h + `<div class="card" style="padding:28px;text-align:center"><div class="empty-art">${ICON.upload}</div><h2 style="font:600 19px var(--display);margin:12px 0 6px">Open a baseline to compare against</h2><p style="color:var(--text-2);margin:0 auto 18px;max-width:52ch">Open the previous release package, or just the BOM that was used last time. It joins the package list, and this page shows the differences. Runs kept in this browser are offered here too.</p><button class="btn btn-primary" data-act="open">Open baseline…</button></div></div>`;
     if (!e.baseline || !opts.some(o => o.key === e.baseline)) e.baseline = defaultBaseline(e, opts);
     const groups = [...new Set(opts.map(o => o.group))];
     h += `<div class="section-title">Compare</div><div class="filters"><label class="tb-field" style="font-size:13px">Baseline <select data-act="baseline">${groups.map(g => `<optgroup label="${esc(g)}">${opts.filter(o => o.group === g).map(o => `<option value="${esc(o.key)}"${o.key === e.baseline ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</optgroup>`).join('')}</select></label><button class="btn" data-act="open">Open another…</button></div>`;
@@ -2109,14 +1790,15 @@
     return h + '</div>';
   }
 
-  // "Which release is this?" for the open package, by its SHA-256.
-  function releaseMatchHtml(e) {
-    loadReleases();
-    const ms = releasesMatching((e.archive && e.archive.fingerprint && e.archive.fingerprint.sha256) || pkgSha(e));
-    const known = (state.releases || []).length;
-    return `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--hair)"><b style="font-weight:600">Version</b> ` +
-      (ms.length ? ms.map(m => `<div>${esc(matchText(m))}</div>`).join('')
-        : `<span class="muted">Not a version Fabcheck knows: no match among ${plural(known, 'version')} in this browser${Fab.repoRuns ? ' (Get a project\'s versions from the home page to check against those too)' : ''}.</span>`) + '</div>';
+  // "Have I checked this package before?": runs kept in this browser with the same SHA-256. Which
+  // revision a package is lives in Signoff EE.
+  function checkedBeforeHtml(e) {
+    loadKeptRuns();
+    const sha = (e.archive && e.archive.fingerprint && e.archive.fingerprint.sha256) || pkgSha(e);
+    const ms = (state.keptRuns || []).filter(k => k.run.package.sha256 === sha && (!e.run || k.run.id !== e.run.id));
+    return `<div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--hair)"><b style="font-weight:600">Checked before</b> ` +
+      (ms.length ? ms.map(k => `<div>${esc(new Date(k.run.at).toLocaleString())}${k.sentTo ? ', sent to ' + esc(k.sentTo.name || k.sentTo.projectId) : ''}</div>`).join('')
+        : '<span class="muted">No other run of this package is kept in this browser.</span>') + '</div>';
   }
 
   // ── Archive ──
@@ -2127,7 +1809,7 @@
     if (!a) return h + `<div class="card" style="padding:18px;color:var(--text-3)">Hashing and unpacking nested archives…</div></div>`;
     h += `<div class="section-title">Fingerprint</div><div class="card" style="padding:16px 18px">` + (a.fingerprint
       ? `<dl class="kv" style="margin:0"><dt>Archive</dt><dd>${esc(a.fingerprint.name)}</dd><dt>Size</dt><dd>${a.fingerprint.size.toLocaleString()} bytes</dd><dt>SHA-256</dt><dd class="hash">${a.fingerprint.sha256} <button class="btn btn-plain" data-act="copy" data-text="${a.fingerprint.sha256}">Copy</button></dd></dl>`
-      : '<span class="muted">Opened as loose files, so there is no single archive to fingerprint.</span>') + releaseMatchHtml(e) + '</div>';
+      : '<span class="muted">Opened as loose files, so there is no single archive to fingerprint.</span>') + checkedBeforeHtml(e) + '</div>';
     h += `<div class="section-title">Nested archives</div>`;
     if (!a.archives.length) h += `<div class="card" style="padding:16px 18px;color:var(--text-3)">No nested archives in this package.</div>`;
     else {
@@ -2195,13 +1877,6 @@
       case 'part': { const p = state.asmRows[+t.dataset.i].part; focusFinding({ id: 'part-' + p.des, at: { x: p.gx, y: p.gy }, side: p.side }); break; }
       case 'rev-at': focusFinding({ id: 'rev', at: { x: +t.dataset.x, y: +t.dataset.y } }); break;
       case 'rev-find': focusFinding({ id: 'rev', at: { x: +t.dataset.x, y: +t.dataset.y }, layer: t.dataset.layer || undefined }); break;
-      case 'rev-base': e.baseline = t.dataset.key; e.revCache = null; renderAll(); break;
-      case 'rev-pull':
-        if (!Fab.repoRuns || state.revPulling) break;
-        state.revPulling = true; renderAll();
-        Fab.repoRuns.pullReleases(t.dataset.project).then(r => toast(`${plural(r.releases.length, 'version')} in ${r.repo}`), err => toast(`Couldn't read: ${err.message || err}`))
-          .then(() => { state.revPulling = false; state.releases = null; renderAll(); });
-        break;
       case 'rev-layer': { const g = e.revCache.res.gerber[+t.dataset.i]; focusFinding({ id: 'rev', bbox: g.bbox, layer: g.layerRef.file.name }); break; }
       case 'stage-open': {
         // With a step picked on the stage: its first error with a place (else its first warning),
@@ -2228,25 +1903,11 @@
       case 'copy-log': copyText(e.log.map(l => `${(l.t / 1000).toFixed(2).padStart(7)}s  ${l.text}`).join('\n')); break;
       case 'copy': copyText(t.dataset.text); break;
       case 'signoff-send': case 'signoff-send-anyway': sendToSignoff(e, t.dataset.act === 'signoff-send-anyway'); break;
-      case 'signoff-store': sendToSignoff(e, false, true); break;
-      case 'store-run': storeKeptRun(t.dataset.id); break;
-      case 'rel-download': downloadRelease(t.dataset.id, t.dataset.which); break;
-      case 'rel-store': storeRelease(t.dataset.id, t.dataset.project); break;
-      case 'ver-edit': e.verEdit = t.dataset.id || null; renderAll(); break;
-      case 'ver-save': saveVersionEdit(t.dataset.id); break;
       case 'export': exportPackage(e); break;
       case 'gh-signin': showSignIn(); break;
       case 'gh-signout':
-        if (confirm('Sign out of GitHub in this browser? Signoff EE shares the sign-in, so it signs out too.')) { Fab.repoRuns.signOut(); state.repoProbe.clear(); state.relRemote.clear(); state.repoRuns.clear(); renderAll(); }
+        if (confirm('Sign out of GitHub in this browser? Signoff EE shares the sign-in, so it signs out too.')) { Fab.repoRuns.signOut(); state.repoProbe.clear(); renderAll(); }
         break;
-      case 'rel-pull': {
-        const sel = $('#rel-pull-project');
-        if (!sel || !Fab.repoRuns) break;
-        state.relPullProject = sel.value; state.relPullNote = 'Reading…'; renderAll();
-        Fab.repoRuns.pullReleases(sel.value).then(r => { state.relPullNote = `${plural(r.releases.length, 'version')} in ${r.repo}`; }, err => { state.relPullNote = `Couldn't read: ${err.message || err}`; })
-          .then(() => { state.releases = null; renderAll(); });
-        break;
-      }
       case 'signoff-details': e.signoffOpen = !e.signoffOpen; renderAll(); break;
       case 'back-signoff': {
         const pid = (e.sentTo && e.sentTo.projectId) || (e.link && e.link.project) || (e.need && e.need.link && e.need.link.project);
@@ -2341,7 +2002,7 @@
     window.addEventListener('storage', showPeople);
     // A token or project home set in Signoff EE meanwhile: check where runs can be stored again.
     window.addEventListener('storage', ev => {
-      if (ev.key === 'signoff.token' || ev.key === Fab.signoffNs + 'settings' || ev.key === Fab.signoffNs + 'homes' || ev.key === Fab.signoffNs + 'roster') { state.repoProbe.clear(); state.repoRuns.clear(); renderAll(); }
+      if (ev.key === 'signoff.token' || ev.key === Fab.signoffNs + 'settings' || ev.key === Fab.signoffNs + 'homes' || ev.key === Fab.signoffNs + 'roster') { state.repoProbe.clear(); renderAll(); }
     });
     document.addEventListener('click', onClick);
     document.addEventListener('toggle', ev => {
@@ -2371,13 +2032,7 @@
         if (e && e.pinned) e.pinned.thickness = state.thickness;
         if (e && e.status === 'ready') runChecks(e, `Board thickness set to ${Fab.fmtLen(state.thickness)}`);
       }
-      if (ev.target.matches('[data-act="signoff-project"]')) {
-        // Picking a project reads its versions afresh.
-        e.signoffSlug = ev.target.value; e.signoffResult = null;
-        const p = Fab.signoff.projects().find(x => x.slug === e.signoffSlug);
-        if (p) { state.relRemote.delete(p.id); state.repoRuns.delete(p.id); }
-        renderAll();
-      }
+      if (ev.target.matches('[data-act="signoff-project"]')) { e.signoffSlug = ev.target.value; e.signoffResult = null; renderAll(); }
       if (ev.target.matches('[data-act="signoff-pick"], [data-act="signoff-all"]')) {
         if (ev.target.dataset.act === 'signoff-all') e.signoffSkip = new Set(ev.target.checked ? [] : Fab.signoff.plan(e.findings).map(g => g.key));
         else e.signoffSkip[ev.target.checked ? 'delete' : 'add'](ev.target.dataset.key);
@@ -2387,10 +2042,7 @@
         const el = document.getElementById(id); if (el) el.focus({ preventScroll: true });
       }
       if (ev.target.matches('[data-act="baseline"]')) { e.baseline = ev.target.value; e.revCache = null; renderAll(); }
-      if (ev.target.matches('[data-act="rel-status"]')) setReleaseStatus(ev.target.dataset.id, ev.target.value);
-      if (ev.target.id === 'rel-pull-project') state.relPullProject = ev.target.value;
       if (ev.target.matches('[data-rel]') && e) verForm(e)[ev.target.dataset.rel] = ev.target.value;
-      if (ev.target.matches('[data-act="ver-label"]') && e) e.verLabel = ev.target.value;
       if (ev.target.matches('[data-act="rel-pick"]') && e) {
         verForm(e).picks[ev.target.checked ? 'add' : 'delete'](ev.target.dataset.path);
         const id = ev.target.id;
@@ -2400,9 +2052,8 @@
       if (ev.target.matches('[data-layer]')) { viewer.layers[+ev.target.dataset.layer].visible = ev.target.checked; viewer.draw(); }
     });
     document.addEventListener('input', ev => {
-      // Send's version name and file picks keep what is typed, so a re-render (a log line) doesn't lose it.
+      // Send's part number and revision keep what is typed, so a re-render (a log line) doesn't lose it.
       if (ev.target.matches('[data-rel]')) { const e = active(); if (e) verForm(e)[ev.target.dataset.rel] = ev.target.value; return; }
-      if (ev.target.matches('[data-act="ver-label"]')) { const e = active(); if (e) e.verLabel = ev.target.value; return; }
       if (ev.target.id === 'f-search' || ev.target.id === 'rail-search') {
         state.q = ev.target.value;
         dropHiddenSel(active());
@@ -2460,6 +2111,8 @@
       catch (err) { toast('Could not import: ' + err.message); }
     });
     syncProfiles();
+    // Runs Signoff handed over but nobody opened.
+    Fab.store.purgeHandoff().catch(() => {});
     window.addEventListener('hashchange', route);
     window.addEventListener('popstate', route);
     route();

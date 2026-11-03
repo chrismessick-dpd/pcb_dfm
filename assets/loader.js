@@ -109,5 +109,5 @@
     return fromBlobs([{ path: name, blob }]);
   }
 
-  Fab.loader = { captureDrop, fromDrop, fromDataTransfer, fromFileList, fromUrl, makeFile };
+  Fab.loader = { captureDrop, fromDrop, fromDataTransfer, fromFileList, fromUrl, fromBlobs, makeFile };
 })(window.Fab);

@@ -106,7 +106,8 @@ detail drawings, progress bar and transitions; finding preview; board fly-to; wa
 and the `security` branch (trusted deep-link repos, `cleanFinding`, SRI, SheetJS 0.20.3, CSP).
 Findings identical to `961ae01` on the demo (all three profiles) and both Generator packages.
 
-Store-first Send (2026-11-01, pushed to `main` as `3a132d9`): Send to Signoff confirms (names the private repo
+Store-first Send (2026-11-01, pushed to `main` as `3a132d9`; on `release-tags` the stored-runs list,
+"Store in project" and every repo read are gone, see below): Send to Signoff confirms (names the private repo
 and size; Cancel keeps everything in the browser), stores the run, then writes the issues with
 `stored` set; if storing fails nothing is sent unless "Send without storing". The Send panel shows
 the target repo or why it can't store (`repoRuns.readiness`/`probe`), and lists the runs stored with
@@ -117,54 +118,35 @@ over backfilling.
 
 Board previews (2026-11-01): storing a run also writes `preview/top.webp`, `bottom.webp` and
 `index.json` beside the runs (`boardPreviews` in `app.js`, drawn off screen with the viewer's `bare`
-flag: realistic look, transparent, no scale bar; written in `repo.js` `upload`). Signoff PL shows
-them on its tiles. Contract: EE's `docs/fabcheck-link.md`, *Board previews*. "Store in project" for a
-kept run has no parsed board, so it leaves the previews alone.
+flag: realistic look, transparent, no scale bar; written in `repo.js` `store`). Signoff PL shows
+them on its tiles. Contract: EE's `docs/fabcheck-link.md`, *Board previews*.
 
-Fab releases (2026-11-03, branch `release-tags`, not merged or pushed):
-- **The plan** is in `docs/releases.md`, and the fab house research in `docs/fab-package.md`.
-- **Phase R1 is built:**
-  - the release set (`assets/releases.js` `SET` and `defaults`), with ODB++ off by default;
-  - IndexedDB v2, which adds the `releases` and `blobs` stores;
-  - the Overview's Fab release section, with the tag form;
-  - the deterministic download;
-  - the findings delta (`revisions.findingsDelta`).
-- **Revisions now compares apertures by shape** (`apKey`). Altium's D-code macro names made about
-  200 unchanged pads look changed.
-- **Phase R2 is built:** `repo.js` `storeRelease`, `saveReleaseEdit`, `pullReleases`,
-  `fetchReleaseFiles` and `cleanRelease`, plus the home page's Fab releases list and the
-  superseded-send warning (`supersededOk`). It was tested with `tests/fake-github.js`; a real
-  token hasn't been tried.
-- **Phase R3 is built:** Revisions lists the releases and compares against open packages,
-  releases or kept runs (`baselineOptions`, `loadBaseline`, `scopeHtml`, `findingsDeltaHtml`).
-- **Phase R5 is built:**
-  - A version downloads as one fab package, `<PN>-<REV>_manufacturing.zip`, with Fabrication/
-    (Gerber, NC Drill, Netlist) and Assembly/ (BOM, Pick Place) folders, files named by function
-    (`releases.js` `role`, `plan`) and a README listing every file's SHA-256 (Chris's choice
-    over two flat archives).
-  - `rec.layout` (v 2) holds each file's path in the zip, the README and the zip's hash.
-    Two-archive v1 records are converted on download (`fromTwoArchives`). "As sent" is still
-    offered.
-  - New info-only Package check `structure`: two image formats, drill data in two formats, a
-    drill file mixing plated and non-plated holes, and local paths in file headers.
-  - The demo boards' errors and warnings are unchanged. Info rose by one on each (EE's demo run
-    record still says info 36 for the main board).
-- **Phase R4 is built:**
-  - `source.release` on Fabcheck issues, and comments that name the release (`signoff.js`);
-  - "Which release is this?" on the Archive tab and the Overview (`releasesMatching`), by
-    upload, As-sent, Fab or Assembly SHA-256.
-- **Versions (after Chris tried it):** releases and Send are one path.
-  - Send creates or updates the package's **version** (Version field, `versionRecord`,
-    `storeRelease` with the open package).
-  - Versions start as Checked and are marked Sent to fab, Used for builds or Withdrawn later.
-  - One "Versions of \<project>" list under Send replaces stored runs and the tag form; old runs
-    show as Unnamed.
-  - Send asks for GitHub sign-in (`showSignIn`, `repo.js` `signIn`, shared with Signoff EE).
-  - The Files tab exports the fab package for anyone.
-  - See `docs/releases.md`, *Versions: one path*.
-- **Contract changes for EE and PL** are proposed in `docs/releases.md`, not made.
-- **Next:** merge to `main` when Chris says so. First, a live Send on a real project with a real
-  token. The doc's open questions are for Chris.
+Branch `release-tags` (2026-11-03, pushed, not merged): fab packages and the move of revisions to
+Signoff. Read `docs/signoff-revisions.md` first; `docs/releases.md` is the history (superseded).
+- **Send stores one commit:** the run record (with `package.zip`: path, SHA-256, size, root, and
+  each file's original path and path in the zip), the fab package zip and the board pictures
+  (`repo.js` `store`).
+- **Fabcheck only writes** to project repos. Signoff reads runs and packages back, and hands a
+  run to Fabcheck in the browser (IndexedDB `dovetail-handoff`; `store.js` `takeHandoff`, used by
+  `openRunLink`). Team fab profiles (`syncProfiles`) are the one read left.
+- **Send asks for GitHub sign-in** on first use (`showSignIn`, `repo.js` `signIn`; same token keys
+  as Signoff EE).
+- **The fab package** (`releases.js` `packageFor`, `role`, `plan`) is one zip,
+  `<PN>-<REV>_manufacturing/` with `Fabrication/` (Gerber, NC Drill, Netlist, FAB drawing) and
+  `Assembly/` (BOM, Pick Place, ASSY drawing). Files are named by function, and a README lists
+  each file's SHA-256. This was Chris's choice over flat archives.
+  - What goes in: `SET` and `defaults`, picked under Send's Details. ODB++ and Gerber drill files
+    are off by default.
+  - The Files tab exports the same package for anyone.
+- **Revisions** compares against open packages and kept runs, with a change scope and the findings
+  delta (`revisions.findingsDelta`). Apertures compare by shape (`apKey`), because Altium's D-code
+  macro names made about 200 unchanged pads look changed.
+- **New info-only Package check `structure`:** two image formats, drill data in two formats, a
+  drill file mixing plating, local paths in headers. The demo boards' errors and warnings are
+  unchanged; info rose by one each, and EE's demo run record still says info 36.
+- **Next:** Signoff's Revisions tab, in `ee_design_review` on its own branch (by that repo's
+  session), per `docs/signoff-revisions.md`. Then a live Send with a real token. Merge only when
+  Chris says so.
 
 Open:
 - Not built yet: acid traps (needs a trace graph), text-height check, microvia/HDI profile, revision

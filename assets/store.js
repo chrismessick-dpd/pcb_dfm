@@ -15,7 +15,8 @@
         const d = r.result;
         if (!d.objectStoreNames.contains('runs')) d.createObjectStore('runs', { keyPath: 'id' });
         if (!d.objectStoreNames.contains('packages')) d.createObjectStore('packages', { keyPath: 'key' });
-        // v2: fab releases, and their files by sha256 (shared by releases that hold the same file).
+        // v2 had fab releases here; they moved to Signoff (docs/signoff-revisions.md). The stores
+        // stay so version 2 databases open as they are.
         if (!d.objectStoreNames.contains('releases')) d.createObjectStore('releases', { keyPath: 'id' });
         if (!d.objectStoreNames.contains('blobs')) d.createObjectStore('blobs', { keyPath: 'sha256' });
       };
@@ -149,26 +150,48 @@
     return null;
   }
 
+  // ---- hand-off from Signoff (docs/signoff-revisions.md) ----
+  // Fabcheck never reads a project's repo. Signoff reads a stored run and its package zip with its
+  // own token and leaves them in IndexedDB "dovetail-handoff" (store "runs", keyed by run id:
+  // { id, run, findings, zip, at }); Fabcheck takes the entry when it opens the run's link.
+  const HANDOFF = Fab.DEMO ? 'dovetail-handoff-demo' : 'dovetail-handoff';
+  function handoffDb() {
+    return new Promise((res, rej) => {
+      const r = indexedDB.open(HANDOFF, 1);
+      r.onupgradeneeded = () => { if (!r.result.objectStoreNames.contains('runs')) r.result.createObjectStore('runs', { keyPath: 'id' }); };
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    });
+  }
+  function handoffTx(d, mode, fn) {
+    return new Promise((res, rej) => { const t = d.transaction('runs', mode); const q = fn(t.objectStore('runs')); t.oncomplete = () => res(q && q.result); t.onerror = () => rej(t.error); });
+  }
+  // The entry for a run, removed as it's read; null when Signoff left none.
+  async function takeHandoff(id) {
+    const d = await handoffDb();
+    try {
+      const got = await handoffTx(d, 'readonly', s => s.get(id));
+      if (got) await handoffTx(d, 'readwrite', s => s.delete(id));
+      return got || null;
+    } finally { d.close(); }
+  }
+  // Entries older than a day: a link that was never opened.
+  async function purgeHandoff() {
+    const d = await handoffDb();
+    try {
+      const old = (await handoffTx(d, 'readonly', s => s.getAll())).filter(x => !(Date.parse(x.at) > Date.now() - 864e5));
+      for (const x of old) await handoffTx(d, 'readwrite', s => s.delete(x.id));
+    } finally { d.close(); }
+  }
+
   // Drop this database (the demo's Reset). Closes the open connection first so the delete isn't blocked.
   async function clearAll() {
     if (dbp) { try { (await dbp).close(); } catch (e) { /* never opened */ } dbp = null; }
     await new Promise(res => { const r = indexedDB.deleteDatabase(DB); r.onsuccess = r.onerror = r.onblocked = () => res(); });
   }
 
-  // ---- fab releases (docs/releases.md) ----
-  async function saveRelease(rec, blobs) {
-    for (const b of blobs || []) if (!(await get('blobs', b.sha256))) await put('blobs', b);
-    await put('releases', rec);
-    return rec;
-  }
-  async function releases() {
-    const rs = await all('releases');
-    return rs.sort((a, b) => b.at.localeCompare(a.at));
-  }
-  async function getBlob(sha) { const b = await get('blobs', sha); return b ? b.bytes : null; }
-
   Fab.store = {
-    saveRelease, releases, getBlob, getRelease: id => get('releases', id),
+    takeHandoff, purgeHandoff,
     clearAll, keep, manifest, packageRecord, restoreFiles, compactFindings, runRecord, saveRun, updateRun, recentRuns, deleteRun, runFromSignoff,
     getRun: id => get('runs', id), getPackage: key => get('packages', key), putRun: v => put('runs', v), putPackage: v => put('packages', v),
   };
