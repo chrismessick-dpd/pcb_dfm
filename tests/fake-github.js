@@ -1,6 +1,7 @@
 // In-memory fake of the GitHub git-data API that GitHubStore uses, for testing run storage without a
 // token. Load it in the page, then: const gh = FakeGitHub(); Fab.repoRuns.setFetch(gh.fetch);
-// gh.stats counts uploaded blob bytes; gh.deny = true makes writes fail with 403.
+// gh.stats counts uploaded blob bytes; gh.deny = true makes writes fail with 403; gh.badToken = true
+// makes the sign-in check (GET /user) fail with 401.
 (function () {
   'use strict';
   async function sha1Hex(bytes) {
@@ -29,6 +30,8 @@
       const u = new URL(url), m = (opts && opts.method) || 'GET', body = opts && opts.body ? JSON.parse(opts.body) : null;
       const p = u.pathname.replace(/^\/repos\/[^/]+\/[^/]+/, '');
       if (gh.deny && m !== 'GET') return fail(403, 'Resource not accessible by personal access token');
+      // Sign-in checks the token by asking who it belongs to.
+      if (m === 'GET' && u.pathname === '/user') return gh.badToken ? fail(401, 'Bad credentials') : ok({ login: 'tester' });
       if (m === 'GET' && p === '') return ok({ permissions: { pull: true, push: !gh.deny } });
       let r;
       if (m === 'GET' && (r = /^\/git\/ref\/heads\/(.+)$/.exec(p))) return ok({ object: { sha: head } });

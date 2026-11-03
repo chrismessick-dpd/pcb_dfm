@@ -105,9 +105,9 @@
     const picked = groups.filter(g => !(skip && skip.has(g.key)));
     let created = 0, updated = 0, resolvedNotes = 0;
     const comment = (item, text) => { const id = uid('c'); p.comments[id] = stamp({ id, item, author: who, at: t, text }, who); };
-    // A tagged package is named by its release in comments: "rev B-2 (DFM updates)", not a file name.
+    // A package stored as a version is named by it in comments: "version 3.2 (DFM updates)", not a file name.
     const rel = source.release && source.release.label ? source.release : null;
-    const on = rel ? `release ${rel.label}${rel.title ? ' (' + rel.title + ')' : ''}` : source.label;
+    const on = rel ? `version ${rel.label}${rel.title ? ' (' + rel.title + ')' : ''}` : source.label;
     for (const g of picked) {
       const id = stableId(p.id, g.check, g.severity);
       const first = g.list[0];

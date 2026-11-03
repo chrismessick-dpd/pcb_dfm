@@ -150,9 +150,18 @@ Fab releases (2026-11-03, branch `release-tags`, not merged or pushed):
   - `source.release` on Fabcheck issues, and comments that name the release (`signoff.js`);
   - "Which release is this?" on the Archive tab and the Overview (`releasesMatching`), by
     upload, As-sent, Fab or Assembly SHA-256.
+- **Versions (after Chris tried it):** releases and Send are one path.
+  - Send creates or updates the package's **version** (Version field, `versionRecord`,
+    `storeRelease` with the open package).
+  - Versions start as Checked and are marked Sent to fab, Used for builds or Withdrawn later.
+  - One "Versions of \<project>" list under Send replaces stored runs and the tag form; old runs
+    show as Unnamed.
+  - Send asks for GitHub sign-in (`showSignIn`, `repo.js` `signIn`, shared with Signoff EE).
+  - The Files tab exports the Fab and Assembly zips for anyone.
+  - See `docs/releases.md`, *Versions: one path*.
 - **Contract changes for EE and PL** are proposed in `docs/releases.md`, not made.
-- **Next:** merge to `main` when Chris says so. First, a live "Store with" on a real project with a
-  real token. The doc's open questions are for Chris.
+- **Next:** merge to `main` when Chris says so. First, a live Send on a real project with a real
+  token. The doc's open questions are for Chris.
 
 Open:
 - Not built yet: acid traps (needs a trace graph), text-height check, microvia/HDI profile, revision

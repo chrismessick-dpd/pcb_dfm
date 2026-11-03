@@ -12,6 +12,58 @@ Status (2026-11-03, branch `release-tags`):
 
 What fab houses ask for, with sources, is in `docs/fab-package.md`.
 
+## Versions: one path, not two (2026-11-03, after Chris tried R1–R5)
+
+Chris stored a real release, and the Send panel showed two stored runs next to it. That read as
+two kinds of stored file that could diverge. So "release" and "Send" are now one thing, a
+**version** of the package in a Signoff project. The record format is unchanged.
+
+- **Send creates or updates the version.** The Send panel has a **Version** field, filled with
+  this package's version if it has one, else the next name after the project's latest
+  (`nextLabel`: v1.1 → v1.2, 3.1 → 3.2, rev B → rev C). Sending stores the run and the version
+  (record and fab files) in one commit (`repo.js` `storeRelease` with the open package, so the
+  board pictures go too), then writes the issues.
+  - Re-sending the same package updates its version: the new run and an optional rename.
+  - **Store version only** does the same without the issues, which is how an older package is
+    back-filled.
+- **Details** under Send covers both the issues to send and, for a new version, the part
+  number, revision and files to keep (`filesPickHtml`).
+- **A new version starts as Checked.** It can be marked later, from the same menu, as **Sent
+  to fab** (today's date unless one is given), **Used for builds** or **Withdrawn**. **Edit**
+  changes the name, title, fab house, date sent, reference and notes. "Superseded by" shows
+  beside the status instead of replacing it.
+- **One list, "Versions of \<project>".** It replaces both "Runs stored with this project" and
+  the separate Fab release section and tag form. Each row:
+  - Fab zip, Assembly zip and As sent downloads;
+  - the archives' SHA-256;
+  - the change summary.
+
+  Runs stored before versions existed show as **Unnamed** rows, with Open. Sending that package
+  again, or Store version only, names it. Nothing already in a repo is rewritten.
+- **Fabcheck stays a public tool.** Send sits at the bottom of the Overview.
+  - Without Signoff projects in the browser, it explains what it's for and offers **Sign in with
+    GitHub**.
+  - Clicking Send without a token opens a sign-in sheet (`showSignIn`; `repo.js` `signIn` checks
+    the token with GitHub's `/user`). The token is stored the way Signoff EE stores it, in this
+    tab or remembered, so one sign-in covers both tools.
+  - **Sign out** under Send signs out of both.
+- **Anyone can export** the open package as the Fab and Assembly zips from the Files tab, made in
+  the browser and not stored.
+- **Wording:** issue comments name the version ("Raised by Fabcheck from version 3.1"), and the
+  home page, Revisions and Archive say "version".
+- **Verified** with `tests/fake-github.js` (which now answers `/user`) on the real pair:
+  - sign-in refuses a bad token, then continues into the send;
+  - 3.1 is stored in one commit with its run, 22 files and the pictures;
+  - 3.2 is suggested next, supersedes 3.1 and carries the change summary;
+  - the sliver issue gets "no longer found";
+  - marking 3.1 Sent to fab and editing 3.2 are written to the repo;
+  - re-sending 3.2 updates it without a new version;
+  - a pre-version run lists as Unnamed;
+  - the Files tab export saves `…_FAB.zip`.
+
+  Demo mode keeps versions locally with no sign-in, and the public view without projects shows
+  the sign-in offer.
+
 ## Why
 
 A board's fab package rarely goes out once. A typical history:

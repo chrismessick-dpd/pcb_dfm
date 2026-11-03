@@ -14,6 +14,25 @@
   const token = () => { try { return sessionStorage.getItem('signoff.token') || localStorage.getItem('signoff.token') || ''; } catch (e) { return ''; } };
   let fetchImpl = null; // tests inject a fake GitHub here
 
+  // Sign in the way Signoff EE does (its setToken): one key, in this tab only or remembered, so a
+  // token set in either tool works in both. Resolves the GitHub login, or throws.
+  const cleanToken = t => String(t || '').replace(/[\s​-‍⁠﻿]/g, '');
+  async function signIn(t, remember) {
+    t = cleanToken(t);
+    if (!t) throw new Error('paste a token first');
+    const me = await new window.Signoff.GitHubAccount(t, fetchImpl || undefined).user();
+    try {
+      sessionStorage.removeItem('signoff.token'); localStorage.removeItem('signoff.token');
+      (remember ? localStorage : sessionStorage).setItem('signoff.token', t);
+    } catch (e) { /* storage blocked */ }
+    probes.clear();
+    return me && me.login;
+  }
+  function signOut() {
+    try { sessionStorage.removeItem('signoff.token'); localStorage.removeItem('signoff.token'); } catch (e) { /* storage blocked */ }
+    probes.clear();
+  }
+
   // The project's home repo and the directory for its runs, as Signoff EE decides it.
   function home(projectId) {
     const s = load('settings', {}) || {};
@@ -40,7 +59,7 @@
   function readiness(projectId) {
     const h = home(projectId);
     if (!window.Signoff || !window.Signoff.GitHubStore) return { ok: false, repo: h.repo, text: 'the GitHub engine did not load' };
-    if (!token()) return { ok: false, repo: h.repo, text: 'there is no GitHub token in this tab. Signoff EE keeps its token in its own tab unless "Remember the token" is ticked in its Settings: tick it there, or open Fabcheck from Signoff EE' };
+    if (!token()) return { ok: false, repo: h.repo, signIn: true, text: 'you are not signed in to GitHub in this tab. Send asks you to sign in' };
     if (!(window.crypto && crypto.subtle)) return { ok: false, repo: h.repo, text: 'storing needs a secure page (http://localhost or https), not a file opened from disk' };
     return { ok: true, repo: h.repo };
   }
@@ -166,7 +185,7 @@
       package: { key: r.package.key, sha256: r.package.sha256, name: str(r.package.name) || 'package', size: num(r.package.size) },
       changes, summary: s, layout, project: undefined, stored: undefined,
       title: str(r.title), notes: str(r.notes), by: str(r.by), updatedBy: str(r.updatedBy), at: str(r.at), updatedAt: str(r.updatedAt) || str(r.at),
-      status: ['candidate', 'sent', 'built', 'withdrawn'].includes(r.status) ? r.status : 'sent',
+      status: ['checked', 'candidate', 'sent', 'built', 'withdrawn'].includes(r.status) ? r.status : 'checked',
       fab: { house: str((r.fab || {}).house), sentAt: str((r.fab || {}).sentAt), ref: str((r.fab || {}).ref) },
       supersedes: /^l[a-z0-9]+$/.test(r.supersedes || '') ? r.supersedes : null,
       run: /^r[a-z0-9]+$/.test(r.run || '') ? r.run : null,
@@ -190,7 +209,8 @@
   // Store a release with the project: its files, its record, and its run (with the run's slimmed
   // package) when this browser still has it. The board pictures stay as they are: this may be an
   // older release being back-filled. Never throws.
-  async function storeRelease(rec, projectId, log) {
+  // entry: the open package when Send stores it, so its run goes up with the board pictures.
+  async function storeRelease(rec, projectId, log, entry) {
     const ready = readiness(projectId);
     if (!ready.ok) return { ok: false, why: ready.text };
     const h = home(projectId);
@@ -200,6 +220,8 @@
     const extra = [];
     for (const f of rec.files) {
       const b = await Fab.store.getBlob(f.sha256);
+      // A version read from this repo may not have its files here: they're in the repo already.
+      if (!b && rec.stored && rec.stored.repo === h.repo) continue;
       if (!b) return { ok: false, why: `${f.path} is not in this browser` };
       extra.push({ path: pdir + f.path, bytes: b });
     }
@@ -207,7 +229,8 @@
     const message = `Fabcheck: store release ${rec.label} (${rec.package.name})`;
     const kept = rec.run && await Fab.store.getRun(rec.run);
     const pkgRec = kept && await Fab.store.getPackage(kept.run.package.key);
-    const got = kept && pkgRec ? await upload({ run: kept.run, pkgRec, findings: [] }, projectId, log, { extra, previews: false, message })
+    const got = entry && entry.run && entry.pkgRec ? await upload(entry, projectId, log, { extra, message })
+      : kept && pkgRec ? await upload({ run: kept.run, pkgRec, findings: [] }, projectId, log, { extra, previews: false, message })
       : await write(h, extra, message, log);
     if (!got.ok) return got;
     const local = Object.assign(out, { syncedAt: out.updatedAt });
@@ -409,5 +432,5 @@
     return (load('settings', {}) || {}).tokenTag === M.tokenTag(t) && load('dataAccess', '') === 'ok';
   }
 
-  Fab.repoRuns = Fab.DEMO ? null : { home, trusted, readiness, probe, upload, storeKept, storeRelease, saveReleaseEdit, pullReleases, fetchReleaseFiles, cleanRelease, listRuns, fetchRun, markStored, dataRepo, syncProfiles, isFte, setFetch: f => { fetchImpl = f; } };
+  Fab.repoRuns = Fab.DEMO ? null : { signIn, signOut, signedIn: () => !!token(), home, trusted, readiness, probe, upload, storeKept, storeRelease, saveReleaseEdit, pullReleases, fetchReleaseFiles, cleanRelease, listRuns, fetchRun, markStored, dataRepo, syncProfiles, isFte, setFetch: f => { fetchImpl = f; } };
 })(window.Fab);

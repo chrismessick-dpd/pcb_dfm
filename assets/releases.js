@@ -4,7 +4,19 @@
 (function (Fab) {
   'use strict';
 
-  const STATUS = [['candidate', 'Candidate'], ['sent', 'Sent to fab'], ['built', 'Built'], ['withdrawn', 'Withdrawn']];
+  // A version starts as Checked when Send stores it; marking it later says what it was used for.
+  // Candidate is from before versions and only shows on a record that has it.
+  const STATUS = [['checked', 'Checked'], ['sent', 'Sent to fab'], ['built', 'Used for builds'], ['withdrawn', 'Withdrawn'], ['candidate', 'Candidate']];
+
+  // The next version name after the last one: v1.1 → v1.2, 3.1 → 3.2, rev B-1 → rev B-2, rev B → rev C.
+  function nextLabel(prev) {
+    const s = String(prev || '').trim();
+    if (!s) return 'v1';
+    const n = /^(.*?)(\d+)(\D*)$/.exec(s);
+    if (n) return n[1] + String(+n[2] + 1).padStart(n[2].length, '0') + n[3];
+    const l = /^(.*?)([A-Y])$/.exec(s);
+    return l ? l[1] + String.fromCharCode(l[2].charCodeAt(0) + 1) : s + '-2';
+  }
   const WARN_MB = 25, MAX_MB = 90; // GitHub's blob API refuses 100 MB; the browser base64s each blob in memory
 
   // The release set, by classifier type: [in by default, group, why]. Per-file overrides come from
@@ -84,7 +96,7 @@
     const zips = await layoutZips(lay, path => byPath.get(path).bytes, sent);
     for (const which of Object.keys(zips)) lay[which] = { name: zips[which].name, sha256: await Fab.archive.sha256(zips[which].bytes), size: zips[which].bytes.length };
     const rec = {
-      v: 1, id: newId(), label: form.label.trim(), title: (form.title || '').trim(), status: form.status || 'sent',
+      v: 1, id: newId(), label: form.label.trim(), title: (form.title || '').trim(), status: form.status || 'checked',
       package: run.package || { key: entry.pkgRec && entry.pkgRec.key, sha256: entry.pkgRec && entry.pkgRec.sha256, name: entry.label, size: 0 },
       run: run.id || null,
       summary: run.summary || null,
@@ -295,5 +307,5 @@
     return out;
   }
 
-  Fab.releases = { STATUS, SET, WARN_MB, MAX_MB, defaults, zip, build, assemble, assembleLayout, changes, changesText, downloadName, suggestPnRev, role, plan };
+  Fab.releases = { STATUS, SET, nextLabel, WARN_MB, MAX_MB, defaults, zip, build, assemble, assembleLayout, changes, changesText, downloadName, suggestPnRev, role, plan };
 })(window.Fab);
