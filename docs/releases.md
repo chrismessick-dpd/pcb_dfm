@@ -4,7 +4,9 @@ Status (2026-11-03, branch `release-tags`):
 - **Phase R1 (local releases) is built.** It was verified on the demo board and on a real pair
   of packages, before and after a fab DFM fix.
 - **Phase R2 (stored releases) is built.** It was verified with `tests/fake-github.js`.
-- **R3 to R5 are planned.**
+- **Phase R3 (Revisions as release history) is built.** It was verified on the real pair and in
+  demo mode.
+- **R4 and R5 are planned.**
 
 What fab houses ask for, with sources, is in `docs/fab-package.md`.
 
@@ -322,7 +324,7 @@ Fabcheck's sessions don't edit these repos. Each change goes to that repo's own 
 | --- | --- | --- |
 | **R1: Local releases** | The release set (defaults and per-file overrides); the `releases` IndexedDB store (VER 2); the tag dialog; deterministic download from this browser; Recent runs shows tags; the findings delta in the summary. **Done.** | Demo: tag, download twice, same sha256. Real pair: the defaults drop the duplicate ODB++ copies, the empty files and the reports. "Since rev 1": 6 layers changed, all at the swapped part except the plane fix; the sliver error fixed; one new spacing warning. Runs and their slimmed packages are unchanged |
 | **R2: Stored releases** | `releases/<id>.json` and release files in the repo; edit with the `updatedAt` check; store without send (**Store with** on a release row); the project's releases on the Overview and the home page (**Get its releases**); download from the repo with per-file sha256 checks; a warning on sending a superseded release. **Done.** | `tests/fake-github.js`, run through the UI: storing writes one commit with the release, its run and 19 files, and no board pictures. A status edit is written. An edit after someone else's newer one keeps theirs and says so. A browser with nothing local reads the record, then 17 files on download, and the zip's sha256 matches. A record with `..` in a path or a bad id is ignored. Sending the superseded rev B-1 asks first, and Cancel sends nothing |
-| **R3: Revisions history** | The history list, stored and tagged baselines, the change scope and the findings delta | `make_demo_boards.py` writes one more zip, the rev B-1 candidate: the main board with a sliver neck planted in the L3 plane. The committed main board stays byte-identical as rev B-2, so EE's and PL's demos don't change. Compared, only L3 differs and the sliver is fixed |
+| **R3: Revisions history** | The history list, stored and tagged baselines, the change scope and the findings delta. **Done.** Baselines are open packages, releases and runs kept in this browser (`p:`, `l:` and `r:` keys). A release's baseline is parsed from its kept package, or from the release's own files when it was tagged elsewhere, read from the repo if needed. The default baseline is what this package's release supersedes | The real pair: rev 2's default baseline is rev 1. The scope reads "6 layers changed (GBL, GP3, GTL, GTO, GTP, GTS); 1 BOM line changed; 1 placement changed; drill same; 1 finding fixed, 1 new finding", the same with the baseline built from the release's files alone. A fixed or new finding jumps to the board. **Not done:** the demo's rev B-1 candidate zip with a planted sliver (`make_demo_boards.py`), so the demo can tell this story |
 | **R5: Ideal package** | Flat fab and assembly archives with function-based names and a generated readme; part number and revision on the release; the new package checks | The demo boards and the real pair: both archives open in a Gerber viewer with every layer identified, and each file's SHA-256 in the readme matches |
 | **R4: Signoff link** | `source.release` and the release name in comments; the "Which release is this?" lookup on the Archive tab; the contract proposals handed to EE's and PL's sessions | Send rev B-1, then rev B-2: the sliver issue gets one "no longer found" comment that names rev B-2 |
 

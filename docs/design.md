@@ -481,7 +481,9 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
     the mask opens over copper, silkscreen clipped at the openings, and the holes. Same painter as the
     checks. A finding on an inner layer switches back to the layer view.
 - **Assembly / BOM / Files.** Tables, including ODB++ placement status.
-- **Revisions.** Compare against a baseline package (or a lone BOM): BOM designators
+- **Revisions.** The board's fab releases (`docs/releases.md`), then a compare against a baseline: an
+  open package, a release or a run kept in this browser. A one-line change scope and the findings
+  fixed and new come first, then BOM designators
   added/removed/changed (grouped by identical change), placements moved/rotated/re-footprinted,
   Gerber geometry per layer (primitive signatures rounded to 1 µm, so re-ordered files compare equal),
   and drill hits. The plan for tagged, stored and downloadable fab releases is in `docs/releases.md`.

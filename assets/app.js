@@ -37,6 +37,7 @@
     closed: new Set(), sel: null, showPnp: true, profile: 'standard', thickness: 1.6,
     repoProbe: new Map(), repoRuns: new Map(), // per Signoff project id: write access, stored runs
     relRemote: new Map(), // per Signoff project id: its releases, read from its repo
+    baseCache: new Map(), // Revisions baselines read from releases and kept runs, by key
   };
   let seq = 0;
   let viewer = null;
@@ -195,7 +196,7 @@
     state.pkgs.push(entry);
     const prev = active();
     state.active = entry.id;
-    if (prev && prev.status === 'ready' && !entry.baseline) entry.baseline = prev.id;
+    if (prev && prev.status === 'ready' && !entry.baseline) entry.baseline = 'p:' + prev.id;
     go('overview');
     log(entry, 'step', `Opening ${label}`);
     await tick();
@@ -392,6 +393,7 @@
         entry.expect = null;
       }
       await Fab.store.saveRun(run, entry.findings, pkgRec, extra);
+      state.keptRuns = null; // Revisions offers kept runs as baselines
       entry.run = run;
       const kept = pkgRec.files.reduce((n, f) => n + f.bytes.length, 0);
       const left = pkgRec.manifest.files.filter(f => !f.stored).length;
@@ -1652,7 +1654,7 @@
       (ch ? `<div class="muted">${base ? 'Since ' + esc(base.label) + ': ' : ''}${esc(ch)}</div>` : '') + (rec.notes ? `<div class="muted">${esc(rec.notes)}</div>` : '') + `</td>` +
       `<td>${statusPill(rec, all)}<div style="margin-top:4px"><select data-act="rel-status" data-id="${esc(rec.id)}" aria-label="Status of ${esc(rec.label)}" style="font-size:12px">${Fab.releases.STATUS.map(([k, n]) => `<option value="${k}"${k === rec.status ? ' selected' : ''}>${n}</option>`).join('')}</select></div></td>` +
       `<td>${rec.files.length} files<div class="muted mono" title="SHA-256 of the download">${esc(rec.download.sha256.slice(0, 12))}… · ${(rec.download.size / 1048576).toFixed(2)} MB</div></td>` +
-      `<td><button class="btn" data-act="rel-download" data-id="${esc(rec.id)}">Download</button> <button class="btn btn-plain" data-act="copy" data-text="${esc(rec.download.sha256)}" title="Copy the download's SHA-256">Copy SHA</button>` +
+      `<td>${opts && opts.compare ? (rec.package.sha256 === opts.sha ? '<div class="muted" style="margin-bottom:4px">This package</div>' : opts.baseline === 'l:' + rec.id ? '<div class="muted" style="margin-bottom:4px">Baseline below</div>' : `<button class="btn btn-plain" data-act="rev-base" data-key="l:${esc(rec.id)}">Compare</button> `) : ''}<button class="btn" data-act="rel-download" data-id="${esc(rec.id)}">Download</button> <button class="btn btn-plain" data-act="copy" data-text="${esc(rec.download.sha256)}" title="Copy the download's SHA-256">Copy SHA</button>` +
       `<div class="muted" style="font-size:12px;margin-top:3px">${rec.stored ? 'Stored in ' + esc(rec.stored.repo) : Fab.repoRuns && opts && opts.projectId ? `This browser only · <button class="btn btn-plain" style="padding:0 4px;font-size:12px" data-act="rel-store" data-id="${esc(rec.id)}" data-project="${esc(opts.projectId)}">Store with ${esc(opts.projectName || 'the project')}</button>` : 'This browser only'}</div></td></tr>`;
   }
 
@@ -1816,17 +1818,130 @@
     state.releases = null; renderAll();
   }
 
+  // ── Revisions: the board's release history, and a compare against any baseline ──
+  // Baselines are keyed p:<open package>, l:<release> or r:<kept run>. Releases and kept runs are
+  // parsed again from this browser (or the release's files from the project's repo) without re-running.
+  function loadKeptRuns() {
+    if (state.keptRuns || state.keptRunsBusy) return;
+    state.keptRunsBusy = true;
+    Fab.store.recentRuns().catch(() => []).then(rs => { state.keptRuns = rs; state.keptRunsBusy = false; renderAll(); });
+  }
+
+  function baselineOptions(e) {
+    const sha = pkgSha(e), opts = [];
+    for (const p of state.pkgs) if (p.id !== e.id && p.pkg && pkgSha(p) !== sha) opts.push({ key: 'p:' + p.id, label: p.label, group: 'Open packages' });
+    for (const r of state.releases || []) if (r.package.sha256 !== sha && r.status !== 'withdrawn') opts.push({ key: 'l:' + r.id, label: r.label + (r.title ? ' · ' + r.title : '') + ' (' + baseName(r.package.name) + ')', group: 'Fab releases', at: r.at, rec: r });
+    const seen = new Set((state.releases || []).map(r => r.run));
+    for (const k of state.keptRuns || []) if (k.run.package.sha256 !== sha && !seen.has(k.run.id)) opts.push({ key: 'r:' + k.run.id, label: baseName(k.run.package.name) + ' · ' + new Date(k.run.at).toLocaleDateString(), group: 'Runs in this browser' });
+    return opts;
+  }
+
+  // The baseline a reviewer most likely wants: what this package's release supersedes, else the
+  // project's latest other release, else the package opened before this one.
+  function defaultBaseline(e, opts) {
+    const all = state.releases || [];
+    const mine = all.find(r => r.package.sha256 === pkgSha(e) && r.status !== 'withdrawn' && r.supersedes);
+    const has = k => opts.some(o => o.key === k);
+    if (mine && has('l:' + mine.supersedes)) return 'l:' + mine.supersedes;
+    const proj = relProject(e);
+    const rel = opts.filter(o => o.rec && (!proj || o.rec.project === proj.id)).sort((a, b) => b.at.localeCompare(a.at))[0];
+    if (rel) return rel.key;
+    const open = opts.filter(o => o.key[0] === 'p');
+    return (open.length ? open[open.length - 1] : opts[0] || {}).key || null;
+  }
+
+  async function loadBaseline(key) {
+    const kind = key[0], id = key.slice(2);
+    let files = null, findings = null, label = '';
+    if (kind === 'l') {
+      const rec = await Fab.store.getRelease(id);
+      if (!rec) throw new Error('that release is no longer in this browser');
+      label = rec.label;
+      const run = rec.run && await Fab.store.getRun(rec.run);
+      if (run) findings = run.findings;
+      const pk = await Fab.store.getPackage(rec.package.key);
+      if (pk) files = Fab.store.restoreFiles(pk);
+      else {
+        // Tagged elsewhere: the release's own files are enough to compare.
+        if (rec.stored && Fab.repoRuns) await Fab.repoRuns.fetchReleaseFiles(rec);
+        files = [];
+        for (const f of rec.files) { const b = await Fab.store.getBlob(f.sha256); if (b) files.push(Fab.loader.makeFile(f.path, b)); }
+        files.source = null;
+        if (!files.length) throw new Error(`${rec.label}'s files are not in this browser`);
+      }
+    } else {
+      const k = await Fab.store.getRun(id);
+      const pk = k && await Fab.store.getPackage(k.run.package.key);
+      if (!pk) throw new Error('that run is no longer in this browser');
+      files = Fab.store.restoreFiles(pk); findings = k.findings; label = baseName(k.run.package.name);
+    }
+    return { pkg: Fab.classify.build(files), findings, label };
+  }
+
+  // The fab releases of this board's project (or all, with no project), newest first.
+  function releaseHistoryHtml(e) {
+    const all = state.releases || [];
+    const proj = relProject(e);
+    const list = proj ? all.filter(r => r.project === proj.id || !r.project) : all;
+    const sha = pkgSha(e);
+    let h = `<div class="section-title">Fab releases${proj ? ` <span class="chips"><span class="chip">${esc(proj.name)}</span></span>` : ''}</div>`;
+    const pull = proj && Fab.repoRuns ? ` <button class="btn btn-plain" style="padding:0 4px;font-size:12.5px" data-act="rev-pull" data-project="${esc(proj.id)}">${state.revPulling ? 'Reading…' : 'Get ' + esc(proj.name) + '\'s releases'}</button>` : '';
+    if (!list.length) return h + `<div class="card" style="padding:14px 18px;color:var(--text-2)">No fab releases yet. Tag a package under Overview › Fab release when it goes to a fab house.${pull}</div>`;
+    const ro = { pkg: true, projectId: proj && proj.id, projectName: proj && proj.name, compare: true, sha, baseline: e.baseline };
+    return h + `<div class="card table-wrap"><table class="table compact"><thead><tr><th>Release</th><th>Status</th><th>Download</th><th></th></tr></thead><tbody>${list.map(r => releaseRowHtml(r, all, ro)).join('')}</tbody></table>${pull ? `<p class="note" style="margin:8px 14px 10px">${pull}</p>` : ''}</div>`;
+  }
+
+  // One line on what changed, then the changed layers: the check before re-sending a fix.
+  function scopeHtml(rc) {
+    const ch = Fab.releases.changes(rc.res, rc.delta, null);
+    const layers = (rc.res.gerber || []).filter(g => g.status !== 'same');
+    const same = (rc.res.gerber || []).length - layers.length;
+    const quiet = !layers.length && !ch.bom && !ch.placements && !ch.drill;
+    let h = `<div class="card" style="padding:14px 18px;margin-bottom:14px"><div style="font-weight:600;margin-bottom:6px">Since ${esc(rc.label || 'the baseline')}: ${quiet ? 'no changes to the artwork, drill, BOM or placements' : esc(Fab.releases.changesText(ch))}</div>`;
+    if (layers.length) h += `<div class="chips" style="flex-wrap:wrap;gap:6px">${layers.map(g => `<span class="pill ${g.status === 'changed' ? 'warn' : 'error'}" title="${esc(g.layer)}">${esc(g.layer.split(/[\\/]/).pop())}${g.status === 'changed' ? ` +${g.added} −${g.removed}` : ' ' + g.status}</span>`).join('')}${same ? `<span class="pill ok">${plural(same, 'layer')} same</span>` : ''}</div>`;
+    if (layers.length) h += `<p class="note">Show on a layer under Gerber geometry puts its changes on the board; a fixed or new finding below jumps to its place.</p>`;
+    return h + '</div>';
+  }
+
+  // Findings fixed and new against the baseline's run.
+  function findingsDeltaHtml(rc) {
+    let h = `<div class="section-title">Findings</div>`;
+    if (!rc.delta) return h + `<div class="card" style="padding:14px 18px;color:var(--text-3)">The baseline has no kept run, so there are no findings to compare.</div>`;
+    const d = rc.delta;
+    const sevOrder = { error: 0, warn: 1, info: 2 };
+    const rows = (fs, kind) => fs.slice().sort((a, b) => sevOrder[a.severity] - sevOrder[b.severity]).slice(0, 60).map(f =>
+      `<tr${f.at ? ` data-act="rev-find" data-x="${+f.at.x}" data-y="${+f.at.y}" data-layer="${esc(f.layer || '')}"` : ''}><td><span class="pill ${kind === 'fixed' ? 'ok' : f.severity === 'error' ? 'error' : f.severity === 'warn' ? 'warn' : ''}">${kind === 'fixed' ? 'fixed' : 'new'}</span></td><td><span class="pill ${f.severity === 'error' ? 'error' : f.severity === 'warn' ? 'warn' : ''}">${esc(f.severity)}</span></td><td class="mono">${esc(f.check)}</td><td class="mono">${esc((f.layer || '').split(/[\\/]/).pop())}</td><td>${esc(f.title)}</td></tr>`).join('');
+    const more = n => n > 60 ? `<tr><td colspan="5" class="muted">and ${n - 60} more</td></tr>` : '';
+    h += `<div class="card" style="padding:12px 18px;margin-bottom:10px">${d.fixed.length || d.added.length ? `<b>${d.fixed.length}</b> fixed, <b>${d.added.length}</b> new, ${d.same.length} unchanged` : `No change: all ${d.same.length} findings are the same`} <span class="muted">(matched by check, severity and layer within 0.25 mm)</span></div>`;
+    if (d.fixed.length || d.added.length) h += `<div class="card table-wrap"><table class="table compact"><thead><tr><th></th><th>Severity</th><th>Check</th><th>Layer</th><th>Finding</th></tr></thead><tbody>${rows(d.fixed, 'fixed')}${more(d.fixed.length)}${rows(d.added, 'new')}${more(d.added.length)}</tbody></table></div>`;
+    return h;
+  }
+
   function revisionsHtml(e) {
-    const others = state.pkgs.filter(p => p.id !== e.id && p.pkg);
-    let h = `<div class="page wide">` + pageHead(e, 'Revision compare', e.label, 'What changed against a baseline: BOM lines, placements, Gerber geometry and drill hits.');
-    if (!others.length) return h + `<div class="card" style="padding:28px;text-align:center"><div class="empty-art">${ICON.upload}</div><h2 style="font:600 19px var(--display);margin:12px 0 6px">Open a baseline to compare against</h2><p style="color:var(--text-2);margin:0 auto 18px;max-width:52ch">Open the previous release package, or just the BOM that was used last time. It joins the package list, and this page shows the differences.</p><button class="btn btn-primary" data-act="open">Open baseline…</button></div></div>`;
-    if (!e.baseline || !others.some(p => p.id === e.baseline)) e.baseline = others[others.length - 1].id;
-    const base = state.pkgs.find(p => p.id === e.baseline);
-    h += `<div class="filters"><label class="tb-field" style="font-size:13px">Baseline <select data-act="baseline">${others.map(p => `<option value="${p.id}"${p.id === base.id ? ' selected' : ''}>${esc(p.label)}</option>`).join('')}</select></label><button class="btn" data-act="open">Open another…</button></div>`;
-    if (!e.pkg || !base.pkg) return h + '</div>';
-    const key = base.id;
-    if (!e.revCache || e.revCache.key !== key) e.revCache = { key, res: Fab.revisions.compare(base.pkg, e.pkg) };
+    loadReleases(); loadKeptRuns();
+    const opts = baselineOptions(e);
+    let h = `<div class="page wide">` + pageHead(e, 'Revisions', e.label, 'The board\'s fab releases, and what changed against a baseline: Gerber geometry, drill, BOM, placements and findings.');
+    h += releaseHistoryHtml(e);
+    if (!opts.length) return h + `<div class="card" style="padding:28px;text-align:center"><div class="empty-art">${ICON.upload}</div><h2 style="font:600 19px var(--display);margin:12px 0 6px">Open a baseline to compare against</h2><p style="color:var(--text-2);margin:0 auto 18px;max-width:52ch">Open the previous release package, or just the BOM that was used last time. It joins the package list, and this page shows the differences. Tagged releases and runs kept in this browser are offered here too.</p><button class="btn btn-primary" data-act="open">Open baseline…</button></div></div>`;
+    if (!e.baseline || !opts.some(o => o.key === e.baseline)) e.baseline = defaultBaseline(e, opts);
+    const groups = [...new Set(opts.map(o => o.group))];
+    h += `<div class="section-title">Compare</div><div class="filters"><label class="tb-field" style="font-size:13px">Baseline <select data-act="baseline">${groups.map(g => `<optgroup label="${esc(g)}">${opts.filter(o => o.group === g).map(o => `<option value="${esc(o.key)}"${o.key === e.baseline ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</optgroup>`).join('')}</select></label><button class="btn" data-act="open">Open another…</button></div>`;
+    if (!e.pkg) return h + '</div>';
+    const key = e.baseline;
+    if (!e.revCache || e.revCache.key !== key) {
+      // An open package can re-run, so it's never cached; the rest are fixed once read.
+      if (key[0] === 'p') state.baseCache.delete(key);
+      const c = key[0] === 'p' ? (() => { const p = state.pkgs.find(x => x.id === key.slice(2)); return p && p.pkg ? { pkg: p.pkg, findings: Fab.store.compactFindings(p.findings), label: p.label } : { error: 'that package is no longer open' }; })() : state.baseCache.get(key);
+      if (!c) {
+        state.baseCache.set(key, { busy: true });
+        loadBaseline(key).then(b => state.baseCache.set(key, b), err => state.baseCache.set(key, { error: err.message || String(err) })).then(() => renderAll());
+      }
+      if (!c || c.busy) return h + `<div class="card" style="padding:18px;color:var(--text-3)">Reading the baseline…</div></div>`;
+      if (c.error) { state.baseCache.delete(key); return h + `<div class="card" style="padding:18px;color:var(--warn)">Couldn't read the baseline: ${esc(c.error)}.</div></div>`; }
+      e.revCache = { key, res: Fab.revisions.compare(c.pkg, e.pkg), delta: c.findings && e.findings ? Fab.revisions.findingsDelta(c.findings, Fab.store.compactFindings(e.findings)) : null, label: c.label };
+    }
     const r = e.revCache.res;
+    h += scopeHtml(e.revCache);
     const stat = (n, label, cls) => `<div class="card stat ${cls || ''}"><div class="stat-num">${n}</div><div class="stat-label">${label}</div></div>`;
     const bomN = r.bom ? r.bom.added.length + r.bom.removed.length + r.bom.changed.reduce((s, g) => s + g.des.length, 0) : '–';
     const gerN = r.gerber ? r.gerber.filter(x => x.status !== 'same').length : '–';
@@ -1854,6 +1969,7 @@
       h += '</tbody></table></div><p class="note">Primitives are compared by geometry (rounded to 1 µm), so a re-ordered or re-numbered file with the same artwork shows as "same geometry".</p>';
     }
     if (r.drill && (r.drill.added.length || r.drill.removed.length)) h += `<div class="section-title">Drill</div><div class="card" style="padding:14px 18px">${r.drill.added.length} hits added, ${r.drill.removed.length} removed.</div>`;
+    h += findingsDeltaHtml(e.revCache);
     return h + '</div>';
   }
 
@@ -1932,6 +2048,14 @@
       case 'layers-fold': layersUi({ folded: !$('#board-view').classList.contains('layers-collapsed') }); renderLayers(e); break;
       case 'part': { const p = state.asmRows[+t.dataset.i].part; focusFinding({ id: 'part-' + p.des, at: { x: p.gx, y: p.gy }, side: p.side }); break; }
       case 'rev-at': focusFinding({ id: 'rev', at: { x: +t.dataset.x, y: +t.dataset.y } }); break;
+      case 'rev-find': focusFinding({ id: 'rev', at: { x: +t.dataset.x, y: +t.dataset.y }, layer: t.dataset.layer || undefined }); break;
+      case 'rev-base': e.baseline = t.dataset.key; e.revCache = null; renderAll(); break;
+      case 'rev-pull':
+        if (!Fab.repoRuns || state.revPulling) break;
+        state.revPulling = true; renderAll();
+        Fab.repoRuns.pullReleases(t.dataset.project).then(r => toast(`${plural(r.releases.length, 'release')} in ${r.repo}`), err => toast(`Couldn't read: ${err.message || err}`))
+          .then(() => { state.revPulling = false; state.releases = null; renderAll(); });
+        break;
       case 'rev-layer': { const g = e.revCache.res.gerber[+t.dataset.i]; focusFinding({ id: 'rev', bbox: g.bbox, layer: g.layerRef.file.name }); break; }
       case 'stage-open': {
         // With a step picked on the stage: its first error with a place (else its first warning),
@@ -1981,7 +2105,7 @@
       }
       case 'open-run': if (!ev.target.closest('[data-act="delete-run"]')) openStoredRun(t.dataset.id); break;
       case 'delete-run':
-        if (confirm('Delete this run and, if no other run uses it, its stored package from this browser?')) Fab.store.deleteRun(t.dataset.id).then(() => renderAll());
+        if (confirm('Delete this run and, if no other run uses it, its stored package from this browser?')) Fab.store.deleteRun(t.dataset.id).then(() => { state.keptRuns = null; renderAll(); });
         break;
       case 'sample': openPackage(() => Fab.loader.fromUrl(t.dataset.file || SAMPLE), t.dataset.name || 'fabcheck-sample-board.zip'); break;
       case 'rules-sel': state.rulesSel = t.dataset.id; renderAll(); break;

@@ -135,7 +135,9 @@ Fab releases (2026-11-03, branch `release-tags`, not merged or pushed):
   `fetchReleaseFiles` and `cleanRelease`, plus the home page's Fab releases list and the
   superseded-send warning (`supersededOk`). It was tested with `tests/fake-github.js`; a real
   token hasn't been tried.
-- **Next:** R3 (Revisions as release history),
+- **Phase R3 is built:** Revisions lists the releases and compares against open packages,
+  releases or kept runs (`baselineOptions`, `loadBaseline`, `scopeHtml`, `findingsDeltaHtml`).
+- **Next:**
   R5 (flat FAB and ASSY archives with a readme) and R4 (Signoff link). The doc's open questions are
   for Chris.
 
