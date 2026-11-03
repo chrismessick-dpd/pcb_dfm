@@ -1,5 +1,9 @@
 # Fab releases: tagged, stored, downloadable packages (plan)
 
+> **Superseded (2026-11-03):** revisions move to Signoff. See `docs/signoff-revisions.md`. The
+> fab package layout, file picks, structure checks and compare below stay in Fabcheck. The
+> versions UI and `releases/` records go.
+
 Status (2026-11-03, branch `release-tags`):
 - **Phase R1 (local releases) is built.** It was verified on the demo board and on a real pair
   of packages, before and after a fab DFM fix.
