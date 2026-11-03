@@ -54,9 +54,8 @@ fabcheck/<projectId>/preview/…                   board pictures, as now
   - the Files-tab export (anyone, no repo);
   - the structure checks, Revisions compare and findings delta, and the aperture fix;
   - "Which package is this?", against runs kept in the browser.
-- **Reopening a stored run from Signoff's "Open in Fabcheck"** still reads the repo, as today: run
-  record and package. It would read the one zip instead of many files. The open question below is
-  whether Fabcheck should stop reading repos altogether.
+- **Reopening a stored run from Signoff's "Open in Fabcheck"** is a hand-off in the browser:
+  Signoff reads, and Fabcheck doesn't (see *Chris's answers*).
 
 ## What Signoff does (engine; EE first)
 
@@ -137,12 +136,34 @@ A new collection in the project document, merged like every other record (`updat
 4. **Demo:** the EE demo board gets two runs and one revision, with Signoff PL's snapshot
    regenerated, per the suite CLAUDE.md demo rules.
 
-## Open questions for Chris
+## Chris's answers (2026-11-03)
 
-1. **Should Fabcheck stop reading repos entirely?** If so, "Open in Fabcheck" from Signoff would
-   hand the run and its zip over in the browser (same origin) instead of Fabcheck fetching them
-   with the token. That's cleaner for a public tool, but it's more work in both tools. Today's
-   repo reads still work in the meantime.
-2. **Old runs without a zip.** Keep offering Open in Fabcheck only, or should Signoff build a zip
-   from their loose files? That would need JSZip in Signoff.
-3. **Label scheme:** free text with "next" suggested, or a fixed pattern such as `<design rev>.<n>`?
+1. **Reads move to Signoff; Fabcheck only writes.**
+   - Fabcheck no longer reads runs, packages or anything else back from a project's repo.
+   - It still writes at Send: the commit itself reads the branch's current tree, and the access
+     check asks GitHub whether the token can push. Both are part of writing.
+   - "Open in Fabcheck" from Signoff becomes a hand-off in the browser (below).
+   - Team fab profiles (`syncProfiles`, in the FTE data repo) are the one read left in Fabcheck.
+     They're shared settings, not project data, and move to Signoff later.
+2. **Old runs and files don't matter yet** (still in development). No conversion and no import:
+   the branch's `releases/3.1` record and the runs stored before the zip can be ignored. That
+   replaces *Migration* above.
+3. **Labels:** free text, with the next one suggested.
+
+### Hand-off: Signoff opens a run in Fabcheck without Fabcheck reading the repo
+
+Both tools are served from one origin, so they share browser storage.
+1. Signoff reads the run record and its package zip with its own token.
+2. It writes them to IndexedDB database `dovetail-handoff`, store `runs`, keyed by run id:
+   `{ id, run, findings, zip: Uint8Array, at }`.
+3. It opens `../pcb_dfm/index.html#/board?run=<id>&project=<id>&check=…&x=…&y=…&layer=…` in
+   Fabcheck's window. These are today's deep-link parameters, without `repo`.
+
+Fabcheck then resolves the run in this order:
+1. its own kept runs, as now;
+2. the hand-off: it opens the zip, shows the stored findings and places the parts, then deletes
+   the entry;
+3. otherwise it asks for the package to be dropped in, as now.
+
+Entries older than a day are cleared whenever Fabcheck starts. Contractors use it the same way:
+Signoff reads the zip with their token, from their review repo.
