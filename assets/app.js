@@ -991,10 +991,10 @@
     const major = picked.filter(r => r.severity === 'major').length, fresh = picked.filter(r => r.state !== 'update').length;
     const sevs = [major && `${major} Major from errors`, picked.length - major && `${picked.length - major} Minor from warnings`].filter(Boolean).join(', ');
     const news = [fresh && `${fresh} new`, picked.length - fresh && `${picked.length - fresh} updating ${picked.length - fresh === 1 ? 'an issue' : 'issues'} sent before`].filter(Boolean).join(', ');
-    const issues = !groups.length ? 'No errors or warnings to send; earlier Fabcheck issues get a "no longer found" note.' : picked.length ? `Sends ${picked.length < groups.length ? picked.length + ' of ' : ''}${plural(groups.length, 'issue')} to the Fabrication &amp; Release checklist (${sevs}; ${news}).` : `No issues picked; ${plural(groups.length, 'issue')} available.`;
+    const issues = !groups.length ? 'No errors or warnings to send; earlier Fabcheck issues get a "no longer found" note.' : picked.length ? `Sends ${picked.length < groups.length ? picked.length + ' of ' : ''}${plural(groups.length, 'issue')} to the Fabrication &amp; Release checklist (${sevs}; ${news}).` : `No issues picked, so none are sent (${plural(groups.length, 'issue')} available)${Fab.repoRuns ? '; sending still stores the run and its fab package' : ''}, and earlier issues for these checks stay as they are.`;
     h += `<p style="margin:0 0 12px;color:var(--text-2)">${issues} Sending again updates the same issues and keeps the reviewer's status. ${Fab.DEMO ? 'In this demo they go to the Signoff EE demo in this browser.' : "Signoff's Sync then pushes the issues, and its Revisions tab lists the stored run, where it can be tagged and downloaded."}</p>
       <div class="filters" style="margin:0"><label class="tb-field" style="font-size:13px">Project <select data-act="signoff-project">${projects.map(p => `<option value="${esc(p.slug)}"${p.slug === e.signoffSlug ? ' selected' : ''}>${esc(p.meta.name)}${p.meta.board ? ' · ' + esc(p.meta.board) : ''}${(p.meta.checklists || []).includes('fab') ? '' : ' (no Fab checklist)'}</option>`).join('')}</select></label>
-      <button class="btn btn-primary" data-act="signoff-send"${(!groups.length || picked.length) && !e.signoffBusy ? '' : ' disabled'}>${e.signoffBusy ? 'Storing…' : 'Send to Signoff EE'}</button><button class="btn so-toggle${e.signoffOpen ? ' open' : ''}" data-act="signoff-details" aria-expanded="${!!e.signoffOpen}">Details${ICON.chev}</button>${e.signoffResult ? `<a class="btn btn-plain" href="${Fab.demoHref('../ee_design_review/index.html')}">Open Signoff EE</a>` : ''}</div>`;
+      <button class="btn btn-primary" data-act="signoff-send"${e.signoffBusy ? ' disabled' : ''}>${e.signoffBusy ? 'Storing…' : 'Send to Signoff EE'}</button><button class="btn so-toggle${e.signoffOpen ? ' open' : ''}" data-act="signoff-details" aria-expanded="${!!e.signoffOpen}">Details${ICON.chev}</button>${e.signoffResult ? `<a class="btn btn-plain" href="${Fab.demoHref('../ee_design_review/index.html')}">Open Signoff EE</a>` : ''}</div>`;
     if (e.signoffOpen) h += (groups.length ? signoffListHtml(e, pv, skip) : '') + (Fab.repoRuns ? filesPickHtml(e) : '');
     if (!(target.meta.checklists || []).includes('fab')) h += `<p class="note">This project doesn't use the Fabrication &amp; Release checklist, so the issues won't show until you add it in the project's details in Signoff EE.</p>`;
     h += storageHtml(e, target.id);
@@ -1109,7 +1109,13 @@
   function signoffListHtml(e, pv, skip) {
     const says = { new: 'New issue', deleted: 'Re-raises a deleted issue', update: 'Updates the issue sent before' };
     const all = pv.rows.every(r => !skip.has(r.group.key));
-    let h = `<div class="so-list"><label class="so-all"><input type="checkbox" id="so-all" data-act="signoff-all"${all ? ' checked' : ''}> All issues</label>`;
+    // All issues, or all errors / all warnings: ticked when every issue of that kind is picked.
+    const sevBox = (sev, label) => {
+      const rows = pv.rows.filter(r => r.group.severity === sev);
+      if (!rows.length) return '';
+      return `<label class="so-all"><input type="checkbox" id="so-${sev}" data-act="signoff-sev" data-sev="${sev}"${rows.every(r => !skip.has(r.group.key)) ? ' checked' : ''}> ${label} (${rows.length})</label>`;
+    };
+    let h = `<div class="so-list"><div class="so-alls"><label class="so-all"><input type="checkbox" id="so-all" data-act="signoff-all"${all ? ' checked' : ''}> All issues</label>${sevBox('error', 'Errors')}${sevBox('warn', 'Warnings')}</div>`;
     pv.rows.forEach((r, i) => {
       const g = r.group, n = g.list.length, on = !skip.has(g.key);
       h += `<div class="so-row${on ? '' : ' off'}"><input type="checkbox" id="so-${i}" data-act="signoff-pick" data-key="${esc(g.key)}"${on ? ' checked' : ''}>` +
@@ -2033,9 +2039,12 @@
         if (e && e.status === 'ready') runChecks(e, `Board thickness set to ${Fab.fmtLen(state.thickness)}`);
       }
       if (ev.target.matches('[data-act="signoff-project"]')) { e.signoffSlug = ev.target.value; e.signoffResult = null; renderAll(); }
-      if (ev.target.matches('[data-act="signoff-pick"], [data-act="signoff-all"]')) {
+      if (ev.target.matches('[data-act="signoff-pick"], [data-act="signoff-all"], [data-act="signoff-sev"]')) {
         if (ev.target.dataset.act === 'signoff-all') e.signoffSkip = new Set(ev.target.checked ? [] : Fab.signoff.plan(e.findings).map(g => g.key));
-        else e.signoffSkip[ev.target.checked ? 'delete' : 'add'](ev.target.dataset.key);
+        else if (ev.target.dataset.act === 'signoff-sev') {
+          // Every issue of one severity (Errors, Warnings) in or out; the others stay as they are.
+          for (const g of Fab.signoff.plan(e.findings)) if (g.severity === ev.target.dataset.sev) e.signoffSkip[ev.target.checked ? 'delete' : 'add'](g.key);
+        } else e.signoffSkip[ev.target.checked ? 'delete' : 'add'](ev.target.dataset.key);
         // Keep focus on the box, so the next one is a Tab away.
         const id = ev.target.id;
         renderAll();

@@ -128,6 +128,8 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .so-list { margin-top: 14px; border-top: 1px solid var(--hair); }
 .so-all { display: flex; align-items: center; gap: 10px; padding: 10px 2px; font-size: 13px; color: var(--text-2); border-bottom: 1px solid var(--hair); cursor: pointer; }
 .so-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; padding: 10px 2px; border-bottom: 1px solid var(--hair); }
+.so-alls { display: flex; flex-wrap: wrap; gap: 0 22px; border-bottom: 1px solid var(--hair); }
+.so-alls .so-all { border-bottom: none; }
 .so-row input, .so-all input { margin: 3px 0 0; accent-color: var(--accent); }
 .so-row label.item-text { display: block; cursor: pointer; word-break: break-word; }
 .so-row.off .item-text, .so-row.off .item-sub { color: var(--text-3); }
