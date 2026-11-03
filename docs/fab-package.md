@@ -86,27 +86,31 @@ cited below as "Ucamco" with page numbers:
 
 ## Proposed layout (Fabcheck's output)
 
-One archive for the fab and one for the assembler. Each is flat inside, holds one board and one
-image format, and every name carries `<PN>-<REV>`:
+One zip shaped like an Altium manufacturing folder, holding one board and one image format. Every
+file name carries `<PN>-<REV>`. Chris chose this over two flat archives (2026-11-03), because it
+matches the packages he already sends.
 
 ```
-<PN>-<REV>_FAB.zip
-  <PN>-<REV>_<layer>.gbr          Gerber X2, one per layer: copper, both masks, both legends,
-                                  outline (paste goes in the assembly set)
-  <PN>-<REV>.gbrjob               Gerber job file, if Altium writes one
-  <PN>-<REV>_PTH.drl              Excellon, plated
-  <PN>-<REV>_NPTH.drl             Excellon, non-plated (one file per span for blind or buried vias)
-  <PN>-<REV>_IPC356.ipc           netlist for electrical test
-  <PN>-<REV>_FAB.pdf              fabrication drawing
-  <PN>-<REV>_README.txt           file list with SHA-256, board size, layers, thickness, finish
-<PN>-<REV>_ASSY.zip
-  <PN>-<REV>_BOM.csv / .xlsx      refdes, qty, MPN, manufacturer, alternates, DNP
-  <PN>-<REV>_PNP.csv              refdes, X/Y mm, rotation, side; the origin stated in the readme
-  <PN>-<REV>_ASSY.pdf             assembly drawing
-  <PN>-<REV>_paste_top.gbr, …     paste layers, and copies of copper, mask and legend so the
-                                  assembly set stands alone
-  <PN>-<REV>_README.txt
+<PN>-<REV>_manufacturing.zip
+  <PN>-<REV>_manufacturing/
+    README.txt                    every file with its SHA-256; board size, layers, thickness;
+                                  pick-and-place units; do-not-place parts
+    Fabrication/
+      <PN>-<REV>_FAB.pdf          fabrication drawing
+      Gerber/                     Gerber X2, one per layer: L1_Top … L<n>_Bottom, Mask_, Silk_ and
+                                  Paste_ per side, Outline, Mech<n>
+      NC Drill/                   Excellon PTH.drl and NPTH.drl (one file per span for blind or
+                                  buried vias), Drill_Report
+      Netlist/                    IPC356.ipc, for electrical test
+      ODB/                        only when asked for
+    Assembly/
+      <PN>-<REV>_ASSY.pdf         assembly drawing
+      BOM/                        refdes, qty, MPN, manufacturer, alternates, DNP
+      Pick Place/                 refdes, X/Y, rotation, side
 ```
+
+Eurocircuits asks for a flat zip without folders. For a fab house that insists, the README lists
+every file, and the folders hold only a few files each.
 
 Never sent:
 - native Altium files and OutJobs;

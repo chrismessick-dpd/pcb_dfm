@@ -34,8 +34,8 @@ two kinds of stored file that could diverge. So "release" and "Send" are now one
   beside the status instead of replacing it.
 - **One list, "Versions of \<project>".** It replaces both "Runs stored with this project" and
   the separate Fab release section and tag form. Each row:
-  - Fab zip, Assembly zip and As sent downloads;
-  - the archives' SHA-256;
+  - **Download** (the fab package, below) and **As sent**;
+  - the package's SHA-256;
   - the change summary.
 
   Runs stored before versions existed show as **Unnamed** rows, with Open. Sending that package
@@ -47,8 +47,8 @@ two kinds of stored file that could diverge. So "release" and "Send" are now one
     the token with GitHub's `/user`). The token is stored the way Signoff EE stores it, in this
     tab or remembered, so one sign-in covers both tools.
   - **Sign out** under Send signs out of both.
-- **Anyone can export** the open package as the Fab and Assembly zips from the Files tab, made in
-  the browser and not stored.
+- **Anyone can export** the open package as the fab package from the Files tab, made in the
+  browser and not stored.
 - **Wording:** issue comments name the version ("Raised by Fabcheck from version 3.1"), and the
   home page, Revisions and Archive say "version".
 - **Verified** with `tests/fake-github.js` (which now answers `/user`) on the real pair:
@@ -59,10 +59,35 @@ two kinds of stored file that could diverge. So "release" and "Send" are now one
   - marking 3.1 Sent to fab and editing 3.2 are written to the repo;
   - re-sending 3.2 updates it without a new version;
   - a pre-version run lists as Unnamed;
-  - the Files tab export saves `…_FAB.zip`.
+  - the Files tab export saves the fab package.
 
   Demo mode keeps versions locally with no sign-in, and the public view without projects shows
   the sign-in offer.
+
+## One fab package, with folders (2026-11-03)
+
+Chris didn't want separate fab and assembly downloads. A version now downloads as one zip shaped
+like the Altium manufacturing folders he uses, laid out as `docs/fab-package.md` shows:
+`<PN>-<REV>_manufacturing/` with `Fabrication/` (`Gerber/`, `NC Drill/`, `Netlist/`, the FAB
+drawing) and `Assembly/` (`BOM/`, `Pick Place/`, the ASSY drawing), plus one README.
+
+- **The record (`layout.v` 2):** `{pn, rev, pre, root, files [{path, to}], readme, zip {name,
+  sha256, size}}`. `to` is the full path inside the zip; `releases.js` `role` returns `[folder,
+  name]`.
+  - Paste layers sit in `Fabrication/Gerber` with the rest, so nothing is duplicated.
+  - An ODB++ folder keeps its own tree and names.
+- **Versions made with the two-archive layout** (`layout.v` 1, like the first real 3.1) download
+  in the new structure too. `fromTwoArchives` maps their names to folders, and the README keeps
+  their board lines. There's no recorded hash for that zip, so each file is checked instead.
+- **`cleanRelease`** keeps a v2 layout only if every `to` is a safe path inside `root/`.
+- **The Files tab export** is one Download of the same package. Its README says "Exported by
+  Fabcheck" instead of naming a version.
+- **Verified:**
+  - the real DFM-fixed package exports as `<PN>-<REV>_manufacturing.zip`, with 22 files in
+    Fabrication (Gerber, NC Drill, Netlist) and Assembly (BOM, Pick Place), plus the README;
+  - a two-archive record of the same files converts to exactly the same paths;
+  - a demo Send gives one Download whose zip matches its recorded SHA-256 twice;
+  - a tampered `to` is rejected.
 
 ## Why
 

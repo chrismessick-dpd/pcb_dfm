@@ -172,14 +172,18 @@
       bom: cnt(c.bom), placements: cnt(c.placements), drill: cnt(c.drill),
       findings: c.findings && typeof c.findings === 'object' ? { fixed: num(c.findings.fixed), new: num(c.findings.new), same: num(c.findings.same) } : undefined,
     };
-    // R5 layout: archive names are paths in a zip too, and each archive has a hash; else dropped.
+    // The fab package layout: its names are paths in a zip that goes to a fab house, and the zip
+    // has a hash; anything else is dropped. v1 (two flat archives) is from before the one package.
     const L = r.layout && typeof r.layout === 'object' ? r.layout : null;
     const paths = new Set(r.files.map(f => f.path));
     const arch = a => a && typeof a === 'object' && HEX.test(a.sha256 || '') && /^[\w.+-]+\.zip$/.test(a.name || '') ? { name: a.name, sha256: a.sha256, size: num(a.size) } : null;
-    const layout = L && Array.isArray(L.files) && typeof L.pre === 'string' && /^[\w.+-]*$/.test(L.pre) && L.readme && typeof L.readme === 'object' && arch(L.fab) &&
-      L.files.every(f => f && paths.has(f.path) && (f.fab == null || okPath(f.fab)) && (f.assy == null || okPath(f.assy)))
-      ? { v: 1, pn: str(L.pn), rev: str(L.rev), pre: L.pre, files: L.files.map(f => ({ path: f.path, fab: f.fab || undefined, assy: f.assy || undefined })),
-        readme: { fab: str(L.readme.fab), assy: str(L.readme.assy) }, fab: arch(L.fab), assy: arch(L.assy) || undefined } : null;
+    const okPre = p => typeof p === 'string' && /^[\w.+-]*$/.test(p);
+    const layout = !L || !Array.isArray(L.files) || !okPre(L.pre) ? null
+      : L.v === 2 ? (okPre(L.root) && L.root && typeof L.readme === 'string' && arch(L.zip) && L.files.every(f => f && paths.has(f.path) && okPath(f.to) && f.to.indexOf(L.root + '/') === 0)
+        ? { v: 2, pn: str(L.pn), rev: str(L.rev), pre: L.pre, root: L.root, files: L.files.map(f => ({ path: f.path, to: f.to })), readme: L.readme, zip: arch(L.zip) } : null)
+      : L.readme && typeof L.readme === 'object' && arch(L.fab) && L.files.every(f => f && paths.has(f.path) && (f.fab == null || okPath(f.fab)) && (f.assy == null || okPath(f.assy)))
+        ? { v: 1, pn: str(L.pn), rev: str(L.rev), pre: L.pre, files: L.files.map(f => ({ path: f.path, fab: f.fab || undefined, assy: f.assy || undefined })),
+          readme: { fab: str(L.readme.fab), assy: str(L.readme.assy) }, fab: arch(L.fab), assy: arch(L.assy) || undefined } : null;
     const s = r.summary && typeof r.summary === 'object' ? { error: num(r.summary.error), warn: num(r.summary.warn), info: num(r.summary.info) } : null;
     return Object.assign({}, r, {
       package: { key: r.package.key, sha256: r.package.sha256, name: str(r.package.name) || 'package', size: num(r.package.size) },

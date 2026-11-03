@@ -138,9 +138,12 @@ Fab releases (2026-11-03, branch `release-tags`, not merged or pushed):
 - **Phase R3 is built:** Revisions lists the releases and compares against open packages,
   releases or kept runs (`baselineOptions`, `loadBaseline`, `scopeHtml`, `findingsDeltaHtml`).
 - **Phase R5 is built:**
-  - A release also downloads as `<PN>-<REV>_FAB.zip` and `_ASSY.zip`: flat, named by function
-    (`releases.js` `role`, `plan`), each with a generated README listing every file's SHA-256.
-  - `rec.layout` holds the names, the readmes and both archives' hashes. "As sent" is still
+  - A version downloads as one fab package, `<PN>-<REV>_manufacturing.zip`, with Fabrication/
+    (Gerber, NC Drill, Netlist) and Assembly/ (BOM, Pick Place) folders, files named by function
+    (`releases.js` `role`, `plan`) and a README listing every file's SHA-256 (Chris's choice
+    over two flat archives).
+  - `rec.layout` (v 2) holds each file's path in the zip, the README and the zip's hash.
+    Two-archive v1 records are converted on download (`fromTwoArchives`). "As sent" is still
     offered.
   - New info-only Package check `structure`: two image formats, drill data in two formats, a
     drill file mixing plated and non-plated holes, and local paths in file headers.
@@ -157,7 +160,7 @@ Fab releases (2026-11-03, branch `release-tags`, not merged or pushed):
   - One "Versions of \<project>" list under Send replaces stored runs and the tag form; old runs
     show as Unnamed.
   - Send asks for GitHub sign-in (`showSignIn`, `repo.js` `signIn`, shared with Signoff EE).
-  - The Files tab exports the Fab and Assembly zips for anyone.
+  - The Files tab exports the fab package for anyone.
   - See `docs/releases.md`, *Versions: one path*.
 - **Contract changes for EE and PL** are proposed in `docs/releases.md`, not made.
 - **Next:** merge to `main` when Chris says so. First, a live Send on a real project with a real

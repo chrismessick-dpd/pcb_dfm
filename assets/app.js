@@ -1211,8 +1211,10 @@
     for (const r of state.releases || []) {
       if (r.package.sha256 === sha) out.push({ rec: r, what: 'the package of that version' });
       if (r.download.sha256 === sha) out.push({ rec: r, what: 'its "As sent" download' });
-      if (r.layout && r.layout.fab && r.layout.fab.sha256 === sha) out.push({ rec: r, what: 'its Fab zip' });
-      if (r.layout && r.layout.assy && r.layout.assy.sha256 === sha) out.push({ rec: r, what: 'its Assembly zip' });
+      if (r.layout && r.layout.zip && r.layout.zip.sha256 === sha) out.push({ rec: r, what: 'its fab package download' });
+      // Versions from before the one-package layout downloaded as two archives.
+      if (r.layout && r.layout.fab && r.layout.fab.sha256 === sha) out.push({ rec: r, what: 'its Fab zip (earlier layout)' });
+      if (r.layout && r.layout.assy && r.layout.assy.sha256 === sha) out.push({ rec: r, what: 'its Assembly zip (earlier layout)' });
     }
     return out;
   }
@@ -1748,8 +1750,8 @@
     let h = `<div class="page wide">` + pageHead(e, 'Package contents', e.label, pkg ? `${plural(pkg.files.length, 'file')}<span class="sep">·</span>Active Gerber set ${esc(pkg.set.dir)}` : '');
     if (!pkg) return h + '</div>';
     // Anyone can export the package laid out the way fab houses ask, without storing anything.
-    if (e.files && !e.files.some(f => f.stub)) h += `<div class="card" style="padding:14px 18px;margin-bottom:14px"><div class="filters" style="margin:0"><b style="font-weight:600">Export as a fab package</b><button class="btn" data-act="export" data-which="fab">Fab zip</button><button class="btn" data-act="export" data-which="assy">Assembly zip</button></div>` +
-      `<p class="note">Flat archives with files named by function and a README listing each file's SHA-256: what the fab and assembly houses need, not everything the CAD tool wrote (docs/fab-package.md). Made in this browser; nothing is uploaded.</p></div>`;
+    if (e.files && !e.files.some(f => f.stub)) h += `<div class="card" style="padding:14px 18px;margin-bottom:14px"><div class="filters" style="margin:0"><b style="font-weight:600">Export as a fab package</b><button class="btn" data-act="export">Download</button></div>` +
+      `<p class="note">One zip with Fabrication (Gerber, NC Drill, netlist, drawing) and Assembly (BOM, Pick Place, drawing) folders, files named by function, and a README listing each file's SHA-256: what the fab and assembly houses need, not everything the CAD tool wrote. Made in this browser; nothing is uploaded.</p></div>`;
     const odb = pkg.files.filter(f => f.cls.type === 'odb');
     const rows = pkg.files.filter(f => f.cls.type !== 'odb').sort((a, b) => a.path.localeCompare(b.path));
     const fn = f => {
@@ -1806,9 +1808,9 @@
       `<td>${statusPill(rec, all)}<div style="margin-top:4px"><select data-act="rel-status" data-id="${esc(rec.id)}" aria-label="Status of ${esc(rec.label)}" style="font-size:12px">${Fab.releases.STATUS.filter(([k]) => k !== 'candidate' || rec.status === 'candidate').map(([k, n]) => `<option value="${k}"${k === rec.status ? ' selected' : ''}>${n}</option>`).join('')}</select></div></td>` +
       `<td>${rec.files.length} files${releaseHashes(rec)}</td>` +
       `<td>${opts && opts.compare ? (rec.package.sha256 === opts.sha ? '<div class="muted" style="margin-bottom:4px">This package</div>' : opts.baseline === 'l:' + rec.id ? '<div class="muted" style="margin-bottom:4px">Baseline below</div>' : `<button class="btn btn-plain" data-act="rev-base" data-key="l:${esc(rec.id)}">Compare</button> `) : ''}` +
-      // R5 releases download as the fab and assembly archives; "As sent" is the package's own layout.
-      (rec.layout && rec.layout.fab ? `<button class="btn" data-act="rel-download" data-id="${esc(rec.id)}" data-which="fab" title="${esc(rec.layout.fab.name)}">Fab zip</button> ` + (rec.layout.assy ? `<button class="btn" data-act="rel-download" data-id="${esc(rec.id)}" data-which="assy" title="${esc(rec.layout.assy.name)}">Assembly zip</button> ` : '') + `<button class="btn btn-plain" data-act="rel-download" data-id="${esc(rec.id)}" data-which="sent" title="${esc(rec.download.name)}: the package's own folders and names">As sent</button>`
-        : `<button class="btn" data-act="rel-download" data-id="${esc(rec.id)}" data-which="sent">Download</button> <button class="btn btn-plain" data-act="copy" data-text="${esc(rec.download.sha256)}" title="Copy the download's SHA-256">Copy SHA</button>`) +
+      // One download, the fab package (Fabrication and Assembly folders); "As sent" is the package's own layout.
+      (rec.layout ? `<button class="btn" data-act="rel-download" data-id="${esc(rec.id)}" data-which="pkg" title="${esc((rec.layout.root || rec.layout.pre.replace(/_$/, '') + '_manufacturing') + '.zip')}: Fabrication and Assembly folders">Download</button> <button class="btn btn-plain" data-act="rel-download" data-id="${esc(rec.id)}" data-which="sent" title="${esc(rec.download.name)}: the package's own folders and names">As sent</button>`
+        : `<button class="btn" data-act="rel-download" data-id="${esc(rec.id)}" data-which="sent">Download</button>`) +
       `<div class="muted" style="font-size:12px;margin-top:3px">${rec.stored ? 'Stored in ' + esc(rec.stored.repo) : Fab.repoRuns && opts && opts.projectId ? `This browser only · <button class="btn btn-plain" style="padding:0 4px;font-size:12px" data-act="rel-store" data-id="${esc(rec.id)}" data-project="${esc(opts.projectId)}">Store with ${esc(opts.projectName || 'the project')}</button>` : 'This browser only'}</div></td></tr>`;
   }
 
@@ -1854,7 +1856,7 @@
     const field = (k, label, attrs) => `<label class="tb-field" style="font-size:13px;display:flex;flex-direction:column;align-items:stretch;gap:3px">${label}<input data-rel="${k}" value="${esc(f[k] || '')}" ${attrs || ''}></label>`;
     let h = `<div style="margin-top:16px;font-weight:600">Files kept with the version</div>`;
     if (have) return h + `<p class="note">This package is already a version; its files were picked when it was first stored.</p>`;
-    h += `<p class="note" style="margin-top:2px">What the fab and assembly houses need, not everything the CAD tool wrote. These download later as the Fab and Assembly zips, named by part number and revision.</p>` +
+    h += `<p class="note" style="margin-top:2px">What the fab and assembly houses need, not everything the CAD tool wrote. They download later as one fab package, with Fabrication and Assembly folders and files named by part number and revision.</p>` +
       `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-top:8px">` +
       field('pn', 'Part number', 'placeholder="PCB-1042"') + field('rev', 'Revision', 'placeholder="B"') + `</div>`;
     // Grouped as a fab house reads a package.
@@ -1902,13 +1904,13 @@
     await saveVersion(rec);
   }
 
-  // Export the open package as the fab and assembly archives, made here and saved, nothing stored.
-  async function exportPackage(e, which) {
+  // Export the open package as the fab package, made here and saved, nothing stored.
+  async function exportPackage(e) {
     try {
       const f = verForm(e);
-      const got = await Fab.releases.build(e, { pn: f.pn, rev: f.rev, label: 'export', picks: f.picks }, who());
+      const got = await Fab.releases.build(e, { pn: f.pn, rev: f.rev, label: '', picks: f.picks }, who());
       const blobs = new Map(got.blobs.map(b => [b.sha256, b.bytes]));
-      const z = await Fab.releases.assembleLayout(got.rec, which, sha => blobs.get(sha));
+      const z = await Fab.releases.assembleLayout(got.rec, sha => blobs.get(sha));
       const url = URL.createObjectURL(new Blob([z.bytes], { type: 'application/zip' }));
       const a = document.createElement('a'); a.href = url; a.download = z.name; document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 10000);
@@ -1916,12 +1918,12 @@
     } catch (err) { toast('Not exported: ' + (err.message || err)); }
   }
 
-  // Each archive's SHA-256 and size, with a copy button: the hashes to quote in a PO or an email.
+  // The download's SHA-256 and size, with a copy button: the hash to quote in a PO or an email.
+  // A version from before the one-package layout has no recorded package hash; its As-sent one shows.
   function releaseHashes(rec) {
     const row = (what, d) => `<div class="muted mono" style="font-size:12px" title="SHA-256 of ${esc(d.name)}">${what}${esc(d.sha256.slice(0, 12))}… · ${(d.size / 1048576).toFixed(2)} MB <button class="btn btn-plain" style="padding:0 3px;font-size:11.5px" data-act="copy" data-text="${esc(d.sha256)}">copy</button></div>`;
     const L = rec.layout;
-    if (!L || !L.fab) return row('', rec.download);
-    return row('Fab ', L.fab) + (L.assy ? row('Assy ', L.assy) : '');
+    return L && L.zip ? row('', L.zip) : row(L ? 'As sent ' : '', rec.download);
   }
 
   async function downloadRelease(id, which) {
@@ -1934,7 +1936,7 @@
         for (const f of rec.files) if (!(await Fab.store.getBlob(f.sha256))) missing++;
         if (missing) { toast(`Reading ${plural(missing, 'file')} of ${rec.label} from ${rec.stored.repo}…`); await Fab.repoRuns.fetchReleaseFiles(rec); }
       }
-      const got = which === 'fab' || which === 'assy' ? await Fab.releases.assembleLayout(rec, which, Fab.store.getBlob) : await Fab.releases.assemble(rec, Fab.store.getBlob);
+      const got = which === 'pkg' ? await Fab.releases.assembleLayout(rec, Fab.store.getBlob) : await Fab.releases.assemble(rec, Fab.store.getBlob);
       const url = URL.createObjectURL(new Blob([got.bytes], { type: 'application/zip' }));
       const a = document.createElement('a'); a.href = url; a.download = got.name; document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 10000);
@@ -2232,7 +2234,7 @@
       case 'rel-store': storeRelease(t.dataset.id, t.dataset.project); break;
       case 'ver-edit': e.verEdit = t.dataset.id || null; renderAll(); break;
       case 'ver-save': saveVersionEdit(t.dataset.id); break;
-      case 'export': exportPackage(e, t.dataset.which); break;
+      case 'export': exportPackage(e); break;
       case 'gh-signin': showSignIn(); break;
       case 'gh-signout':
         if (confirm('Sign out of GitHub in this browser? Signoff EE shares the sign-in, so it signs out too.')) { Fab.repoRuns.signOut(); state.repoProbe.clear(); state.relRemote.clear(); state.repoRuns.clear(); renderAll(); }
