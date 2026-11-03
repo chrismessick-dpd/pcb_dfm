@@ -178,7 +178,13 @@ Storage:
     from the repo only when it's downloaded (`fetchReleaseFiles`), and each is checked against its
     SHA-256.
   - **Records read from a repo** go through `cleanRelease`, because contractors can write there:
-    ids, hashes and dates must have the expected shape, and paths may not contain `..`.
+    - ids, hashes and dates must have the expected shape;
+    - `changes`, `summary` and the package name are rebuilt from typed fields;
+    - file paths must be relative, with forward slashes, no `..` and no drive letter, because they
+      become entry names in a zip that goes to a fab house.
+  - **Sharing a project keeps its releases.** Signoff EE's `moveFabcheck` (`workspace.js`) copies
+    everything under `fabcheck/<projectId>/` as bytes, so `releases/` and the release files move
+    with it (checked 2026-11-03).
 - **This browser:** IndexedDB stores `releases` and `blobs` (`VER` 1 → 2 in `store.js`).
   - Release files are kept by SHA-256 in `blobs`, so releases that share a file keep it once.
   - `syncedAt` is local only; it's never written to the repo.

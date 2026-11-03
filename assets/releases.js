@@ -121,11 +121,12 @@
     const n = (v, one, many) => v + ' ' + (v === 1 ? one : many);
     const parts = [];
     if (c.layers) {
-      // Layer files share the project's name: show only what tells them apart (GTL, GP3).
+      // Altium names layers <project>.GTL, .GP3…: when they all share that stem, the extension is
+      // what tells them apart. Otherwise (DT-1042_Copper_Top.gbr) the whole name does.
       const names = c.layers.map(l => l.layer.split(/[\\/]/).pop());
-      let pre = names.length > 1 ? names.reduce((p, x) => { while (x.indexOf(p) !== 0) p = p.slice(0, -1); return p; }) : names.length ? names[0].replace(/[^._-]*$/, '') : '';
-      pre = pre.replace(/[^._-]*$/, '');
-      const short = names.map(x => x.slice(pre.length) || x);
+      const stem = x => x.lastIndexOf('.') > 0 ? x.slice(0, x.lastIndexOf('.')) : null;
+      const same = names.length > 1 && stem(names[0]) && names.every(x => stem(x) === stem(names[0]));
+      const short = same ? names.map(x => x.slice(stem(x).length + 1)) : names;
       parts.push(names.length ? n(names.length, 'layer', 'layers') + ' changed (' + short.slice(0, 6).join(', ') + (short.length > 6 ? `, +${short.length - 6} more` : '') + ')' : 'Gerbers same');
     }
     for (const [k, one, many] of [['bom', 'BOM line', 'BOM lines'], ['placements', 'placement', 'placements'], ['drill', 'drill hit', 'drill hits']]) {

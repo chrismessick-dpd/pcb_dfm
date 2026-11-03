@@ -139,10 +139,24 @@
   function cleanRelease(r) {
     if (!r || typeof r !== 'object' || !/^l[a-z0-9]+$/.test(r.id) || typeof r.label !== 'string') return null;
     if (!r.package || !HEX.test(r.package.sha256 || '') || !/^[0-9a-f]{16}$/.test(r.package.key || '')) return null;
-    if (!Array.isArray(r.files) || !r.files.every(f => f && typeof f.path === 'string' && !/(^|\/)\.\.(\/|$)/.test(f.path) && HEX.test(f.sha256 || ''))) return null;
+    // File paths become entry names in a zip that goes to a fab house: relative, forward slashes only.
+    const okPath = p => typeof p === 'string' && p && !/(^|\/)\.\.(\/|$)|^[\/\\]|\\|:/.test(p);
+    if (!Array.isArray(r.files) || !r.files.every(f => f && okPath(f.path) && HEX.test(f.sha256 || ''))) return null;
     if (!r.download || !HEX.test(r.download.sha256 || '') || !/^\d{4}-\d{2}-\d{2}$/.test(r.download.date || '')) return null;
     const str = v => typeof v === 'string' ? v : '';
+    const num = v => +v || 0;
+    const cnt = v => v == null ? null : num(v);
+    const c = r.changes && typeof r.changes === 'object' ? r.changes : null;
+    const changes = c && {
+      base: /^l[a-z0-9]+$/.test(c.base || '') ? c.base : null,
+      layers: Array.isArray(c.layers) ? c.layers.filter(l => l && typeof l.layer === 'string').map(l => ({ layer: l.layer, status: str(l.status), added: num(l.added), removed: num(l.removed) })) : null,
+      bom: cnt(c.bom), placements: cnt(c.placements), drill: cnt(c.drill),
+      findings: c.findings && typeof c.findings === 'object' ? { fixed: num(c.findings.fixed), new: num(c.findings.new), same: num(c.findings.same) } : undefined,
+    };
+    const s = r.summary && typeof r.summary === 'object' ? { error: num(r.summary.error), warn: num(r.summary.warn), info: num(r.summary.info) } : null;
     return Object.assign({}, r, {
+      package: { key: r.package.key, sha256: r.package.sha256, name: str(r.package.name) || 'package', size: num(r.package.size) },
+      changes, summary: s, project: undefined, stored: undefined,
       title: str(r.title), notes: str(r.notes), by: str(r.by), updatedBy: str(r.updatedBy), at: str(r.at), updatedAt: str(r.updatedAt) || str(r.at),
       status: ['candidate', 'sent', 'built', 'withdrawn'].includes(r.status) ? r.status : 'sent',
       fab: { house: str((r.fab || {}).house), sentAt: str((r.fab || {}).sentAt), ref: str((r.fab || {}).ref) },
