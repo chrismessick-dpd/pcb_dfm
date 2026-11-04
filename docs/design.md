@@ -519,7 +519,8 @@ when both are served from the tools folder.
 - **Review notes are one issue each** (group key `note|<note id>`, issue id from the note id, so a
   severity change updates the same issue), titled "Review note: <title>", with the author, location,
   side and full text in the hint. Unlike other info findings, Info notes are sent too, as Minor
-  (Chris, 2026-11-03); Send's list has an "Info notes" box beside Errors and Warnings. A deleted note
+  (Chris, 2026-11-03); Send's list has a "Review notes" box (every note, any severity) beside Errors and Warnings, which
+  then cover the checks' issues only (`sendKind`). A deleted note
   gets the "no longer found" comment, worded for a note.
 - **Stable ids** per project and check (`xfc…`). Sending again updates the same issue (the reviewer's
   status and resolution are kept) and adds a comment with the new count. Issues that a later run no

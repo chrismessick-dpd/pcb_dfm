@@ -1114,16 +1114,19 @@
 
   // The issues Send would write, one row each: what Signoff will show, where it goes, whether it's
   // new, and its findings (the first 25, as in the issue's hint) under a fold.
+  // Which "all of this kind" box on Send's list an issue belongs to.
+  const sendKind = g => g.note ? 'notes' : g.severity;
   function signoffListHtml(e, pv, skip) {
     const says = { new: 'New issue', deleted: 'Re-raises a deleted issue', update: 'Updates the issue sent before' };
     const all = pv.rows.every(r => !skip.has(r.group.key));
     // All issues, or all errors / all warnings: ticked when every issue of that kind is picked.
+    // Errors and Warnings are the checks' issues; Review notes are the reviewers' notes, of any severity.
     const sevBox = (sev, label) => {
-      const rows = pv.rows.filter(r => r.group.severity === sev);
+      const rows = pv.rows.filter(r => sendKind(r.group) === sev);
       if (!rows.length) return '';
       return `<label class="so-all"><input type="checkbox" id="so-${sev}" data-act="signoff-sev" data-sev="${sev}"${rows.every(r => !skip.has(r.group.key)) ? ' checked' : ''}> ${label} (${rows.length})</label>`;
     };
-    let h = `<div class="so-list"><div class="so-alls"><label class="so-all"><input type="checkbox" id="so-all" data-act="signoff-all"${all ? ' checked' : ''}> All issues</label>${sevBox('error', 'Errors')}${sevBox('warn', 'Warnings')}${sevBox('info', 'Info notes')}</div>`;
+    let h = `<div class="so-list"><div class="so-alls"><label class="so-all"><input type="checkbox" id="so-all" data-act="signoff-all"${all ? ' checked' : ''}> All issues</label>${sevBox('error', 'Errors')}${sevBox('warn', 'Warnings')}${sevBox('notes', 'Review notes')}</div>`;
     pv.rows.forEach((r, i) => {
       const g = r.group, n = g.list.length, on = !skip.has(g.key);
       h += `<div class="so-row${on ? '' : ' off'}"><input type="checkbox" id="so-${i}" data-act="signoff-pick" data-key="${esc(g.key)}"${on ? ' checked' : ''}>` +
@@ -2186,8 +2189,8 @@
       if (ev.target.matches('[data-act="signoff-pick"], [data-act="signoff-all"], [data-act="signoff-sev"]')) {
         if (ev.target.dataset.act === 'signoff-all') e.signoffSkip = new Set(ev.target.checked ? [] : Fab.signoff.plan(e.findings).map(g => g.key));
         else if (ev.target.dataset.act === 'signoff-sev') {
-          // Every issue of one severity (Errors, Warnings) in or out; the others stay as they are.
-          for (const g of Fab.signoff.plan(e.findings)) if (g.severity === ev.target.dataset.sev) e.signoffSkip[ev.target.checked ? 'delete' : 'add'](g.key);
+          // Every issue of one kind (Errors, Warnings, Review notes) in or out; the others stay as they are.
+          for (const g of Fab.signoff.plan(e.findings)) if (sendKind(g) === ev.target.dataset.sev) e.signoffSkip[ev.target.checked ? 'delete' : 'add'](g.key);
         } else e.signoffSkip[ev.target.checked ? 'delete' : 'add'](ev.target.dataset.key);
         // Keep focus on the box, so the next one is a Tab away.
         const id = ev.target.id;
