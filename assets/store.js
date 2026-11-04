@@ -96,7 +96,8 @@
     return fs.map(f => {
       const o = { id: f.id, category: f.category, check: f.check, severity: f.severity, title: f.title, detail: f.detail };
       if (f.at) o.at = f.at.dia != null ? { x: f.at.x, y: f.at.y, dia: f.at.dia } : { x: f.at.x, y: f.at.y };
-      for (const k of ['bbox', 'layer', 'value', 'limit', 'refs', 'side', 'row']) if (f[k] != null) o[k] = f[k];
+      // author and created: review notes (category Review), placed by a person rather than a check.
+      for (const k of ['bbox', 'layer', 'value', 'limit', 'refs', 'side', 'row', 'author', 'created']) if (f[k] != null) o[k] = f[k];
       return o;
     });
   }
@@ -105,7 +106,9 @@
 
   function runRecord(entry, pkgRec, settings) {
     const c = { error: 0, warn: 0, info: 0 };
-    for (const f of entry.findings) c[f.severity]++;
+    // The checks' findings only: review notes come and go after the run, and a re-run of the same
+    // package must still match this summary.
+    for (const f of entry.findings) if (f.category !== 'Review') c[f.severity]++;
     const by = ((() => { try { return JSON.parse(localStorage.getItem(Fab.signoffNs + 'settings') || '{}'); } catch (e) { return {}; } })().user) || '';
     return {
       id: newId(), at: new Date().toISOString(), by,

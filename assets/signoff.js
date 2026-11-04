@@ -26,7 +26,9 @@
     for (const c of projectId + '|' + check + '|' + severity) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); }
     return 'xfc' + (h >>> 0).toString(36);
   }
-
+  // A group's issue id: one per check and severity, or one per review note (its own id, whatever its
+  // severity becomes).
+  const groupId = (projectId, g) => g.note ? stableId(projectId, 'note:' + g.note, 'note') : stableId(projectId, g.check, g.severity);
   // Fab checklist section for a finding (fab.json section ids and titles).
   const SECTIONS = { 'g-fil': 'Fab Package & Gerber Files', 'f-drl': 'Drill, Vias & Plating', 'f-msk': 'Solder Mask & Silkscreen', 'g-drc': 'Final DRC & DFM', 'g-rel': 'Release & Version Control' };
   function sectionFor(f) {
@@ -44,13 +46,16 @@
   }
 
   // Group errors and warnings by check and severity. `key` (check|severity) names a group across
-  // re-runs, the way stableId does in a project.
+  // re-runs, the way stableId does in a project. A review note is a group of its own (`note`: its id),
+  // so each becomes its own Signoff issue. Info findings stay in Fabcheck, except review notes: a
+  // reviewer wrote those to be read, so Info notes go too (as Minor).
   function plan(findings) {
     const groups = new Map();
     for (const f of findings) {
-      if (f.severity === 'info' || f.check === 'internal') continue;
-      const k = f.check + '|' + f.severity;
-      if (!groups.has(k)) groups.set(k, { key: k, check: f.check, severity: f.severity, category: f.category, list: [] });
+      if ((f.severity === 'info' && f.category !== 'Review') || f.check === 'internal') continue;
+      const note = f.category === 'Review' ? f.id : null;
+      const k = note ? 'note|' + note : f.check + '|' + f.severity;
+      if (!groups.has(k)) groups.set(k, { key: k, check: f.check, severity: f.severity, category: f.category, note, list: [] });
       groups.get(k).list.push(f);
     }
     return [...groups.values()].sort((a, b) => (a.severity === 'error' ? 0 : 1) - (b.severity === 'error' ? 0 : 1) || b.list.length - a.list.length);
@@ -58,6 +63,7 @@
 
   // The Signoff issue's title for a group.
   function issueText(g) {
+    if (g.note) return `Review note: ${g.list[0].title}`;
     const n = g.list.length;
     return `Fabcheck: ${g.list[0].title.replace(/^…/, '')}${n > 1 ? ` (+${n - 1} more)` : ''}`;
   }
@@ -71,7 +77,7 @@
     if (!p) return null;
     const custom = p.custom || {}, items = p.items || {};
     const rows = groups.map(g => {
-      const id = stableId(p.id, g.check, g.severity), c = custom[id];
+      const id = groupId(p.id, g), c = custom[id];
       return { group: g, id, text: issueText(g), section: SECTIONS[sectionFor(g.list[0])], severity: g.severity === 'error' ? 'major' : 'minor',
         state: !c ? 'new' : c.deleted ? 'deleted' : 'update', resolution: c && !c.deleted ? (items[id] || {}).resolution || '' : '' };
     });
@@ -101,20 +107,22 @@
     const dirty = load('dirty', {});
     const who = user(), t = now();
     p.custom = p.custom || {}; p.items = p.items || {}; p.comments = p.comments || {};
-    const seen = new Set(groups.map(g => stableId(p.id, g.check, g.severity)));
+    const seen = new Set(groups.map(g => groupId(p.id, g)));
     const picked = groups.filter(g => !(skip && skip.has(g.key)));
     let created = 0, updated = 0, resolvedNotes = 0;
     const comment = (item, text) => { const id = uid('c'); p.comments[id] = stamp({ id, item, author: who, at: t, text }, who); };
     // Signoff names the revision a run is tagged as; Fabcheck names the package it checked.
     const on = source.label;
     for (const g of picked) {
-      const id = stableId(p.id, g.check, g.severity);
+      const id = groupId(p.id, g);
       const first = g.list[0];
       const n = g.list.length;
       const text = issueText(g);
       const lines = g.list.slice(0, 25).map(f => `• ${f.title}${where(f)}`);
       if (n > 25) lines.push(`• … ${n - 25} more`);
-      const hint = `${n} ${g.severity === 'error' ? 'error' : 'warning'}${n === 1 ? '' : 's'} from Fabcheck check "${g.check}" on ${on}${source.sha ? ' (SHA-256 ' + source.sha.slice(0, 12) + '…)' : ''}${source.profileName ? ', fab profile "' + source.profileName + '"' : ''}.\n${first.detail || ''}\n\n${lines.join('\n')}`;
+      const hint = g.note
+        ? `Review note${first.author ? ' by ' + first.author : ''} on ${on}, placed on the board in Fabcheck${where(first)}${first.side ? ', ' + first.side + ' side' : ''}.\n\n${first.title.endsWith('…') && first.detail ? first.detail : [first.title, first.detail].filter(Boolean).join('\n')}`
+        : `${n} ${g.severity === 'error' ? 'error' : 'warning'}${n === 1 ? '' : 's'} from Fabcheck check "${g.check}" on ${on}${source.sha ? ' (SHA-256 ' + source.sha.slice(0, 12) + '…)' : ''}${source.profileName ? ', fab profile "' + source.profileName + '"' : ''}.\n${first.detail || ''}\n\n${lines.join('\n')}`;
       const refs = [...new Set(g.list.flatMap(f => f.refs || []))].slice(0, 40).join(', ');
       const severity = g.severity === 'error' ? 'major' : 'minor';
       const existing = p.custom[id];
@@ -126,19 +134,19 @@
       const prev = p.items[id] || {};
       if (!existing || existing.deleted) {
         p.items[id] = stamp(Object.assign({}, prev, { status: 'issue', severity, resolution: '', ref: refs, text, checklist: 'fab' }), who);
-        comment(id, `Raised by Fabcheck from ${on}: ${n} finding${n === 1 ? '' : 's'}.`);
+        comment(id, g.note ? `Review note from Fabcheck on ${on}.` : `Raised by Fabcheck from ${on}: ${n} finding${n === 1 ? '' : 's'}.`);
         created++;
       } else {
         // Keep the reviewer's status and resolution; refresh the wording and say what the new run saw.
         p.items[id] = stamp(Object.assign({}, prev, { text, ref: refs || prev.ref, checklist: 'fab' }), who);
-        comment(id, `Fabcheck re-run on ${on}: still ${n} finding${n === 1 ? '' : 's'}.`);
+        comment(id, g.note ? `Review note sent again from Fabcheck on ${on}.` : `Fabcheck re-run on ${on}: still ${n} finding${n === 1 ? '' : 's'}.`);
         updated++;
       }
     }
     // Issues Fabcheck raised before that this run no longer finds.
     for (const id of goneIds(p, seen)) {
       const c = p.custom[id];
-      comment(id, `Fabcheck re-run on ${on}: no longer found. Mark it Fixed if that is expected.`);
+      comment(id, c.source.check === 'note' ? `Review note no longer in Fabcheck's run on ${on} (deleted). Mark it Fixed if that is expected.` : `Fabcheck re-run on ${on}: no longer found. Mark it Fixed if that is expected.`);
       p.custom[id] = stamp(Object.assign({}, c, { source: Object.assign({}, c.source, { gone: true }) }), who);
       resolvedNotes++;
     }

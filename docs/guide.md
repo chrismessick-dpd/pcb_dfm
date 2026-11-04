@@ -37,6 +37,12 @@ is uploaded.
    the **Board**, with its layer turned on. **Board** draws the board (drag to pan; scroll, or pinch on a phone or tablet, to zoom; the up and down arrow keys step through its findings list): click a finding and it zooms to the spot (or click a mark on the board to pick out its finding in the list), fading the layers above it so
    inner-layer problems stay visible. **Realistic** shows the board as it will be built: green mask,
    gold pads and white silkscreen.
+   To add your own finding, press the speech-bubble button at the top right of the board, then click
+   the spot. Pick **Error**, **Warning** or **Info**, write the note (the first line is its title) and
+   press **Post** (or Ctrl+Enter; Esc cancels). Review notes are listed under **Review notes** with the
+   checks' findings, show on the board as bubbles on the side they were placed, are kept with the run
+   (also through **Run checks again**), and go to Signoff EE as one issue each when you send, Info
+   notes included (as Minor). Open a note's detail to delete it.
 3. Pick a **fab profile**: *Prototype*, *Standard* or *Advanced (HDI-lite)*. Each is a set of
    typical industry limits, with their sources documented. Or make your own for a specific fab
    house on the **Fab rules** page: copy a profile, adjust the limits, and note the fab's

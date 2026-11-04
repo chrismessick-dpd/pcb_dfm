@@ -200,13 +200,29 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .board { position: relative; min-width: 0; background: var(--canvas-bg); }
 .board canvas { display: block; touch-action: none; cursor: grab; }
 .board canvas:active { cursor: grabbing; }
-.board-hud { position: absolute; top: 12px; left: 12px; display: flex; gap: 8px; }
+.board-hud { position: absolute; top: 12px; left: 12px; right: 64px; display: flex; flex-wrap: wrap; gap: 8px; pointer-events: none; }
+.board-hud > * { pointer-events: auto; }
 .board-hud .seg { background: rgba(40, 40, 44, 0.72); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
 .board-hud .seg button { color: rgba(255, 255, 255, 0.72); }
 .board-hud .seg button:hover { color: #fff; }
 .board-hud .seg button.on { background: rgba(255, 255, 255, 0.18); color: #fff; box-shadow: none; }
 .coords { position: absolute; right: 12px; bottom: 10px; color: rgba(255, 255, 255, 0.78); font: 11px var(--mono); background: rgba(40, 40, 44, 0.6); padding: 3px 8px; border-radius: 6px; }
-.tip { position: absolute; right: 12px; top: 12px; max-width: 320px; color: #fff; background: rgba(29, 29, 31, 0.9); backdrop-filter: blur(14px); padding: 9px 12px; border-radius: 12px; font-size: 12.5px; display: none; box-shadow: var(--shadow-lg); }
+/* Review notes: the button at the top right, placing mode, and the composer beside its pin */
+.board-hud-r { left: auto; right: 12px; }
+.board-hud-r .seg button { display: grid; place-items: center; padding: 4px 9px; }
+.board-hud-r svg { width: 17px; height: 17px; display: block; }
+.board-hud-r .seg button:disabled { opacity: 0.4; cursor: default; }
+.board.placing canvas, .board.placing canvas:active { cursor: crosshair; }
+.note-pop { position: absolute; z-index: 5; width: 280px; padding: 10px; border-radius: 12px; background: var(--bg-elev); color: var(--text); box-shadow: var(--shadow-lg); border: 1px solid var(--hair); display: flex; flex-direction: column; gap: 8px; }
+.note-pop[hidden] { display: none; }
+.note-pop .np-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--text-2); }
+.note-pop .seg { width: 100%; display: flex; }
+.note-pop .seg button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.note-pop textarea { width: 100%; min-height: 76px; resize: vertical; font: inherit; font-size: 13px; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--hair); background: var(--bg); color: var(--text); box-sizing: border-box; }
+.note-pop textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+.note-pop .np-foot { display: flex; justify-content: flex-end; gap: 6px; align-items: center; }
+.note-pop .np-foot .np-key { margin-right: auto; font-size: 11px; color: var(--text-3); }
+.tip { position: absolute; right: 12px; top: 54px; max-width: 320px; color: #fff; background: rgba(29, 29, 31, 0.9); backdrop-filter: blur(14px); padding: 9px 12px; border-radius: 12px; font-size: 12.5px; display: none; box-shadow: var(--shadow-lg); }
 .rail { border-left: 1px solid var(--hair); background: var(--bg-elev); display: flex; flex-direction: column; min-height: 0; }
 .rail-head { padding: 12px 14px 10px; border-bottom: 1px solid var(--hair); display: flex; flex-direction: column; gap: 8px; }
 .rail-list { overflow-y: auto; flex: 1; padding: 4px 6px 24px; }

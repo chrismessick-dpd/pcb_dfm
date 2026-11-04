@@ -480,6 +480,19 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
   - **Realistic** draws the visible side as built: laminate, copper under green mask, gold finish where
     the mask opens over copper, silkscreen clipped at the openings, and the holes. Same painter as the
     checks. A finding on an inner layer switches back to the layer view.
+  - **Review notes** (category `Review`, check `note`). The speech-bubble button at the board's top
+    right (`#note-btn`, its own right-anchored HUD; the left HUD wraps before it) arms placing
+    (`state.placing`, crosshair cursor); the next click on the board, not a drag, opens the composer
+    (`#note-pop`: severity, text, Post) beside a pin, kept beside it as the board pans and zooms
+    (`drawNoteDraft`). Esc or changing side or package drops it. A note is an ordinary finding:
+    `id` `n…` (not `Fab.finding`'s per-session counter), the first line as `title` (cut at 90
+    characters), the rest as `detail`, `at`, `side` (the side it was placed on; no layer), `author`
+    (Signoff's user name) and `created`. Posting turns on its severity and clears a category,
+    linked-check or search filter that would hide it. Notes are drawn as speech bubbles in their
+    severity's color, are kept through a re-run (`runChecks` sets them aside), and are written to the
+    kept run with `store.updateRun` (a run opened from Signoff and not yet kept is saved under its own
+    id). The run's `summary`, the re-run comparison and the Revisions findings delta count the checks'
+    findings only. The inspector shows author and time and has **Delete note**; there is no edit yet.
 - **Assembly / BOM / Files.** Tables, including ODB++ placement status.
 - **Revisions.** The board's fab releases (`docs/releases.md`), then a compare against a baseline: an
   open package, a release or a run kept in this browser. A one-line change scope and the findings
@@ -503,6 +516,11 @@ when both are served from the tools folder.
   Release checklist, with every location in its hint. It is mapped to a section: Fab Package & Gerber
   Files, Drill/Vias & Plating, Solder Mask & Silkscreen, Final DRC & DFM, or Release & Version Control.
   Errors become Major, warnings Minor.
+- **Review notes are one issue each** (group key `note|<note id>`, issue id from the note id, so a
+  severity change updates the same issue), titled "Review note: <title>", with the author, location,
+  side and full text in the hint. Unlike other info findings, Info notes are sent too, as Minor
+  (Chris, 2026-11-03); Send's list has an "Info notes" box beside Errors and Warnings. A deleted note
+  gets the "no longer found" comment, worded for a note.
 - **Stable ids** per project and check (`xfc…`). Sending again updates the same issue (the reviewer's
   status and resolution are kept) and adds a comment with the new count. Issues that a later run no
   longer finds get one "no longer found" comment.

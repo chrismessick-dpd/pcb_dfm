@@ -151,6 +151,12 @@ pushed). Read `docs/signoff-revisions.md` first; `docs/releases.md` is the histo
   - the EE demo's runs and revision;
   - Signoff PL reading `summary.revisions`.
 
+Review notes (2026-11-03, pushed to `main`): a speech-bubble button at the board's top right places a
+reviewer's note (error, warning or info) on a spot of the board. Notes are findings in a new `Review`
+category (`check: 'note'`), kept with the run and through re-runs, left out of the run summary and the
+Revisions delta, and sent to Signoff EE as one issue each (Info notes too, as Minor). See *Review notes* in `docs/design.md`.
+Open: editing a note; notes don't carry over to a new run of the same package opened afresh.
+
 Open:
 - Not built yet: acid traps (needs a trace graph), text-height check, microvia/HDI profile, revision
   Gerber diff beyond what `revisions.js` does, ODB++ archive vs folder equality.

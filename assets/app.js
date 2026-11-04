@@ -25,6 +25,8 @@
     ['Assembly', 'Build & assembly', 'Pick-and-place, BOM, ODB++, variant and stencil'],
     ['BOM', 'BOM audit', 'Part numbers, descriptions, manufacturers and lifecycle'],
     ['DFM', 'Fabrication DFM', 'Traces, drills, rings, edge, mask and silkscreen'],
+    // Placed on the board by a reviewer (the note button on the board), not found by a check.
+    ['Review', 'Review notes', 'Notes placed on the board by reviewers'],
   ];
   const COLORS = {
     copper: { top: '#e8a33d', bottom: '#4f8ff7', inner: ['#30c48d', '#c46ee0', '#e0d24f', '#5ad1e6', '#ef7a7a', '#9fa8ff'] },
@@ -34,7 +36,8 @@
 
   const state = {
     pkgs: [], active: null, view: 'overview', filter: { error: true, warn: true, info: false }, cat: null, q: '',
-    closed: new Set(), sel: null, showPnp: true, profile: 'standard', thickness: 1.6,
+    closed: new Set(), sel: null, showPnp: true,
+    placing: false, draft: null, // review notes: waiting for a click on the board; the note being written profile: 'standard', thickness: 1.6,
     repoProbe: new Map(), // per Signoff project id: write access to its repo
     baseCache: new Map(), // Revisions baselines read from kept runs, by key
   };
@@ -257,6 +260,8 @@
     const pkg = entry.pkg;
     const prof = profile(entry);
     entry.status = 'running';
+    // Review notes are a reviewer's, not the checks': they stay through a re-run.
+    const notes = entry.findings.filter(f => f.category === 'Review');
     entry.findings = [];
     if (reason) log(entry, 'step', reason);
     entry.stage = { module: 'package', label: null };
@@ -353,6 +358,7 @@
     const n = s => entry.findings.filter(f => f.severity === s).length;
     setProgress(entry, 1);
     log(entry, 'done', `Done in ${((performance.now() - t0) / 1000).toFixed(1)} s: ${plural(n('error'), 'error')}, ${plural(n('warn'), 'warning')}, ${n('info')} info`);
+    entry.findings.push(...notes);
     entry.status = 'ready';
     run.fx = 'exit';
     entry.revCache = null;
@@ -414,7 +420,7 @@
     f.id = String(f.id == null ? '' : f.id);
     f.severity = SEVS.includes(f.severity) ? f.severity : 'info';
     if (!CATS.some(c => c[0] === f.category)) f.category = 'Package';
-    for (const k of ['check', 'title', 'detail', 'layer', 'side']) if (f[k] != null && typeof f[k] !== 'string') f[k] = String(f[k]);
+    for (const k of ['check', 'title', 'detail', 'layer', 'side', 'author', 'created']) if (f[k] != null && typeof f[k] !== 'string') f[k] = String(f[k]);
     if (f.at && !(finite(f.at.x) && finite(f.at.y))) delete f.at;
     if (f.bbox && !(Array.isArray(f.bbox) && f.bbox.length === 4 && f.bbox.every(finite))) delete f.bbox;
     if (f.refs != null) f.refs = Array.isArray(f.refs) ? f.refs.map(String) : [];
@@ -781,6 +787,7 @@
     h += `<div class="grid grid-4${stageHtml ? ' after-stage' : ''}">${stat('issue', c.error, 'Errors', 'error')}${stat('warn', c.warn, 'Warnings', 'warn')}${stat('info', c.info, 'Info', 'info')}<div class="card stat"><div class="stat-num">${pkg ? pkg.files.length : '–'}</div><div class="stat-label">Files in package</div></div></div>`;
     h += `<div class="section-title">Checks</div><div class="grid grid-3">`;
     for (const [cat, title, desc] of CATS) {
+      if (cat === 'Review' && !e.findings.some(f => f.category === cat)) continue;
       const fs = e.findings.filter(f => f.category === cat), cc = counts(fs), tot = fs.length || 1;
       h += `<button class="card cl-card cat-card" data-act="cat" data-cat="${cat}"><div class="cl-card-top"><div><div class="cl-card-title">${title}</div><div class="cl-card-desc">${desc}</div></div>` +
         `<span class="dot ${busy ? '' : cc.error ? 'error' : cc.warn ? 'warn' : 'ok'}" style="margin-top:6px"></span></div>` +
@@ -989,9 +996,10 @@
     const pv = Fab.signoff.preview(e.signoffSlug, groups);
     const picked = pv.rows.filter(r => !skip.has(r.group.key));
     const major = picked.filter(r => r.severity === 'major').length, fresh = picked.filter(r => r.state !== 'update').length;
-    const sevs = [major && `${major} Major from errors`, picked.length - major && `${picked.length - major} Minor from warnings`].filter(Boolean).join(', ');
+    const infoNotes = picked.some(r => r.group.severity === 'info');
+    const sevs = [major && `${major} Major from errors`, picked.length - major && `${picked.length - major} Minor from warnings${infoNotes ? ' and Info notes' : ''}`].filter(Boolean).join(', ');
     const news = [fresh && `${fresh} new`, picked.length - fresh && `${picked.length - fresh} updating ${picked.length - fresh === 1 ? 'an issue' : 'issues'} sent before`].filter(Boolean).join(', ');
-    const issues = !groups.length ? 'No errors or warnings to send; earlier Fabcheck issues get a "no longer found" note.' : picked.length ? `Sends ${picked.length < groups.length ? picked.length + ' of ' : ''}${plural(groups.length, 'issue')} to the Fabrication &amp; Release checklist (${sevs}; ${news}).` : `No issues picked, so none are sent (${plural(groups.length, 'issue')} available)${Fab.repoRuns ? '; sending still stores the run and its fab package' : ''}, and earlier issues for these checks stay as they are.`;
+    const issues = !groups.length ? 'No errors, warnings or review notes to send; earlier Fabcheck issues get a "no longer found" note.' : picked.length ? `Sends ${picked.length < groups.length ? picked.length + ' of ' : ''}${plural(groups.length, 'issue')} to the Fabrication &amp; Release checklist (${sevs}; ${news}).` : `No issues picked, so none are sent (${plural(groups.length, 'issue')} available)${Fab.repoRuns ? '; sending still stores the run and its fab package' : ''}, and earlier issues for these checks stay as they are.`;
     h += `<p style="margin:0 0 12px;color:var(--text-2)">${issues} Sending again updates the same issues and keeps the reviewer's status. ${Fab.DEMO ? 'In this demo they go to the Signoff EE demo in this browser.' : "Signoff's Sync then pushes the issues, and its Revisions tab lists the stored run, where it can be tagged and downloaded."}</p>
       <div class="filters" style="margin:0"><label class="tb-field" style="font-size:13px">Project <select data-act="signoff-project">${projects.map(p => `<option value="${esc(p.slug)}"${p.slug === e.signoffSlug ? ' selected' : ''}>${esc(p.meta.name)}${p.meta.board ? ' · ' + esc(p.meta.board) : ''}${(p.meta.checklists || []).includes('fab') ? '' : ' (no Fab checklist)'}</option>`).join('')}</select></label>
       <button class="btn btn-primary" data-act="signoff-send"${e.signoffBusy ? ' disabled' : ''}>${e.signoffBusy ? 'Storing…' : 'Send to Signoff EE'}</button><button class="btn so-toggle${e.signoffOpen ? ' open' : ''}" data-act="signoff-details" aria-expanded="${!!e.signoffOpen}">Details${ICON.chev}</button>${e.signoffResult ? `<a class="btn btn-plain" href="${Fab.demoHref('../ee_design_review/index.html')}">Open Signoff EE</a>` : ''}</div>`;
@@ -1115,13 +1123,13 @@
       if (!rows.length) return '';
       return `<label class="so-all"><input type="checkbox" id="so-${sev}" data-act="signoff-sev" data-sev="${sev}"${rows.every(r => !skip.has(r.group.key)) ? ' checked' : ''}> ${label} (${rows.length})</label>`;
     };
-    let h = `<div class="so-list"><div class="so-alls"><label class="so-all"><input type="checkbox" id="so-all" data-act="signoff-all"${all ? ' checked' : ''}> All issues</label>${sevBox('error', 'Errors')}${sevBox('warn', 'Warnings')}</div>`;
+    let h = `<div class="so-list"><div class="so-alls"><label class="so-all"><input type="checkbox" id="so-all" data-act="signoff-all"${all ? ' checked' : ''}> All issues</label>${sevBox('error', 'Errors')}${sevBox('warn', 'Warnings')}${sevBox('info', 'Info notes')}</div>`;
     pv.rows.forEach((r, i) => {
       const g = r.group, n = g.list.length, on = !skip.has(g.key);
       h += `<div class="so-row${on ? '' : ' off'}"><input type="checkbox" id="so-${i}" data-act="signoff-pick" data-key="${esc(g.key)}"${on ? ' checked' : ''}>` +
         `<div><label class="item-text" for="so-${i}">${esc(r.text)}</label>` +
         `<div class="item-sub"><span class="sev ${r.severity}">${r.severity === 'major' ? 'Major' : 'Minor'}</span>${checkTag(g.list[0])}<span>${esc(r.section)}</span><span>${says[r.state]}${r.resolution ? ` <span class="res ${r.resolution}">${r.resolution === 'fixed' ? 'Fixed' : 'Waived'}</span>` : ''}</span></div>` +
-        `<details class="so-locs" data-key="${esc(g.key)}"${e.signoffShown && e.signoffShown.has(g.key) ? ' open' : ''}><summary>${plural(n, g.severity === 'error' ? 'error' : 'warning')}</summary><ul>` +
+        `<details class="so-locs" data-key="${esc(g.key)}"${e.signoffShown && e.signoffShown.has(g.key) ? ' open' : ''}><summary>${g.note ? 'Review note' : plural(n, g.severity === 'error' ? 'error' : 'warning')}</summary><ul>` +
         g.list.slice(0, 25).map(f => { const w = whereText(f); return `<li>${esc(f.title)}${w || f.layer ? `<span class="muted"> · ${[w, f.layer].filter(Boolean).map(esc).join(', ')}</span>` : ''}</li>`; }).join('') +
         (n > 25 ? `<li class="muted">… ${n - 25} more</li>` : '') + `</ul></details></div></div>`;
     });
@@ -1196,11 +1204,15 @@
     if (where) kv.push(['Location', where + (f.side ? ' · ' + f.side : '')]);
     if (f.refs && f.refs.length) kv.push(['Designators', f.refs.slice(0, 40).join(', ') + (f.refs.length > 40 ? ' …' : '')]);
     if (f.row) kv.push(['BOM row', f.row]);
+    const note = f.category === 'Review';
+    if (note && f.author) kv.push(['By', f.author]);
+    if (note && f.created && !isNaN(Date.parse(f.created))) kv.push(['Added', new Date(f.created).toLocaleString()]);
     $('#inspector').innerHTML = `<div class="insp-head"><span class="insp-crumb">${esc(f.category)} · ${C.describe(f.category, f.check) ? `<a href="#" data-act="check-doc" data-key="${esc(f.category + '/' + f.check)}">${esc(f.check)}</a>` : esc(f.check)}</span><button class="icon-btn" data-act="close-insp" aria-label="Close">${ICON.close}</button></div>
       <div class="insp-body"><span class="pill ${f.severity === 'error' ? 'error' : f.severity === 'warn' ? 'warn' : 'accent'}">${{ error: 'Error', warn: 'Warning', info: 'Info' }[f.severity]}</span>
       <div class="insp-title">${esc(f.title)}</div>${f.detail ? `<div class="insp-detail">${esc(f.detail)}</div>` : ''}
       ${located(f) ? `<button class="insp-preview" data-act="show-on-board" data-id="${esc(f.id)}" aria-label="Open on the board"><span class="insp-prev-slot"></span><span class="insp-prev-layer"></span><span class="insp-prev-go">Open on board →</span></button>` : ''}
-      ${kv.length ? `<dl class="kv">${kv.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}</div>`;
+      ${kv.length ? `<dl class="kv">${kv.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}
+      ${note ? `<p style="margin-top:14px"><button class="btn" data-act="note-delete" data-id="${esc(f.id)}">Delete note</button></p>` : ''}</div>`;
     $('#inspector').classList.add('open');
     if (located(f)) showPreview(active(), f);
   }
@@ -1320,8 +1332,11 @@
       $('#coords').textContent = `X ${x.toFixed(3)}  Y ${y.toFixed(3)} mm`;
       viewer.canvas.style.cursor = markAt(x, y) ? 'pointer' : '';
     };
-    viewer.onClick = (x, y) => { const f = markAt(x, y); if (f) selectFinding(f); else pickPart(x, y); };
-    viewer.overlays.push({ draw: drawPlacements }, { draw: drawFindingMarks });
+    viewer.onClick = (x, y) => {
+      if (state.placing) { startNote(x, y); return; }
+      const f = markAt(x, y); if (f) selectFinding(f); else pickPart(x, y);
+    };
+    viewer.overlays.push({ draw: drawPlacements }, { draw: drawFindingMarks }, { draw: drawNoteDraft });
     return viewer;
   }
 
@@ -1329,6 +1344,10 @@
     const v = ensureViewer();
     if (v.pkg !== e.pkg) { v.layers = e.layers || (e.layers = layerEntries(e.pkg)); v.highlight = null; setSide('top', true); v.setPackage(e.pkg); }
     v.resize();
+    if (state.draft && state.draft.entry !== e.id) cancelNote();
+    const nb = $('#note-btn');
+    nb.disabled = e.status !== 'ready';
+    if (nb.disabled && state.placing) setPlacing(false);
     renderLayers(e);
     renderRail(e);
   }
@@ -1373,6 +1392,7 @@
 
   function setSide(side, quiet) {
     if (!viewer) return;
+    if (state.draft && state.draft.side !== side) cancelNote();
     viewer.view.flip = side === 'bottom';
     for (const b of $('#side-seg').children) b.classList.toggle('on', b.dataset.side === side);
     if (!quiet) {
@@ -1524,12 +1544,125 @@
       ctx.lineWidth = hot ? 3 : 2;
       const r = hot ? 9 : 6;
       ctx.beginPath();
+      // Review notes are speech bubbles, in their severity's color, with the tail on the spot.
+      if (f.category === 'Review') { noteBubble(ctx, x, y, hot ? 1.3 : 1); ctx.fillStyle = color[f.severity]; const a = ctx.globalAlpha; ctx.globalAlpha = a * 0.28; ctx.fill(); ctx.globalAlpha = a; }
       // Warnings are triangles, errors and info circles: the shape tells them apart without color.
-      if (f.severity === 'warn') { ctx.moveTo(x, y - r * 1.15); ctx.lineTo(x + r * 1.1, y + r * 0.75); ctx.lineTo(x - r * 1.1, y + r * 0.75); ctx.closePath(); }
+      else if (f.severity === 'warn') { ctx.moveTo(x, y - r * 1.15); ctx.lineTo(x + r * 1.1, y + r * 0.75); ctx.lineTo(x - r * 1.1, y + r * 0.75); ctx.closePath(); }
       else ctx.arc(x, y, r, 0, 2 * Math.PI);
       ctx.stroke();
     }
     ctx.restore();
+  }
+
+  // ── Review notes ──
+  // A reviewer's note on a spot of the board: a finding in the Review category, kept with the run
+  // (IndexedDB), shown and sent like the checks' findings. The button at the board's top right arms
+  // placing; the next click on the board opens the composer there.
+  const checksOnly = fs => fs.filter(f => f.category !== 'Review');
+  const NOTE_SEVS = [['error', 'Error'], ['warn', 'Warning'], ['info', 'Info']];
+  function noteBubble(ctx, x, y, k) {
+    // Body above the spot, tail down to it.
+    const w = 8 * k, t = y - 15 * k, b = y - 5 * k, r = 2.5 * k;
+    ctx.beginPath();
+    ctx.moveTo(x - w + r, t); ctx.lineTo(x + w - r, t); ctx.quadraticCurveTo(x + w, t, x + w, t + r);
+    ctx.lineTo(x + w, b - r); ctx.quadraticCurveTo(x + w, b, x + w - r, b);
+    ctx.lineTo(x + 3 * k, b); ctx.lineTo(x, y); ctx.lineTo(x - 3 * k, b);
+    ctx.lineTo(x - w + r, b); ctx.quadraticCurveTo(x - w, b, x - w, b - r);
+    ctx.lineTo(x - w, t + r); ctx.quadraticCurveTo(x - w, t, x - w + r, t);
+    ctx.closePath();
+  }
+  function setPlacing(on) {
+    state.placing = on;
+    const b = $('#note-btn');
+    b.classList.toggle('on', on); b.setAttribute('aria-pressed', String(on));
+    $('#board-wrap').classList.toggle('placing', on);
+    if (on) { $('#tip').style.display = 'none'; toast('Click the board where the note goes (Esc cancels)'); }
+  }
+  function startNote(x, y) {
+    const e = active();
+    setPlacing(false);
+    if (!e || e.status !== 'ready') return;
+    state.draft = { entry: e.id, x, y, side: viewer.view.flip ? 'bottom' : 'top', sev: 'warn', text: '' };
+    const pop = $('#note-pop');
+    pop.innerHTML = `<div class="np-head"><span>Review note · ${x.toFixed(2)}, ${y.toFixed(2)} mm · ${state.draft.side === 'top' ? 'Top' : 'Bottom'}</span><button class="icon-btn" data-act="note-cancel" aria-label="Cancel">${ICON.close}</button></div>` +
+      `<div class="seg" role="radiogroup" aria-label="Severity">${NOTE_SEVS.map(([k, l]) => `<button role="radio" data-act="note-sev" data-sev="${k}" class="${k === 'warn' ? 'on' : ''}" aria-checked="${k === 'warn'}"><span class="dot ${k}"></span>${l}</button>`).join('')}</div>` +
+      `<textarea id="note-text" placeholder="What should be looked at or changed here?" aria-label="Note"></textarea>` +
+      `<div class="np-foot"><span class="np-key">Ctrl+Enter posts</span><button class="btn btn-plain" data-act="note-cancel">Cancel</button><button class="btn btn-primary" data-act="note-post" disabled>Post</button></div>`;
+    pop.hidden = false;
+    viewer.draw();
+    $('#note-text').focus();
+  }
+  function cancelNote() {
+    state.draft = null;
+    const pop = $('#note-pop');
+    pop.hidden = true; pop.innerHTML = '';
+    if (viewer) viewer.draw();
+  }
+  // The pin of the note being written, with the composer kept beside it as the board pans and zooms.
+  function drawNoteDraft(ctx, v) {
+    const d = state.draft, pop = $('#note-pop');
+    if (!d || v !== viewer || pop.hidden) return;
+    const [x, y] = v.toScreen(d.x, d.y), dpr = v.dpr;
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    noteBubble(ctx, x, y, 1.3);
+    ctx.fillStyle = { error: '#ff453a', warn: '#ff9f0a', info: '#3fc1cf' }[d.sev];
+    ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.restore();
+    const W = pop.offsetWidth || 280, H = pop.offsetHeight || 200, m = 10;
+    let left = x + 16, top = y - 24;
+    if (left + W > v.W - m) left = x - 16 - W;
+    left = Math.max(m, Math.min(v.W - W - m, left));
+    top = Math.max(m, Math.min(v.H - H - m, top));
+    pop.style.left = left + 'px'; pop.style.top = top + 'px';
+  }
+  function noteUser() { try { return (JSON.parse(localStorage.getItem(Fab.signoffNs + 'settings') || '{}') || {}).user || ''; } catch (err) { return ''; } }
+  function postNote() {
+    const e = active(), d = state.draft;
+    const text = d ? d.text.trim() : '';
+    if (!e || !d || !text || d.entry !== e.id) return;
+    const line = text.split('\n')[0].trim(), title = line.length > 90 ? line.slice(0, 89).trimEnd() + '…' : line;
+    const f = {
+      id: 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6), category: 'Review', check: 'note', severity: d.sev,
+      // The title is the first line; the detail holds the rest, or all of it when the title was cut short.
+      title, detail: title === line ? text.slice(text.indexOf('\n') + 1 || text.length).trim() : text, at: { x: +d.x.toFixed(4), y: +d.y.toFixed(4) }, side: d.side,
+      author: noteUser(), created: new Date().toISOString(),
+    };
+    e.findings.push(f);
+    cancelNote();
+    // The new note must show: its severity on, and no filter that hides it.
+    state.filter[f.severity] = true;
+    if (state.cat && state.cat !== 'Review') state.cat = null;
+    if (state.focusCheck && state.focusCheck !== 'note') state.focusCheck = null;
+    if (state.q && !visibleFindings(e).includes(f)) state.q = '';
+    state.sel = f.id;
+    viewer.highlight = highlightOf(f); viewer.focusLayer = null;
+    renderAll();
+    persistNotes(e).then(ok => toast(ok ? 'Review note added' : 'Review note added for this session; it could not be kept in this browser'));
+  }
+  function deleteNote(e, id) {
+    const f = e && e.findings.find(x => x.id === id && x.category === 'Review');
+    if (!f || !confirm(`Delete the review note "${f.title}"?`)) return;
+    e.findings = e.findings.filter(x => x !== f);
+    if (state.sel === id) { state.sel = null; if (viewer) { viewer.highlight = null; viewer.focusLayer = null; } }
+    closeInspector();
+    renderAll();
+    persistNotes(e).then(ok => toast(ok ? 'Review note deleted' : 'Deleted for this session; the kept run could not be updated'));
+  }
+  // Write the run's findings back to its kept record. A run opened from Signoff isn't kept yet: keep it
+  // now, under its own id. Resolves false when that can't be done.
+  async function persistNotes(e) {
+    e.revCache = null;
+    if (!e.run) return false;
+    try {
+      if (await Fab.store.updateRun(e.run.id, { findings: Fab.store.compactFindings(e.findings) })) return true;
+      if (!e.files) return false;
+      if (!e.pkgRec) e.pkgRec = await Fab.store.packageRecord(e.files, e.files.source, e.label);
+      await Fab.store.saveRun(e.run, e.findings, e.pkgRec, { sentTo: e.sentTo || null });
+      state.keptRuns = null;
+      return true;
+    } catch (err) { console.error(err); return false; }
   }
 
   function pickPart(x, y) {
@@ -1761,7 +1894,7 @@
       }
       if (!c || c.busy) return h + `<div class="card" style="padding:18px;color:var(--text-3)">Reading the baseline…</div></div>`;
       if (c.error) { state.baseCache.delete(key); return h + `<div class="card" style="padding:18px;color:var(--warn)">Couldn't read the baseline: ${esc(c.error)}.</div></div>`; }
-      e.revCache = { key, res: Fab.revisions.compare(c.pkg, e.pkg), delta: c.findings && e.findings ? Fab.revisions.findingsDelta(c.findings, Fab.store.compactFindings(e.findings)) : null, label: c.label };
+      e.revCache = { key, res: Fab.revisions.compare(c.pkg, e.pkg), delta: c.findings && e.findings ? Fab.revisions.findingsDelta(checksOnly(c.findings), Fab.store.compactFindings(checksOnly(e.findings))) : null, label: c.label };
     }
     const r = e.revCache.res;
     h += scopeHtml(e.revCache);
@@ -1877,6 +2010,17 @@
       case 'board-finding': focusFinding(e.findings.find(f => f.id === t.dataset.id)); break;
       case 'fit': viewer.highlight = null; viewer.focusLayer = null; viewer.fit(); break;
       case 'pnp': state.showPnp = !state.showPnp; t.classList.toggle('on', state.showPnp); viewer.draw(); break;
+      case 'note-mode': if (e && e.status === 'ready') { cancelNote(); setPlacing(!state.placing); } break;
+      case 'note-cancel': cancelNote(); break;
+      case 'note-post': postNote(); break;
+      case 'note-delete': deleteNote(e, t.dataset.id); break;
+      case 'note-sev':
+        if (state.draft) {
+          state.draft.sev = t.dataset.sev;
+          for (const b of t.parentNode.children) { const on = b === t; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); }
+          viewer.draw();
+        }
+        break;
       case 'photo': viewer.photo = !viewer.photo; t.classList.toggle('on', viewer.photo); viewer.draw(); break;
       case 'layers-off': viewer.layers.forEach(l => { l.visible = false; }); renderLayers(e); viewer.draw(); break;
       case 'layers-fold': layersUi({ folded: !$('#board-view').classList.contains('layers-collapsed') }); renderLayers(e); break;
@@ -2061,6 +2205,7 @@
       if (ev.target.matches('[data-layer]')) { viewer.layers[+ev.target.dataset.layer].visible = ev.target.checked; viewer.draw(); }
     });
     document.addEventListener('input', ev => {
+      if (ev.target.id === 'note-text') { if (state.draft) state.draft.text = ev.target.value; $('#note-pop [data-act="note-post"]').disabled = !ev.target.value.trim(); return; }
       // Send's part number and revision keep what is typed, so a re-render (a log line) doesn't lose it.
       if (ev.target.matches('[data-rel]')) { const e = active(); if (e) verForm(e)[ev.target.dataset.rel] = ev.target.value; return; }
       if (ev.target.id === 'f-search' || ev.target.id === 'rail-search') {
@@ -2095,8 +2240,14 @@
       const first = drop.entries[0] || drop.files[0];
       openPackage(() => Fab.loader.fromDrop(drop), n === 1 ? first.name : plural(n, 'item'), waiting());
     });
+    // The composer's own keys: Ctrl+Enter (Cmd+Enter) posts, Esc drops the note.
+    $('#note-pop').addEventListener('keydown', ev => {
+      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); cancelNote(); }
+      else if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); postNote(); }
+    });
     document.addEventListener('keydown', ev => {
       if (ev.target.matches('input, select, textarea')) return;
+      if (ev.key === 'Escape' && (state.placing || state.draft)) { setPlacing(false); cancelNote(); return; }
       if (ev.key === 'Escape') closeInspector();
       // Board: up and down step through the findings list, in its order, each shown as if selected.
       if ((ev.key === 'ArrowDown' || ev.key === 'ArrowUp') && state.view === 'board' && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
