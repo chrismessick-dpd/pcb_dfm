@@ -121,8 +121,8 @@ Board previews (2026-11-01): storing a run also writes `preview/top.webp`, `bott
 flag: realistic look, transparent, no scale bar; written in `repo.js` `store`). Signoff PL shows
 them on its tiles. Contract: EE's `docs/fabcheck-link.md`, *Board previews*.
 
-Branch `release-tags` (2026-11-03, pushed, not merged): fab packages and the move of revisions to
-Signoff. Read `docs/signoff-revisions.md` first; `docs/releases.md` is the history (superseded).
+Fab packages, and revisions in Signoff (2026-11-03, merged to `main` from `release-tags` and
+pushed). Read `docs/signoff-revisions.md` first; `docs/releases.md` is the history (superseded).
 - **Send stores one commit:** the run record (with `package.zip`: path, SHA-256, size, root, and
   each file's original path and path in the zip), the fab package zip and the board pictures
   (`repo.js` `store`).
@@ -144,9 +144,12 @@ Signoff. Read `docs/signoff-revisions.md` first; `docs/releases.md` is the histo
 - **New info-only Package check `structure`:** two image formats, drill data in two formats, a
   drill file mixing plating, local paths in headers. The demo boards' errors and warnings are
   unchanged; info rose by one each, and EE's demo run record still says info 36.
-- **Next:** Signoff's Revisions tab, in `ee_design_review` on its own branch (by that repo's
-  session), per `docs/signoff-revisions.md`. Then a live Send with a real token. Merge only when
-  Chris says so.
+- **Signoff's Revisions tab** is merged and pushed too (EE, ME, FW; the engine is vendored into
+  Fabcheck and PL).
+- **Next:**
+  - a live Send with a real token;
+  - the EE demo's runs and revision;
+  - Signoff PL reading `summary.revisions`.
 
 Open:
 - Not built yet: acid traps (needs a trace graph), text-height check, microvia/HDI profile, revision
