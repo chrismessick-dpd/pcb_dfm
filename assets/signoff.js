@@ -166,7 +166,13 @@
     const all = load('projects', {});
     const slug = Object.keys(all).find(k => all[k].id === projectId);
     if (!slug) return false;
-    save('ui', Object.assign(load('ui', {}) || {}, { slug, view: 'findings' }));
+    // Opened from Signoff EE ("Open in Fabcheck"): go back to the tab it came from, and Signoff
+    // puts back the open check and the scroll (fabReturn, ee_design_review app.js). Otherwise
+    // (after a Send, say) the board's Findings tab.
+    const ret = load('fabReturn', null);
+    const view = ret && ret.project === projectId && typeof ret.view === 'string' && ret.view ? ret.view : 'findings';
+    if (view === 'findings') try { localStorage.removeItem(NS + 'fabReturn'); } catch (e) { /* storage blocked */ }
+    save('ui', Object.assign(load('ui', {}) || {}, { slug, view, home: false }));
     location.href = Fab.demoHref('../ee_design_review/index.html');
     return true;
   }
