@@ -89,7 +89,9 @@
   // the run is. Fabcheck only writes here: Signoff reads runs and packages back
   // (docs/signoff-revisions.md). pkg: Fab.releases.packageFor's { name, bytes, sha256, root, files }.
   // Never throws. Resolves { ok: true, stored, run, res } or { ok: false, why }.
-  async function store(entry, projectId, pkg, log) {
+  // progress(text, fraction), optional, drives Send's progress card.
+  async function store(entry, projectId, pkg, log, progress) {
+    progress = progress || (() => {});
     const run = entry.run;
     if (!run) return { ok: false, why: 'the run was not kept in this browser' };
     const ready = readiness(projectId);
@@ -119,14 +121,15 @@
       files.push({ path: h.dir + 'preview/index.json', text: json({ v: 1, tool: 'fabcheck', runId: run.id, at: run.at || '', hero: images[0].key, images, board }) });
     }
     const bytes = files.reduce((n, f) => n + (f.bytes ? f.bytes.length : f.text.length), 0);
+    progress(`Uploading to ${h.repo} (${(bytes / 1048576).toFixed(1)} MB)…`, 0.3);
     log('step', `Storing run ${run.id} in ${h.repo}/${h.dir}`);
     log('dim', `         ${pkg.name} and ${files.length - 1} more files (${(bytes / 1048576).toFixed(2)} MB); files already there are skipped`);
     try {
       let last = 0;
       const res = await storeFor(h.repo, h.branch).putFiles(files, {
         message: `Fabcheck: store run ${run.id} (${run.package.name})`,
-        onProgress: (done, total) => { if (done === total || done - last >= Math.max(1, Math.ceil(total / 5))) { last = done; log('dim', `         uploaded ${done} of ${total} new files`); } },
-        onRetry: n => log('dim', `         someone else pushed first; retrying (${n})`),
+        onProgress: (done, total) => { progress(`Uploading to ${h.repo}: ${done} of ${total} new files…`, 0.3 + 0.6 * (total ? done / total : 1)); if (done === total || done - last >= Math.max(1, Math.ceil(total / 5))) { last = done; log('dim', `         uploaded ${done} of ${total} new files`); } },
+        onRetry: n => progress(`Someone else pushed first; retrying (${n})…`) || log('dim', `         someone else pushed first; retrying (${n})`),
       });
       log('ok', res.pushed ? `Stored in ${h.repo}: ${res.pushed} file(s) written, ${res.skipped} already there${res.commitUrl ? ' · ' + res.commitUrl : ''}` : `Already stored in ${h.repo}: all ${res.skipped} files were there; nothing uploaded`);
       entry.run = runRec;

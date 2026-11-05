@@ -1067,6 +1067,38 @@
   // Send to Signoff stores the run with its fab package in the project's repo first, so every issue
   // carries where the run is, and Signoff lists it (docs/signoff-revisions.md). If it can't be
   // stored, nothing is sent until the user picks "Send without storing".
+  // A wait that says what it is doing: a card over the page with a spinner, a step line and a bar
+  // (styles: .busy in suite.css, from Signoff EE). The spinner keeps turning while the zip is built.
+  // Returns { step(text, fraction), stop(text, actions), close() }; actions are [label, fn, primary].
+  function busyCard(title) {
+    const old = document.getElementById('busy-wrap'); if (old) old.remove();
+    const w = document.createElement('div');
+    w.className = 'sheet-wrap'; w.id = 'busy-wrap';
+    w.innerHTML = `<div class="sheet busy" role="status" aria-live="polite"><div class="busy-row"><span class="busy-spin" aria-hidden="true"></span><div style="flex:1;min-width:0">` +
+      `<div class="busy-title">${esc(title)}</div><div class="busy-step"></div><div class="busy-bar"><i></i></div></div></div><div class="busy-acts"></div></div>`;
+    document.body.appendChild(w);
+    const card = w.firstChild, stepEl = w.querySelector('.busy-step'), bar = w.querySelector('.busy-bar i'), acts = w.querySelector('.busy-acts');
+    const close = () => w.remove();
+    return {
+      step(text, frac) { stepEl.textContent = text; if (frac != null) bar.style.width = Math.round(Math.max(0, Math.min(1, frac)) * 100) + '%'; },
+      stop(text, actions, newTitle) {
+        card.classList.add('done'); stepEl.textContent = text;
+        if (newTitle) w.querySelector('.busy-title').textContent = newTitle;
+        acts.innerHTML = '';
+        for (const [label, fn, primary] of actions || [['Close', null, true]]) {
+          const b = document.createElement('button');
+          b.className = 'btn' + (primary ? ' btn-primary' : ''); b.textContent = label;
+          b.addEventListener('click', () => { close(); if (fn) fn(); }); acts.appendChild(b);
+        }
+        const p = acts.querySelector('.btn-primary'); if (p) p.focus();
+      },
+      close,
+    };
+  }
+  // Let the card paint before work that holds the main thread (requestAnimationFrame stalls in a hidden tab).
+  const paint = () => new Promise(r => { let done = false; const go = () => { if (!done) { done = true; setTimeout(r, 0); } }; requestAnimationFrame(go); setTimeout(go, 60); });
+  window.addEventListener('pageshow', ev => { if (ev.persisted) { const b = document.getElementById('busy-wrap'); if (b) b.remove(); } });
+
   async function sendToSignoff(e, anyway) {
     if (e.signoffBusy) return;
     const target = Fab.signoff.projects().find(p => p.slug === e.signoffSlug);
@@ -1075,19 +1107,32 @@
     if (Fab.repoRuns && !anyway && !Fab.repoRuns.signedIn()) { showSignIn(() => sendToSignoff(e, anyway)); return; }
     e.signoffBlocked = null; e.signoffResult = null;
     state.repoProbe.delete(target.id);
+    let card = null;
     if (Fab.repoRuns && e.run && !anyway) {
       if (!e.files || e.files.some(f => f.stub)) { toast('This package was reopened from a kept run, so its drawings and other fab files are not here. Drop the package in again to send it.'); return; }
       let pkg;
+      card = busyCard('Sending to Signoff EE');
+      card.step('Building the fab package…', 0.05);
+      await paint();
       try {
         const f = verForm(e);
         pkg = await Fab.releases.packageFor(e, { pn: f.pn, rev: f.rev, picks: f.picks, head: `Sent to Signoff EE by Fabcheck (run ${e.run.id})` });
-      } catch (err) { toast('Could not make the fab package: ' + (err.message || err)); return; }
+      } catch (err) { card.stop('Could not make the fab package: ' + (err.message || err), null, 'Not sent'); return; }
+      // The confirm names the package's size, so the card steps aside for it.
+      card.close();
       if (!confirmStore(Fab.repoRuns.home(target.id).repo, pkg)) return;
       e.signoffBusy = true; renderAll();
-      const got = await Fab.repoRuns.store(e, target.id, pkg, (cls, t) => log(e, cls, t));
+      card = busyCard('Sending to Signoff EE');
+      card.step('Drawing pictures of the board…', 0.15);
+      await paint();
+      const got = await Fab.repoRuns.store(e, target.id, pkg, (cls, t) => log(e, cls, t), (t, frac) => card.step(t, frac));
       e.signoffBusy = false;
-      if (!got.ok) { e.signoffBlocked = got.why; renderAll(); return; }
+      if (!got.ok) { e.signoffBlocked = got.why; renderAll(); card.stop(`The run couldn't be stored (${got.why}). Nothing was sent; the Send panel offers to send without storing.`, null, 'Not sent'); return; }
+    } else {
+      card = busyCard('Sending to Signoff EE');
     }
+    card.step('Writing the issues into Signoff EE…', 0.95);
+    await paint();
     try {
       const run = e.run ? Object.assign({}, e.run) : null;
       // A run stored with another project isn't stored with this one.
@@ -1102,8 +1147,8 @@
       e.signoffResult = `Sent to "${r.name}": ${r.created} new, ${r.updated} updated${r.skipped ? `, ${r.skipped} left out` : ''}${r.resolvedNotes ? `, ${r.resolvedNotes} earlier issue(s) noted as no longer found` : ''}. ${Fab.DEMO ? 'Open Signoff EE to see them.' : 'Sync in Signoff EE to push them; its Revisions tab lists the run.'}`;
       log(e, 'ok', e.signoffResult);
       if (anyway) log(e, 'warn', 'Sent without storing: Signoff can\'t list this run or download its package until it is sent again and stored.');
-      toast('Sent to Signoff EE');
-    } catch (err) { toast('Could not send: ' + err.message); }
+      card.stop(e.signoffResult, [['Stay in Fabcheck', null], ['Open in Signoff EE', () => Fab.signoff.openFindings(r.projectId), true]], 'Sent to Signoff EE');
+    } catch (err) { card.stop('Could not send: ' + err.message, null, 'Not sent'); }
     renderAll();
   }
 
@@ -1414,10 +1459,14 @@
   function renderLayers(e) {
     const pane = $('#layers-pane');
     const folded = $('#board-view').classList.contains('layers-collapsed');
-    redraw(pane, e.id, () => { pane.innerHTML = `<div class="side-head"><span class="side-label">Layers</span><button class="btn btn-plain" style="padding:2px 6px;font-size:12px" data-act="layers-off">Hide all</button>` +
+    redraw(pane, e.id, () => { pane.innerHTML = `<div class="side-head"><span class="side-label">Layers</span><button class="btn btn-plain" style="padding:2px 6px;font-size:12px" data-act="layers-all" id="layers-all">${layersAllLabel()}</button>` +
       `<button class="lay-fold" data-act="layers-fold" aria-label="${folded ? 'Show' : 'Hide'} the layers panel" title="${folded ? 'Show' : 'Hide'} layers"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5L5.5 8l4.5 4.5"/></svg></button></div>` +
       viewer.layers.map((l, i) => `<label class="lay"${l.other ? ' style="opacity:.7"' : ''}><input type="checkbox" data-layer="${i}"${l.visible ? ' checked' : ''}><span class="sw" style="background:${l.color}"></span><span class="nm" title="${esc(l.layer ? l.layer.file.name : l.label)}">${esc(l.label)}</span></label>`).join(''); });
   }
+
+  // "Hide all" while any layer shows; "Show all" once every layer is hidden.
+  const layersAllLabel = () => viewer.layers.some(l => l.visible) ? 'Hide all' : 'Show all';
+  function syncLayersAll() { const b = $('#layers-all'); if (b) b.textContent = layersAllLabel(); }
 
   function renderRail(e) {
     const c = counts(e.findings);
@@ -2047,7 +2096,14 @@
   // ── Events ──
   function onClick(ev) {
     const t = ev.target.closest('[data-act],[data-view]');
-    if (!t) return;
+    if (!t) {
+      // A click on blank space in the main area (nothing to click or type in, no text being
+      // selected; the board's canvas picks findings) closes an open finding inspector.
+      if ($('#inspector').classList.contains('open') && ev.target.closest('#main') &&
+        !ev.target.closest('a, button, input, select, textarea, label, summary, [contenteditable], [role="button"], [tabindex], tr, canvas, svg, .sheet-wrap') &&
+        !String(window.getSelection())) closeInspector();
+      return;
+    }
     const e = active();
     if (t.dataset.view && !t.dataset.act) { go(t.dataset.view); return; }
     switch (t.dataset.act) {
@@ -2084,7 +2140,7 @@
         }
         break;
       case 'photo': viewer.photo = !viewer.photo; t.classList.toggle('on', viewer.photo); viewer.draw(); break;
-      case 'layers-off': viewer.layers.forEach(l => { l.visible = false; }); renderLayers(e); viewer.draw(); break;
+      case 'layers-all': { const on = !viewer.layers.some(l => l.visible); viewer.layers.forEach(l => { l.visible = on; }); renderLayers(e); viewer.draw(); break; }
       case 'layers-fold': layersUi({ folded: !$('#board-view').classList.contains('layers-collapsed') }); renderLayers(e); break;
       case 'part': { const p = state.asmRows[+t.dataset.i].part; focusFinding({ id: 'part-' + p.des, at: { x: p.gx, y: p.gy }, side: p.side }); break; }
       case 'rev-at': focusFinding({ id: 'rev', at: { x: +t.dataset.x, y: +t.dataset.y } }); break;
@@ -2123,6 +2179,8 @@
       case 'signoff-details': e.signoffOpen = !e.signoffOpen; renderAll(); break;
       case 'back-signoff': {
         const pid = (e.sentTo && e.sentTo.projectId) || (e.link && e.link.project) || (e.need && e.need.link && e.need.link.project);
+        // Signoff opens in this tab: a check still running would stop.
+        if (state.pkgs.some(p => p.status === 'running' || p.status === 'loading') && !confirm('A check is still running. Leave Fabcheck for Signoff EE anyway? It will stop.')) break;
         if (!Fab.signoff.openFindings(pid)) toast('That project is not in Signoff EE in this browser');
         break;
       }
@@ -2193,8 +2251,6 @@
   function copyText(s) { navigator.clipboard.writeText(s).then(() => toast('Copied'), () => toast('Copy failed')); }
 
   function init() {
-    // Signoff EE opens Fabcheck in this named window, so following links reuses one tab.
-    if (!window.name) window.name = 'dovetail-fabcheck';
     applyTheme(readTheme());
     if (Fab.DEMO) {
       document.querySelectorAll('.side-tools a.side-link').forEach(a => a.setAttribute('href', Fab.demoHref(a.getAttribute('href'))));
@@ -2264,7 +2320,7 @@
         renderAll();
         const el = document.getElementById(id); if (el) el.focus({ preventScroll: true });
       }
-      if (ev.target.matches('[data-layer]')) { viewer.layers[+ev.target.dataset.layer].visible = ev.target.checked; viewer.draw(); }
+      if (ev.target.matches('[data-layer]')) { viewer.layers[+ev.target.dataset.layer].visible = ev.target.checked; viewer.draw(); syncLayersAll(); }
     });
     document.addEventListener('input', ev => {
       if (ev.target.id === 'note-text') { if (state.draft) state.draft.text = ev.target.value; $('#note-pop [data-act="note-post"]').disabled = !ev.target.value.trim(); return; }

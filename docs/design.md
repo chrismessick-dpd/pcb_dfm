@@ -569,8 +569,12 @@ The contract shared with Signoff EE is `ee_design_review/docs/fabcheck-link.md`.
   mismatch is saved as a new run.
 - **Opening the link.** The Board view zooms to x, y, turns on the layer, selects the nearest finding of
   that check, and marks the check's findings ("Linked check").
-- **Windows.** Fabcheck names its window `dovetail-fabcheck`. "Back to Signoff EE" writes
-  `signoff.v1.ui` and opens `dovetail-signoff-ee`.
+- **One tab.** Signoff EE opens Fabcheck in its own tab, and "Back to Signoff EE" (or Send's
+  "Open in Signoff EE") writes `signoff.v1.ui` and goes to Signoff in this tab. Runs are kept, so
+  Back returns to them; leaving while a check runs asks first.
+- **Send's progress card.** Send shows a card (`busyCard`, styles `.busy` from Signoff EE) through
+  building the zip, drawing the pictures and uploading (`repo.js` `store`'s `progress`), and ends
+  with the result and "Open in Signoff EE".
 - **Send to Signoff.** It puts `source.run` and up to 50 `source.locations` on each issue.
 
 > On the `release-tags` branch, Stage 2 changes: Send stores the run with one fab package zip,

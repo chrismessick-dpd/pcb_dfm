@@ -160,14 +160,15 @@
     return { created, updated, resolvedNotes, skipped: groups.length - picked.length, projectId: p.id, slug, name: (p.meta || {}).name };
   }
 
-  // Show a project's Findings in Signoff EE, reusing its named window (an open Signoff tab also
-  // follows signoff.v1.ui through its storage listener).
+  // Show a project's Findings in Signoff EE, in this tab (the suite's tools hand over in one tab;
+  // Fabcheck keeps its runs, so Back returns to them).
   function openFindings(projectId) {
     const all = load('projects', {});
     const slug = Object.keys(all).find(k => all[k].id === projectId);
-    if (slug) save('ui', Object.assign(load('ui', {}) || {}, { slug, view: 'findings' }));
-    window.open(Fab.demoHref('../ee_design_review/index.html'), 'dovetail-signoff-ee');
-    return !!slug;
+    if (!slug) return false;
+    save('ui', Object.assign(load('ui', {}) || {}, { slug, view: 'findings' }));
+    location.href = Fab.demoHref('../ee_design_review/index.html');
+    return true;
   }
   function projectById(id) { const all = load('projects', {}); const slug = Object.keys(all).find(k => all[k].id === id); return slug ? Object.assign({ slug }, all[slug]) : null; }
 
