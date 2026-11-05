@@ -98,7 +98,8 @@ matches the packages he already sends.
     Fabrication/
       <PN>-<REV>_FAB.pdf          fabrication drawing
       Gerber/                     Gerber X2, one per layer: L1_Top … L<n>_Bottom, Mask_, Silk_ and
-                                  Paste_ per side, Outline, Mech<n>
+                                  Paste_ per side, Outline, Coverlay_ and Stiffener_ per side,
+                                  Mech<n> (Mech<n>_<type> when X2 names it: Mech30_Fab_Notes)
       NC Drill/                   Excellon PTH.drl and NPTH.drl (one file per span for blind or
                                   buried vias), Drill_Report
       Netlist/                    IPC356.ipc, for electrical test

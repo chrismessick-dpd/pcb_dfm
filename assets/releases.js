@@ -127,7 +127,9 @@
       if (c.role === 'bend') return [GBR, `Bend_Lines${other}.gbr`];
       if (c.fn === 'drill-gerber') return [NC, `Drill_${c.plated === false ? 'NPTH' : c.plated ? 'PTH' : 'Holes'}${other}.gbr`];
       const m = /^gm(\d+)$/.exec(ext);
-      if (m) return [GBR, `Mech${m[1]}${other}.gbr`];
+      // Altium's X2 mechanical layers say what they are (Other,Fab_Notes): keep that in the name.
+      const kind = c.x2fn && /^Other,/.test(c.x2fn) ? safe(c.x2fn.slice(6).replace(/,/g, '_')) : '';
+      if (m) return [GBR, `Mech${m[1]}${kind ? '_' + kind : ''}${other}.gbr`];
       return [GBR, c.x2fn ? safe(c.x2fn.replace(/,/g, '_')) + other + '.gbr' : safe(f.name)];
     }
     if (t === 'drill') {
