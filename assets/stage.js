@@ -40,7 +40,7 @@
     const bb = pkg.boardBBox, o = pkg.layers.outline;
     const w = bb[2] - bb[0], h = bb[3] - bb[1], s = Math.max(w, h);
     let pts = o && o.board && o.board.pts && o.board.pts.length >= 6 ? o.board.pts : [bb[0], bb[1], bb[2], bb[1], bb[2], bb[3], bb[0], bb[3]];
-    const step = Math.max(2, Math.floor(pts.length / 2 / 160)) * 2, uv = [];
+    const step = Math.max(1, Math.floor(pts.length / 2 / 160)) * 2, uv = [];
     for (let i = 0; i < pts.length; i += step) uv.push([(pts[i] - bb[0]) / s + (1 - w / s) / 2, (pts[i + 1] - bb[1]) / s + (1 - h / s) / 2]);
     const toUV = (x, y) => [(x - bb[0]) / s + (1 - w / s) / 2, (y - bb[1]) / s + (1 - h / s) / 2];
     return (pkg._stageShape = { uv, toUV });

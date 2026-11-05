@@ -220,14 +220,20 @@
     // Board outline: X2 profile / GML first, then keep-out and mechanical layers that form a closed loop
     // around the copper.
     const copperBB = L.copper.filter(l => l.polarity !== 'negative').reduce((b, l) => Fab.bbox.union(b, l.bbox), Fab.bbox.empty());
-    const cands = pkg.set.files.filter(f => ['outline', 'keepout', 'mech'].includes(f.cls.fn));
-    const rank = f => f.cls.fn === 'outline' ? 0 : f.cls.fn === 'keepout' ? 1 : 2;
+    // Altium writes mechanical layers in X2 as Other,<layer type>; one typed as an outline or board
+    // shape (Design_Outline, Board_Shape and so on) is the outline by function.
+    const x2Outline = f => f.cls.fn === 'other' && /^Other,.*(outline|profile|board[_ ]?shape)/i.test(f.cls.x2fn || '');
+    const cands = pkg.set.files.filter(f => ['outline', 'keepout', 'mech'].includes(f.cls.fn) || x2Outline(f));
+    const rank = f => f.cls.fn === 'outline' ? 0 : x2Outline(f) ? 1 : f.cls.fn === 'keepout' ? 2 : 3;
     cands.sort((a, b) => rank(a) - rank(b) || (a.cls.mech || 99) - (b.cls.mech || 99));
     let best = null;
     for (const f of cands) {
       const loops = outlineLoops(f.layer).filter(l => l.closed && l.area > 1);
       if (!loops.length) continue;
-      const enclosing = loops.filter(l => !Fab.bbox.valid(copperBB) || Fab.bbox.contains(l.bbox, copperBB, 0.5));
+      let enclosing = loops.filter(l => !Fab.bbox.valid(copperBB) || Fab.bbox.contains(l.bbox, copperBB, 0.5));
+      // A layer that is the outline by function wins even when copper strays outside it (layer-name
+      // text below the board, say); the extents check reports that copper.
+      if (!enclosing.length && rank(f) <= 1) enclosing = loops.slice().sort((a, b) => b.area - a.area).slice(0, 1);
       if (!enclosing.length) continue;
       enclosing.sort((a, b) => a.area - b.area);
       const board = enclosing[0];

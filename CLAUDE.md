@@ -157,6 +157,14 @@ category (`check: 'note'`), kept with the run and through re-runs, left out of t
 Revisions delta, and sent to Signoff EE as one issue each (Info notes too, as Minor). See *Review notes* in `docs/design.md`.
 Open: editing a note; notes don't carry over to a new run of the same package opened afresh.
 
+Flex (2026-11-04): the first flex package (2-layer HDI, Altium X2) showed two bugs, both fixed:
+an X2 `Other,Design_Outline` layer is now used as the outline when there's no profile (`classify.js`),
+and the stage no longer drops every other outline vertex (`stage.js` `shape`). Findings on the six
+reference packages were unchanged. `docs/flex.md` audits every check for flex and lists what to add:
+flex detection, coverlay and stiffener checks, the bend zone, a Flex HDI profile, an outline picker
+and the Revisions `layerKey` collision for X2 `Other` layers. Chris is reviewing more flex boards;
+add what they show to that page.
+
 Open:
 - Not built yet: acid traps (needs a trace graph), text-height check, microvia/HDI profile, revision
   Gerber diff beyond what `revisions.js` does, ODB++ archive vs folder equality.
