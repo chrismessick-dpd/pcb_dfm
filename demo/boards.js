@@ -25,5 +25,17 @@ Fab.demoBoards = [
     "key": "93e8264a8df2c624",
     "profile": "standard",
     "thickness": 1.0
+  },
+  {
+    "run": null,
+    "project": null,
+    "file": "demo/thermostat-sensor-flex.zip",
+    "name": "thermostat-sensor-flex.zip",
+    "label": "Sensor Flex (DT-1045 rev A)",
+    "size": 13724,
+    "sha256": "3ceb4732bb8b2c48115c45ac01d955547bf2654d0b807dc8d67f147c5988f19b",
+    "key": "3ceb4732bb8b2c48",
+    "profile": "flex",
+    "thickness": 0.2
   }
 ];

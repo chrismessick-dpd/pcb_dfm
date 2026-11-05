@@ -54,8 +54,19 @@
       case 'Drillmap': return { fn: 'drill-drawing' };
       case 'AssemblyDrawing': return { fn: 'assembly-drawing', side: a === 'Top' ? 'top' : 'bottom' };
       case 'Keepout': return { fn: 'keepout' };
-      default: return { fn: 'other', x2fn: ff.join(',') };
+      default: return Object.assign({ fn: 'other', x2fn: ff.join(',') }, kind === 'Other' ? otherRole(a || '') : {});
     }
+  }
+
+  // Altium writes mechanical layers in X2 as Other,<layer type> (the type set in the layer stack). The
+  // flex types name what the layer is: coverlay, stiffener, bend lines, the outline.
+  function otherRole(t) {
+    const side = /top/i.test(t) ? 'top' : /bot/i.test(t) ? 'bottom' : undefined;
+    if (/cover[_ ]?lay|cover[_ ]?film/i.test(t)) return { role: 'coverlay', side };
+    if (/stiffener/i.test(t)) return { role: 'stiffener', side };
+    if (/bend/i.test(t)) return { role: 'bend' };
+    if (/outline|profile|board[_ ]?shape/i.test(t)) return { role: 'outline' };
+    return {};
   }
 
   // ---- first pass: classify by name and a sniff of the content ----
@@ -156,7 +167,8 @@
 
   // ---- build the package ----
   // A generator: yields each file after it is parsed (for the live console), returns the package.
-  function* buildSteps(files) {
+  function* buildSteps(files, opts) {
+    opts = opts || {};
     const pkg = { files, gerbers: [], drills: [], sets: [], warnings: [], findings: [] };
     for (const f of files) {
       f.cls = sniff(f);
@@ -211,6 +223,14 @@
       else if (c.fn === 'mask' || c.fn === 'silk' || c.fn === 'paste') L[c.fn][c.side] = lay;
       else L.other.push(lay);
     }
+    // Flex layers (X2 mechanical layers typed as coverlay, stiffener or bend lines).
+    L.coverlay = {}; L.stiffener = []; L.bend = [];
+    for (const lay of L.other) {
+      const c = lay.file.cls;
+      if (c.role === 'coverlay' && c.side) L.coverlay[c.side] = lay;
+      else if (c.role === 'stiffener') L.stiffener.push(lay);
+      else if (c.role === 'bend') L.bend.push(lay);
+    }
     // Copper order: top, inner by physical order, bottom.
     L.copper.sort((a, b) => (a.side === 'top' ? -1e9 : a.side === 'bottom' ? 1e9 : (a.cu || 0)) - (b.side === 'top' ? -1e9 : b.side === 'bottom' ? 1e9 : (b.cu || 0)));
     L.copper.forEach((l, i) => { l.cuOrder = i + 1; });
@@ -220,11 +240,12 @@
     // Board outline: X2 profile / GML first, then keep-out and mechanical layers that form a closed loop
     // around the copper.
     const copperBB = L.copper.filter(l => l.polarity !== 'negative').reduce((b, l) => Fab.bbox.union(b, l.bbox), Fab.bbox.empty());
-    // Altium writes mechanical layers in X2 as Other,<layer type>; one typed as an outline or board
-    // shape (Design_Outline, Board_Shape and so on) is the outline by function.
-    const x2Outline = f => f.cls.fn === 'other' && /^Other,.*(outline|profile|board[_ ]?shape)/i.test(f.cls.x2fn || '');
-    const cands = pkg.set.files.filter(f => ['outline', 'keepout', 'mech'].includes(f.cls.fn) || x2Outline(f));
-    const rank = f => f.cls.fn === 'outline' ? 0 : x2Outline(f) ? 1 : f.cls.fn === 'keepout' ? 2 : 3;
+    // An X2 mechanical layer typed as an outline or board shape (Design_Outline, Board_Shape and so on)
+    // is the outline by function. A file the reviewer picked (opts.outline, its path) comes first.
+    const x2Outline = f => f.cls.fn === 'other' && f.cls.role === 'outline';
+    const picked = f => !!opts.outline && f.path === opts.outline;
+    const cands = pkg.set.files.filter(f => ['outline', 'keepout', 'mech'].includes(f.cls.fn) || x2Outline(f) || picked(f));
+    const rank = f => picked(f) ? -1 : f.cls.fn === 'outline' ? 0 : x2Outline(f) ? 1 : f.cls.fn === 'keepout' ? 2 : 3;
     cands.sort((a, b) => rank(a) - rank(b) || (a.cls.mech || 99) - (b.cls.mech || 99));
     let best = null;
     for (const f of cands) {
@@ -247,6 +268,22 @@
     }
     L.outline = best;
     if (best && best.file) best.file.cls.outline = true;
+    if (best) best.picked = !!(best.file && picked(best.file));
+    // Other files with a closed loop the reviewer could pick as the outline (the outline picker).
+    pkg.outlineCands = pkg.set.files.filter(f => f.layer && f.cls.fn !== 'copper' && !['mask', 'silk', 'paste'].includes(f.cls.fn)).map(f => {
+      const loops = outlineLoops(f.layer).filter(l => l.closed && l.area > 1).sort((a, b) => b.area - a.area);
+      return loops.length ? { file: f, loop: loops[0] } : null;
+    }).filter(Boolean);
+
+    // A flex board: any coverlay or stiffener layer. `onBoard` says whether the layer draws anything
+    // inside the board (Altium puts a layer-name label below the board on every layer).
+    const bb = best && best.board.bbox;
+    const onBoard = lay => !!(lay && bb && lay.prims.some(p => p.dark && Fab.bbox.overlaps(p.bbox, bb)));
+    pkg.onBoard = onBoard;
+    pkg.flex = (Object.keys(L.coverlay).length || L.stiffener.length) ? {
+      coverlay: { top: onBoard(L.coverlay.top), bottom: onBoard(L.coverlay.bottom) },
+      stiffener: L.stiffener.filter(onBoard),
+    } : null;
 
     // Drills: Excellon files only (drill Gerbers are just pictures of the same data).
     pkg.hits = []; pkg.slots = [];
@@ -271,8 +308,8 @@
     return pkg;
   }
 
-  function build(files) {
-    const g = buildSteps(files);
+  function build(files, opts) {
+    const g = buildSteps(files, opts);
     let r;
     while (!(r = g.next()).done);
     return r.value;

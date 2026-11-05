@@ -71,7 +71,55 @@ error, from the default thickness, and two BOM lines with no part number. HDI fl
 | `copper-balance` | Means warpage on rigid; on flex the concern is different. | Skip on flex. |
 | Assembly, BOM, pins, build | Unchanged by flex. | — |
 
-## What to add
+## Built (2026-11-04, second round)
+
+Tried on a made-up flex, `demo/thermostat-sensor-flex.zip` (`tools/make_flex_demo.py`, DT-1045 rev A in
+the Smart Thermostat demo story). Its docstring lists the planted problems; the Flex HDI profile finds
+exactly those (10 warnings, no errors). The real package this page started from was no longer on disk,
+so it has not been re-run.
+
+- **Flex detection.** `classify.js` `otherRole` reads the X2 `Other,<type>` of mechanical layers:
+  coverlay, stiffener, bend lines and the outline. `pkg.layers.coverlay` / `stiffener` / `bend`,
+  `pkg.flex` (which of them draw inside the board), `pkg.onBoard(layer)`.
+  - The Overview's facts say "2-layer flex" and where the outline came from.
+  - The board's layer list names coverlay and stiffener layers, with their own colors.
+  - The stage draws coverlay and stiffener slabs, and leaves out a mask with nothing on the board.
+  - The fab package names them `Coverlay_Top.gbr`, `Stiffener_Top.gbr`, `Bend_Lines.gbr`.
+- **Flex HDI and HDI profiles**, sourced in `fab-rules.md`. A flex package with no remembered profile
+  opens on Flex HDI. The board thickness field now goes down to 0.05 mm.
+- **Laser microvias** (`minMicrovia`, `ringMicrovia`): plated holes under the minimum drill but at least
+  the laser minimum are laser vias (info), and their ring is checked against the microvia ring.
+- **Package checks.** Coverlay counts as a side's cover for "Missing: solder mask". `extents` tells
+  copper clear of the board (labels, coupons) from copper crossing the edge: the first is info. New
+  `empty-layer` (info): a layer that draws nothing inside the board.
+- **DFM.** Sharp inside corners are a warning on flex; copper balance is not warned on flex; the mask
+  checks skip a side covered by coverlay with no mask openings.
+- **Flex checks** (`checks/flex.js`, category Flex, run at the end of DFM):
+  - `flex`: what covers each side, the stiffeners, the limits used.
+  - `coverlay`: per pad, whether it sits in an opening, is anchored (coverlay over its edge) or is
+    covered (error), and the clearance to the coverlay (warn under `coverlayExp`). Works whether the
+    layer draws the film or the openings.
+  - `coverlay-web`: strips of coverlay between openings narrower than `coverlayWeb`, measured on the
+    line between neighboring pads.
+  - `stiffener`: a stiffener past the outline; connectors (J, P, CN, CON, X) with no stiffener behind
+    them (warn), other parts (info).
+  - `flex-edge`: pads and vias within `flexKeepaway` of a stiffener edge or a bend line.
+  - `flex-area` (info), in the board outside every stiffener: plated holes, solid pours over 1 mm²,
+    traces stacked on both layers for 1 mm or more.
+- **Outline picker.** The Overview's facts end with "Outline from …  Change" ("not found  Pick" when
+  there is none, and the picker opens by itself). It shows every file in the Gerber set with a closed
+  loop, drawn small, with its X2 function and size. The pick is kept in the run's settings
+  (`settings.outline`, a file path) and used when the run is reopened.
+- **Revisions** keys X2 `Other` layers by their function too.
+
+Still open:
+- The bend zone is guessed as "not under a stiffener". With a bend-line layer only the keep-away uses it.
+- Trace direction across a bend, trace corners and teardrops in the flexible area.
+- Microvia aspect ratio and stacked microvias (need the dielectric and drill spans).
+- Rigid-flex (below).
+- Signoff EE's demo doesn't link to the flex demo; it's in Fabcheck's demo only.
+
+## What to add (the plan, before the second round)
 
 ### 1. Know it's a flex (small, first)
 

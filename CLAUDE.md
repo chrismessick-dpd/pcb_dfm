@@ -58,8 +58,8 @@ guide, FTE section, demo mode), `docs/fab-rules.md` (every fab-rule default with
   layer to dim above, inner layer → no realistic look). `focusFinding` applies it to the board; the
   inspector's preview (`showPreview`, a second `Viewer` on a copy of the layer list) applies it to
   the copy, and `openFromPreview` zooms the preview's snapshot into the board's framing.
-- DFM limits come from `assets/profiles.js` (`Fab.rules`): 28 rules, built-ins Prototype / Standard /
-  Advanced. A new rule needs an entry in `RULES`, a value in all three built-ins, a row in
+- DFM limits come from `assets/profiles.js` (`Fab.rules`): 33 rules, built-ins Prototype / Standard /
+  Advanced / HDI / Flex HDI. A new rule needs an entry in `RULES`, a value in all five built-ins, a row in
   `docs/fab-rules.md` with its source (or "rule of thumb"), and its check id in `checks`. Old runs
   fall back to the run's built-in for rules they lack (`rulesOfRun`, `newSince`).
 - Storage: IndexedDB `fabcheck` (runs + slimmed packages), `fabcheck.v1.*` and Signoff's
@@ -157,16 +157,18 @@ category (`check: 'note'`), kept with the run and through re-runs, left out of t
 Revisions delta, and sent to Signoff EE as one issue each (Info notes too, as Minor). See *Review notes* in `docs/design.md`.
 Open: editing a note; notes don't carry over to a new run of the same package opened afresh.
 
-Flex (2026-11-04): the first flex package (2-layer HDI, Altium X2) showed two bugs, both fixed:
-an X2 `Other,Design_Outline` layer is now used as the outline when there's no profile (`classify.js`),
-and the stage no longer drops every other outline vertex (`stage.js` `shape`). Findings on the six
-reference packages were unchanged. `docs/flex.md` audits every check for flex and lists what to add:
-flex detection, coverlay and stiffener checks, the bend zone, a Flex HDI profile, an outline picker
-and the Revisions `layerKey` collision for X2 `Other` layers. Chris is reviewing more flex boards;
-add what they show to that page.
+Flex (2026-11-04, two rounds): read `docs/flex.md` first. Flex packages are detected from Altium's X2
+mechanical layer types (coverlay, stiffener, bend lines, Design_Outline) in `classify.js`
+(`otherRole`, `pkg.flex`, `pkg.onBoard`). Flex checks are in `checks/flex.js` (category Flex, run at
+the end of DFM). HDI and Flex HDI built-ins and the five new rules (laser microvia and its ring,
+coverlay opening, coverlay web, stiffener/bend keep-away) are sourced in `docs/fab-rules.md`. The
+Overview has an outline picker (`settings.outline`). The made-up flex `demo/thermostat-sensor-flex.zip`
+comes from `tools/make_flex_demo.py` (also run by `make_demo_boards.py`, which lists it in
+`demo/boards.js`); Flex HDI finds exactly its planted problems. Chris is reviewing six real flex boards;
+grow `docs/flex.md` from what they show.
 
 Open:
-- Not built yet: acid traps (needs a trace graph), text-height check, microvia/HDI profile, revision
+- Not built yet: acid traps (needs a trace graph), text-height check, microvia aspect ratio and stacking, revision
   Gerber diff beyond what `revisions.js` does, ODB++ archive vs folder equality.
 - The bottom-side pin-1 rule is unverified (no sample with 3+ bottom parts sharing a footprint).
 

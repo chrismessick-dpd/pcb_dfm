@@ -24,6 +24,8 @@
     { key: 'holeToEdge', group: 'Drill & vias', name: 'Hole to board edge', unit: 'mm', lo: 0.2, hi: 2, checks: ['hole-edge'], desc: 'Drill wall to the routed outline or a cutout, so the hole does not break out.' },
     { key: 'minCastellation', group: 'Drill & vias', name: 'Minimum castellated hole', unit: 'mm', lo: 0.3, hi: 2, checks: ['castellation'], desc: 'Smallest plated half-hole on the board edge.' },
     { key: 'viaInPad', group: 'Drill & vias', name: 'Via in pad allowed', unit: 'count', lo: 0, hi: 1, zero: true, checks: ['via-in-pad'], desc: '1 if the fab fills and caps vias in pads (POFV); 0 to flag every via in an SMD pad.' },
+    { key: 'minMicrovia', group: 'Drill & vias', name: 'Minimum laser microvia', unit: 'mm', lo: 0.05, hi: 0.3, zero: true, checks: ['microvia', 'drill'], desc: 'Smallest laser-drilled via. Plated holes below the minimum drill but at least this size count as laser vias; 0 means the fab has no laser vias.' },
+    { key: 'ringMicrovia', group: 'Drill & vias', name: 'Annular ring, laser microvias', unit: 'mm', lo: 0.03, hi: 0.2, checks: ['ring'], desc: 'Capture pad ring around a laser via (pad = drill + 2 × ring).' },
     { key: 'npthToCopper', group: 'Drill & vias', name: 'Non-plated hole to copper', unit: 'mm', lo: 0.1, hi: 1.0, checks: ['npth'], desc: 'Clearance from an unplated hole to any copper.' },
     { key: 'minMaskExp', group: 'Solder mask', name: 'Minimum mask expansion', unit: 'mm', lo: 0, hi: 0.2, zero: true, checks: ['mask'], desc: 'How far a mask opening must exceed its pad on each side (0 means flush).' },
     { key: 'minMaskDam', group: 'Solder mask', name: 'Minimum mask dam', unit: 'mm', lo: 0.05, hi: 0.3, checks: ['mask-dam'], desc: 'Narrowest strip of mask between two openings that stays on the board.' },
@@ -35,9 +37,12 @@
     { key: 'minBgaPad', group: 'Copper', name: 'Minimum BGA pad', unit: 'mm', lo: 0.15, hi: 0.8, checks: ['bga-pad'], desc: 'Smallest BGA land (pads marked BGAPad in Gerber X2).' },
     { key: 'minInsideRadius', group: 'Board', name: 'Outline inside-corner radius', unit: 'mm', lo: 0.2, hi: 2, zero: true, checks: ['outline-corner'], desc: 'Radius the router leaves in an inside corner of the outline or a cutout.' },
     { key: 'maxCopperImbalance', group: 'Board', name: 'Copper balance, symmetric layers', unit: 'pct', lo: 5, hi: 60, checks: ['copper-balance'], desc: 'Largest difference in copper coverage (percentage points) between layers mirrored about the stackup center.' },
+    { key: 'coverlayExp', group: 'Flex', name: 'Coverlay opening to pad', unit: 'mm', lo: 0.03, hi: 0.5, zero: true, checks: ['coverlay'], desc: 'Clearance from a pad to the edge of its coverlay opening, for coverlay registration. Flex packages only.' },
+    { key: 'coverlayWeb', group: 'Flex', name: 'Minimum coverlay web', unit: 'mm', lo: 0.1, hi: 1.0, zero: true, checks: ['coverlay-web'], desc: 'Narrowest strip of coverlay between two openings; narrower strips are removed or tear. Flex packages only.' },
+    { key: 'flexKeepaway', group: 'Flex', name: 'Pads and vias from a stiffener edge or bend line', unit: 'mm', lo: 0.2, hi: 3, checks: ['flex-edge'], desc: 'Keep-away of pads and vias from where the flex bends. Flex packages only.' },
     { key: 'thickness', group: 'Board', name: 'Default board thickness', unit: 'mm', lo: 0.4, hi: 3.2, checks: ['aspect'], desc: 'Finished thickness used for aspect ratio unless set for the run.' },
   ];
-  const GROUPS = ['Copper', 'Drill & vias', 'Solder mask', 'Silkscreen', 'Thermals', 'Board'];
+  const GROUPS = ['Copper', 'Drill & vias', 'Solder mask', 'Silkscreen', 'Thermals', 'Board', 'Flex'];
 
   // ---- built-in industry defaults (typical values, not a vendor's numbers) ----
   const BUILTIN = {
@@ -50,6 +55,7 @@
       minSpoke: 0.25, minSpokes: 2, minSlot: 0.50, minNpthSlot: 1.0, thickness: 1.6, viaMaxDrill: 0.45, isoMinArea: 0.05,
       viaHoleGap: 0.30, holeGap: 0.50, holeToEdge: 0.50, minCastellation: 0.50, viaInPad: 0,
       minBgaPad: 0.30, minInsideRadius: 0.50, maxCopperImbalance: 25,
+      minMicrovia: 0, ringMicrovia: 0.064, coverlayExp: 0.10, coverlayWeb: 0.50, flexKeepaway: 1.0,
     },
     standard: {
       label: 'Standard (quick-turn)',
@@ -60,6 +66,7 @@
       minSpoke: 0.20, minSpokes: 2, minSlot: 0.50, minNpthSlot: 1.0, thickness: 1.6, viaMaxDrill: 0.45, isoMinArea: 0.05,
       viaHoleGap: 0.28, holeGap: 0.45, holeToEdge: 0.50, minCastellation: 0.50, viaInPad: 0,
       minBgaPad: 0.30, minInsideRadius: 0.50, maxCopperImbalance: 25,
+      minMicrovia: 0, ringMicrovia: 0.064, coverlayExp: 0.10, coverlayWeb: 0.50, flexKeepaway: 1.0,
     },
     advanced: {
       label: 'Advanced (HDI-lite)',
@@ -70,6 +77,29 @@
       minSpoke: 0.15, minSpokes: 2, minSlot: 0.35, minNpthSlot: 0.80, thickness: 1.6, viaMaxDrill: 0.45, isoMinArea: 0.05,
       viaHoleGap: 0.20, holeGap: 0.33, holeToEdge: 0.40, minCastellation: 0.40, viaInPad: 1,
       minBgaPad: 0.28, minInsideRadius: 0.40, maxCopperImbalance: 25,
+      minMicrovia: 0, ringMicrovia: 0.064, coverlayExp: 0.10, coverlayWeb: 0.50, flexKeepaway: 1.0,
+    },
+    hdi: {
+      label: 'HDI (laser microvias)',
+      desc: 'HDI with laser microvias: 3 mil trace and space, 0.15 mm mechanical drills, 0.127 mm laser vias with a 0.064 mm capture ring, filled vias in pads. Sources: docs/fab-rules.md.',
+      minTrace: 0.075, minSpace: 0.075, minDrill: 0.15, maxAspect: 10,
+      ringPth: 0.10, ringVia: 0.075, copperToEdge: 0.20, npthToCopper: 0.20,
+      minMaskExp: 0.0, minMaskDam: 0.075, minSilkLine: 0.127, minSilkText: 0.80, silkToPad: 0.15,
+      minSpoke: 0.15, minSpokes: 2, minSlot: 0.35, minNpthSlot: 0.80, thickness: 1.6, viaMaxDrill: 0.45, isoMinArea: 0.05,
+      viaHoleGap: 0.20, holeGap: 0.33, holeToEdge: 0.40, minCastellation: 0.40, viaInPad: 1,
+      minBgaPad: 0.28, minInsideRadius: 0.40, maxCopperImbalance: 25,
+      minMicrovia: 0.127, ringMicrovia: 0.064, coverlayExp: 0.10, coverlayWeb: 0.50, flexKeepaway: 1.0,
+    },
+    flex: {
+      label: 'Flex HDI',
+      desc: 'Flex and HDI flex: 4 mil trace and space, 0.20 mm mechanical drills, 0.15 mm laser vias, coverlay openings 0.10 mm over the pad and 0.50 mm webs, pads and vias 1 mm from stiffener edges. Sources: docs/fab-rules.md.',
+      minTrace: 0.102, minSpace: 0.102, minDrill: 0.20, maxAspect: 8,
+      ringPth: 0.25, ringVia: 0.127, copperToEdge: 0.30, npthToCopper: 0.25,
+      minMaskExp: 0.0, minMaskDam: 0.10, minSilkLine: 0.15, minSilkText: 1.0, silkToPad: 0.15,
+      minSpoke: 0.20, minSpokes: 2, minSlot: 0.50, minNpthSlot: 1.0, thickness: 0.20, viaMaxDrill: 0.45, isoMinArea: 0.05,
+      viaHoleGap: 0.28, holeGap: 0.45, holeToEdge: 0.50, minCastellation: 0.50, viaInPad: 1,
+      minBgaPad: 0.28, minInsideRadius: 0.50, maxCopperImbalance: 25,
+      minMicrovia: 0.15, ringMicrovia: 0.064, coverlayExp: 0.10, coverlayWeb: 0.50, flexKeepaway: 1.0,
     },
   };
   // Older code and runs refer to Fab.profiles[id].label and values.

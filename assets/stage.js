@@ -20,14 +20,21 @@
   function rows(pkg) {
     const L = pkg.layers, out = [];
     const add = (kind, layer, label, side) => { if (layer) out.push({ kind, layer, label, side, file: layer.file.name }); };
+    // Flex: stiffeners outermost, coverlay next to the copper (only layers that draw on the board).
+    const fx = pkg.flex, stiff = side => fx ? fx.stiffener.filter(l => l.file.cls.side === side) : [];
+    for (const l of stiff('top')) add('stiffener', l, 'Top stiffener', 'top');
     add('silk', L.silk.top, 'Top silkscreen', 'top');
-    add('mask', L.mask.top, 'Top solder mask', 'top');
+    if (fx && fx.coverlay.top) add('coverlay', L.coverlay.top, 'Top coverlay', 'top');
+    if (!fx || pkg.onBoard(L.mask.top)) add('mask', L.mask.top, 'Top solder mask', 'top');
     for (const l of L.copper) add(l.polarity === 'negative' ? 'plane' : 'copper', l, `L${l.cuOrder} ${l.side === 'top' ? 'top' : l.side === 'bottom' ? 'bottom' : l.polarity === 'negative' ? 'plane' : 'inner'} copper`, l.side);
-    add('mask', L.mask.bottom, 'Bottom solder mask', 'bottom');
+    if (!fx || pkg.onBoard(L.mask.bottom)) add('mask', L.mask.bottom, 'Bottom solder mask', 'bottom');
+    if (fx && fx.coverlay.bottom) add('coverlay', L.coverlay.bottom, 'Bottom coverlay', 'bottom');
     add('silk', L.silk.bottom, 'Bottom silkscreen', 'bottom');
+    for (const l of stiff('bottom')) add('stiffener', l, 'Bottom stiffener', 'bottom');
+    if (fx) for (const l of fx.stiffener.filter(l => !l.file.cls.side)) add('stiffener', l, 'Stiffener', 'bottom');
     let y = TOP;
     out.forEach((r, i) => {
-      if (i) y += r.kind === 'silk' || out[i - 1].kind === 'silk' ? GAP.silk : r.kind === 'mask' || out[i - 1].kind === 'mask' ? GAP.mask : GAP.copper;
+      if (i) y += r.kind === 'silk' || out[i - 1].kind === 'silk' ? GAP.silk : /^(mask|coverlay|stiffener)$/.test(r.kind) || /^(mask|coverlay|stiffener)$/.test(out[i - 1].kind) ? GAP.mask : GAP.copper;
       r.y = y; r.i = i;
     });
     return out;

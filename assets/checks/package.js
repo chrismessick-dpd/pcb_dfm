@@ -7,7 +7,7 @@
   // [what, severity, present?]
   const REQUIRED = [
     ['Top copper', 'error', (pkg, L) => L.top], ['Bottom copper', 'error', (pkg, L) => L.bottom],
-    ['Top solder mask', 'error', (pkg, L) => L.mask.top], ['Bottom solder mask', 'error', (pkg, L) => L.mask.bottom],
+    ['Top solder mask', 'error', (pkg, L) => L.mask.top || (pkg.flex && L.coverlay.top)], ['Bottom solder mask', 'error', (pkg, L) => L.mask.bottom || (pkg.flex && L.coverlay.bottom)],
     ['Top silkscreen', 'warn', (pkg, L) => L.silk.top],
     ['Board outline (closed profile)', 'error', (pkg, L) => L.outline && !L.outline.board.synthetic],
     ['NC drill (Excellon)', 'error', pkg => pkg.drills.length],
@@ -53,9 +53,13 @@
       sev: { error: 'no closed outline was found', warn: 'the outline layer has open paths', info: 'board size and cutouts' }, uses: ['Outline / profile Gerber'],
       example: 'Outline layer has 2 open path(s)' },
     { check: 'extents', name: 'Board extents', looks: 'Drill hits outside the board and copper past the outline.',
-      sev: { error: 'a drill hit is outside the board', warn: 'a copper layer reaches past the outline bounding box' }, uses: ['Outline', 'Drill files', 'Copper layers'],
+      sev: { error: 'a drill hit is outside the board', warn: 'a copper layer reaches past the outline bounding box', info: 'copper only in features clear of the board (layer labels, coupons)' }, uses: ['Outline', 'Drill files', 'Copper layers'],
       rules: () => [`Copper may pass the outline box by ${Fab.fmtLen(T.extentsTol)}.`, `The first ${T.shown} hits outside are listed.`],
       example: `Drill hit outside the board: ⌀${Fab.fmtLen(0.3)}` },
+    { check: 'empty-layer', name: 'Empty layers', looks: 'Gerber layers that draw nothing inside the board, such as a layer that holds only its layer-name label.',
+      sev: { info: 'a layer draws nothing inside the board' }, uses: ['Every Gerber in the set', 'Board outline'],
+      rules: () => ['A mask layer with nothing inside the board means that side is fully covered (every via tented).'],
+      example: 'Nothing inside the board on board.GM5 (Coverlay bottom)' },
     { check: 'structure', name: 'Package structure', looks: 'How the package is put together, as fab houses ask for it: one image format, plated and non-plated holes in separate drill files, and no local paths in the files.',
       sev: { info: 'Gerber and ODB++ (or IPC-2581) are both included; drill data comes as both Excellon and Gerber; a drill file mixes plated and non-plated holes; a file names a local folder or user' },
       uses: ['File classification', 'Excellon tool plating', 'The first 4 kB of each text file'],
@@ -160,9 +164,27 @@
       if (outside.length > T.shown) add('extents', 'error', `…and ${outside.length - T.shown} more drill hits outside the board`, '');
       for (const lay of L.copper) {
         if (lay.polarity === 'negative' || !Fab.bbox.valid(lay.bbox)) continue;
-        if (!Fab.bbox.contains(bb, lay.bbox, T.extentsTol)) add('extents', 'warn', 'Copper extends past the outline bounding box', lay.file.name, { bbox: lay.bbox, layer: lay.file.name });
+        if (Fab.bbox.contains(bb, lay.bbox, T.extentsTol)) continue;
+        // Features entirely clear of the board (Altium's layer-name labels, coupons) vs copper that
+        // crosses the edge.
+        let crossing = null, clear = 0, cb = Fab.bbox.empty();
+        for (const p of lay.prims) {
+          if (!p.dark || Fab.bbox.contains(bb, p.bbox, T.extentsTol)) continue;
+          if (Fab.bbox.overlaps(p.bbox, bb)) { crossing = crossing ? Fab.bbox.union(crossing, p.bbox) : p.bbox.slice(); } else { clear++; cb = Fab.bbox.union(cb, p.bbox); }
+        }
+        if (crossing) add('extents', 'warn', 'Copper extends past the outline bounding box', lay.file.name, { bbox: crossing, layer: lay.file.name });
+        else if (clear) add('extents', 'info', 'Copper outside the board', `${lay.file.name}: ${clear} feature(s) clear of the board, ${Fab.fmtSize(cb[2] - cb[0], cb[3] - cb[1], 1)} (a layer label or coupon?). Make sure the fab knows it isn't part of the board.`, { bbox: cb, layer: lay.file.name });
       }
-    } else if (o) add('outline', 'error', 'No closed board outline found', 'Using the copper extents instead. Checks that need the edge are approximate.');
+    } else if (o) add('outline', 'error', 'No closed board outline found', 'Using the copper extents instead. Checks that need the edge are approximate.' + (pkg.outlineCands && pkg.outlineCands.length ? ` ${pkg.outlineCands.length} file(s) have a closed loop; pick the outline on the Overview.` : ''));
+    if (o && !o.board.synthetic) {
+      for (const f of pkg.set.files) {
+        const lay = f.layer;
+        if (!lay || f === o.file || pkg.onBoard(lay)) continue;
+        const what = f.cls.role ? `${f.cls.side ? f.cls.side + ' ' : ''}${f.cls.role}` : f.cls.x2fn || [f.cls.fn, f.cls.side].filter(Boolean).join(' ');
+        add('empty-layer', 'info', `Nothing inside the board on ${f.name}`, `${what}: ${lay.prims.length ? 'everything it draws is outside the board (a layer label?)' : 'the file draws nothing'}.` +
+          (f.cls.fn === 'mask' ? ' That side has no mask openings: every pad and via is covered.' : f.cls.role === 'coverlay' ? ' That side has no coverlay.' : ''), { layer: f.name });
+      }
+    }
 
     // ---- package structure (docs/fab-package.md) ----
     yield 'Package structure';

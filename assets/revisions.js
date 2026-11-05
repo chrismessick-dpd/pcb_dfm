@@ -89,7 +89,7 @@
 
   function layerKey(f) {
     const c = f.cls;
-    return [c.fn, c.side || '', c.fn === 'copper' ? f.layer.cuOrder || c.cu || '' : '', c.fn === 'mech' ? c.mech || '' : ''].join(':');
+    return [c.fn, c.side || '', c.fn === 'copper' ? f.layer.cuOrder || c.cu || '' : '', c.fn === 'mech' ? c.mech || '' : '', c.fn === 'other' && c.x2fn ? c.x2fn : ''].join(':');
   }
 
   function gerberDiff(a, b) {

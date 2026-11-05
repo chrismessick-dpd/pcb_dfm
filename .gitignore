@@ -10,8 +10,9 @@ samples/
 *.tgz
 # The scrubbed demo board (tools/make_sample.py) is the one zip that is committed
 !demo/fabcheck-sample-board.zip
-# The made-up Smart Thermostat boards (tools/make_demo_boards.py)
+# The made-up Smart Thermostat boards (tools/make_demo_boards.py, tools/make_flex_demo.py)
 !demo/thermostat-main-pcba.zip
 !demo/thermostat-display-board.zip
 # Words the demo sample must not contain (tools/make_sample.py); kept local
 tools/sample-forbid.txt
+!demo/thermostat-sensor-flex.zip

@@ -122,6 +122,9 @@
       if (c.fn === 'outline' || c.outline) return [GBR, `Outline${other}.gbr`];
       if (c.fn === 'keepout') return [GBR, `Keepout${other}.gbr`];
       if (c.fn === 'mech') return [GBR, `Mech${c.mech || ''}${other}.gbr`];
+      if (c.role === 'coverlay') return [GBR, `Coverlay_${side || 'Top'}${other}.gbr`];
+      if (c.role === 'stiffener') return [GBR, `Stiffener${side ? '_' + side : ''}${other}.gbr`];
+      if (c.role === 'bend') return [GBR, `Bend_Lines${other}.gbr`];
       if (c.fn === 'drill-gerber') return [NC, `Drill_${c.plated === false ? 'NPTH' : c.plated ? 'PTH' : 'Holes'}${other}.gbr`];
       const m = /^gm(\d+)$/.exec(ext);
       if (m) return [GBR, `Mech${m[1]}${other}.gbr`];

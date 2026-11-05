@@ -25,6 +25,8 @@
     ['Assembly', 'Build & assembly', 'Pick-and-place, BOM, ODB++, variant and stencil'],
     ['BOM', 'BOM audit', 'Part numbers, descriptions, manufacturers and lifecycle'],
     ['DFM', 'Fabrication DFM', 'Traces, drills, rings, edge, mask and silkscreen'],
+    // Shown for flex packages (coverlay or stiffener layers).
+    ['Flex', 'Flex', 'Coverlay openings, stiffeners and the flexible area'],
     // Placed on the board by a reviewer (the note button on the board), not found by a check.
     ['Review', 'Review notes', 'Notes placed on the board by reviewers'],
   ];
@@ -32,6 +34,7 @@
     copper: { top: '#e8a33d', bottom: '#4f8ff7', inner: ['#30c48d', '#c46ee0', '#e0d24f', '#5ad1e6', '#ef7a7a', '#9fa8ff'] },
     mask: { top: '#3fd18b', bottom: '#59a6ff' }, silk: { top: '#f5f5f7', bottom: '#ffd60a' },
     paste: { top: '#b8b8be', bottom: '#8e8e96' }, other: '#8e8e93',
+    coverlay: { top: '#d4a72c', bottom: '#b58cff' }, stiffener: '#9aa4ad',
   };
 
   const state = {
@@ -78,6 +81,7 @@
     const r = Fab.rules.resolve(state.profile) || Fab.rules.resolve('standard');
     return Object.assign({}, r.values, { thickness: state.thickness });
   };
+  const isFlexProfile = id => { const r = Fab.rules.resolve(id); return !!r && r.base === 'flex'; };
   const profileName = entry => entry && entry.pinned ? entry.pinned.name : (Fab.rules.resolve(state.profile) || Fab.rules.resolve('standard')).name;
   const runProfileName = settings => settings.profileName || (Fab.profiles[settings.profile] || {}).label || settings.profile;
   // Pin a run's saved rules; note when the profile it came from has been edited since.
@@ -209,7 +213,9 @@
       const bytes = files.reduce((s, f) => s + f.size, 0);
       log(entry, 'ok', `Read ${plural(files.length, 'file')} (${(bytes / 1048576).toFixed(1)} MB)${files.source ? ' from ' + files.source.name : ''} in memory`);
       log(entry, 'step', 'Classifying and parsing');
-      const g = Fab.classify.buildSteps(files);
+      const kept = (opts.stored && opts.stored.run) || (opts.expect && opts.expect.run) || null;
+      entry.outlinePick = (kept && kept.settings && kept.settings.outline) || null;
+      const g = Fab.classify.buildSteps(files, { outline: entry.outlinePick });
       let r, i = 0, last = performance.now();
       const skipped = new Map();
       while (!(r = g.next()).done) {
@@ -243,7 +249,15 @@
           // Default to the profile last used for this package or this Signoff project.
           const pid = opts.link && opts.link.project;
           const sug = Fab.rules.suggest({ projectId: pid, pkgName: entry.label });
-          if (sug && sug !== state.profile) { state.profile = sug; state.thickness = Fab.rules.resolve(sug).values.thickness; log(entry, 'dim', `Using ${Fab.rules.resolve(sug).name}, the profile last used for ${pid ? 'this project' : 'this package'}`); }
+          // A flex package runs on a flex profile: the remembered one if it is flex-based, else Flex HDI
+          // (packages are often all called "Fabrication", so a rigid profile remembered by name loses).
+          // A rigid package doesn't inherit Flex HDI from the flex opened before it.
+          const use = id => { state.profile = id; state.thickness = Fab.rules.resolve(id).values.thickness; };
+          if (pkg.flex && !(sug && isFlexProfile(sug))) {
+            if (!isFlexProfile(state.profile)) use('flex');
+            log(entry, 'dim', `Flex layers found (coverlay or stiffener): using ${Fab.rules.resolve(state.profile).name}${sug ? ` rather than ${Fab.rules.resolve(sug).name}, the profile last used for ${pid ? 'this project' : 'this package'}` : ''}`);
+          } else if (sug && sug !== state.profile) { use(sug); log(entry, 'dim', `Using ${Fab.rules.resolve(sug).name}, the profile last used for ${pid ? 'this project' : 'this package'}`); }
+          else if (!sug && !pkg.flex && isFlexProfile(state.profile)) { use('standard'); log(entry, 'dim', `Not a flex: using ${Fab.rules.resolve('standard').name}`); }
         }
         await runChecks(entry);
       }
@@ -375,6 +389,7 @@
       const settings = entry.pinned
         ? { profile: entry.pinned.id, profileName: entry.pinned.name, rules: Object.assign({}, entry.pinned.rules), thickness: prof.thickness, variant: null }
         : { profile: state.profile, profileName: profileName(entry), rules: Object.assign({}, prof), thickness: prof.thickness, variant: null };
+      if (entry.outlinePick) settings.outline = entry.outlinePick;
       let run = Fab.store.runRecord(entry, pkgRec, settings);
       const extra = { sentTo: entry.sentTo || null };
       const exp = entry.expect;
@@ -756,13 +771,43 @@
       (sub ? `<div class="page-sub">${sub}</div>` : '') + `</div>${actions ? `<div class="chips" style="flex:none">${actions}</div>` : ''}</div>`;
   }
 
+  // The outline picker: every file in the Gerber set with a closed loop, drawn small, to pick the one
+  // that is the board outline. Shown when no outline was found, or from "Change" in the head.
+  function outlinePickerHtml(e) {
+    const pkg = e.pkg, o = pkg.layers.outline, cur = o && o.file ? o.file.path : null;
+    const cards = pkg.outlineCands.map(c => {
+      const b = c.loop.bbox, w = b[2] - b[0], hgt = b[3] - b[1], s = 100 / Math.max(w, hgt, 1e-6);
+      const pts = [];
+      for (let i = 0; i < c.loop.pts.length; i += 2) pts.push(((c.loop.pts[i] - b[0]) * s + (100 - w * s) / 2).toFixed(1) + ',' + ((b[3] - c.loop.pts[i + 1]) * s + (100 - hgt * s) / 2).toFixed(1));
+      const fnText = c.file.cls.x2fn || c.file.cls.fn;
+      return `<button class="card op-card${c.file.path === cur ? ' on' : ''}" data-act="outline-use" data-path="${esc(c.file.path)}">` +
+        `<svg viewBox="-4 -4 108 108" class="op-svg"><polygon points="${pts.join(' ')}"/></svg>` +
+        `<div class="op-name">${esc(c.file.name)}</div><div class="muted">${esc(fnText)}</div><div class="muted">${Fab.fmtSize(w, hgt, 1)}</div></button>`;
+    }).join('');
+    const why = o && o.board.synthetic ? 'No board outline was found, so the checks are using the copper extents. If one of these is the outline, pick it.' : 'The board outline comes from the highlighted file. Pick another if that one is wrong.';
+    return `<div class="card op-panel"><div class="op-head"><div><b>Board outline</b><div class="muted">${why} The choice is kept with the run.</div></div>` +
+      `<button class="btn" data-act="outline-close">Close</button></div><div class="op-grid">${cards || '<div class="muted">No file in the Gerber set has a closed loop.</div>'}</div></div>`;
+  }
+
+  // Rebuild the package with another outline file, and re-check.
+  function useOutline(e, path) {
+    if (!e || !e.files || e.status !== 'ready') return;
+    const source = e.pkg.source;
+    e.outlinePick = path;
+    e.pkg = Fab.classify.build(e.files, { outline: path });
+    e.pkg.source = source;
+    state.outlinePicker = null;
+    const o = e.pkg.layers.outline;
+    runChecks(e, `Outline set to ${o && o.file ? o.file.name : path}`);
+  }
+
   function overviewHtml(e) {
     const pkg = e.pkg, c = counts(e.findings), busy = e.status !== 'ready' && e.status !== 'error';
     const chips = [];
     if (pkg) {
       const bb = pkg.boardBBox;
       if (pkg.set.files.length) chips.push(pkg.set.x2 ? 'Gerber X2' : 'RS-274X');
-      if (pkg.layers.copper.length) chips.push(pkg.layers.copper.length + '-layer');
+      if (pkg.layers.copper.length) chips.push(pkg.layers.copper.length + '-layer' + (pkg.flex ? ' flex' : ''));
       if (bb) chips.push(Fab.fmtSize(bb[2] - bb[0], bb[3] - bb[1], 1));
       const v = (pkg.variants || []).find(x => x.variant);
       chips.push(v ? 'Variant ' + v.variant : (pkg.variants || []).length ? 'No variant' : null);
@@ -771,6 +816,10 @@
     // A compact head: "Fab package" and the name on one line, the package's facts on one line below.
     const facts = chips.filter(Boolean).map(t => `<span>${esc(t)}</span>`);
     if (e.pinned) facts.push(`<span class="ov-note">${e.pinned.editedSince ? 'Profile edited since this run' : "Run's saved rules"}</span>`);
+    if (pkg && pkg.layers.outline && e.status === 'ready') {
+      const o = pkg.layers.outline;
+      facts.push(`<span>Outline ${o.board.synthetic ? '<b class="ov-warn">not found</b>' : 'from ' + esc(o.file.name)} <button class="link-btn" data-act="outline-pick">${o.board.synthetic ? 'Pick' : 'Change'}</button></span>`);
+    }
     const head = `<div class="page-head ov-head"><div class="page-head-text"><div class="ov-title"><span class="eyebrow">Fab package</span>` +
       `<h1 class="page-title" title="${esc(e.label)}">${esc(e.label)}</h1></div>${facts.length ? `<div class="ov-meta">${facts.join('<i class="sep">·</i>')}</div>` : ''}</div>`;
     const stageOn = !!(Fab.stage && pkg && pkg.boardBBox && pkg.layers.copper.length && (e.status === 'running' || e.status === 'ready'));
@@ -780,6 +829,7 @@
       // "Open board" lives in the inspection stage; without one (no board drawn), it stays up here.
       (stageOn ? '' : `<button class="btn btn-primary" data-act="view" data-view="board"${!pkg ? ' disabled' : ''}>Open board</button>`);
     let h = `<div class="page wide">` + head + `<div class="chips ov-actions">${actions}</div></div>`;
+    if (pkg && e.status === 'ready' && (state.outlinePicker === e.id || (pkg.layers.outline && pkg.layers.outline.board.synthetic && pkg.outlineCands.length && state.outlinePicker !== 'closed:' + e.id))) h += outlinePickerHtml(e);
     const stat = (cls, n, label, sev) => `<button class="card stat ${cls}" style="border:none;text-align:left" data-act="sev" data-sev="${sev}"><div class="stat-num">${busy ? '–' : n}</div><div class="stat-label">${label}</div></button>`;
     // The inspection stage leads the page, with its log folded under it; the totals follow.
     const stageHtml = Fab.stage && pkg && (e.status === 'running' || e.status === 'ready') ? Fab.stage.html(e, profile(e)) : '';
@@ -788,6 +838,7 @@
     h += `<div class="section-title">Checks</div><div class="grid grid-3">`;
     for (const [cat, title, desc] of CATS) {
       if (cat === 'Review' && !e.findings.some(f => f.category === cat)) continue;
+      if (cat === 'Flex' && !(pkg && pkg.flex) && !e.findings.some(f => f.category === cat)) continue;
       const fs = e.findings.filter(f => f.category === cat), cc = counts(fs), tot = fs.length || 1;
       h += `<button class="card cl-card cat-card" data-act="cat" data-cat="${cat}"><div class="cl-card-top"><div><div class="cl-card-title">${title}</div><div class="cl-card-desc">${desc}</div></div>` +
         `<span class="dot ${busy ? '' : cc.error ? 'error' : cc.warn ? 'warn' : 'ok'}" style="margin-top:6px"></span></div>` +
@@ -873,7 +924,7 @@
     const e = active();
     return `<div class="rules-bar"><div class="seg rules-tabs" role="tablist">${[['profiles', 'Fab profiles'], ['checks', 'BOM & assembly checks']].map(([k, l]) =>
       `<button class="${(state.rulesTab || 'profiles') === k ? 'on' : ''}" data-act="rules-tab" data-tab="${k}" role="tab">${l}</button>`).join('')}</div>` +
-      `<label class="tb-field" title="Finished thickness of the open board, used for aspect ratio. Changing it re-checks the open package; the profile's default thickness applies otherwise.">Board thickness <input data-act="thickness" type="number" step="0.1" min="0.2" max="6" value="${e && e.pinned ? e.pinned.thickness : state.thickness}"> mm</label></div>`;
+      `<label class="tb-field" title="Finished thickness of the open board, used for aspect ratio. Changing it re-checks the open package; the profile's default thickness applies otherwise.">Board thickness <input data-act="thickness" type="number" step="0.01" min="0.05" max="6" value="${e && e.pinned ? e.pinned.thickness : state.thickness}"> mm</label></div>`;
   };
 
   // Show a check's catalog entry (from a finding's check tag).
@@ -1321,7 +1372,12 @@
       const l = L[fn][side];
       if (l) out.push({ label: `${side === 'top' ? 'Top' : 'Bottom'} ${fn === 'mask' ? 'mask openings' : fn === 'silk' ? 'silkscreen' : 'paste'}`, kind: 'gerber', layer: l, color: COLORS[fn][side], alpha: fn === 'mask' ? 0.35 : fn === 'paste' ? 0.6 : 0.95, side, visible: side === 'top' && fn === 'silk' });
     }
-    for (const l of L.other) out.push({ label: l.file.name, kind: 'gerber', layer: l, color: COLORS.other, alpha: 0.8, visible: false, other: true });
+    for (const l of L.other) {
+      const c = l.file.cls, side = c.side === 'top' ? 'Top' : c.side === 'bottom' ? 'Bottom' : '';
+      const named = c.role === 'coverlay' ? `${side} coverlay` : c.role === 'stiffener' ? `${side} stiffener`.trim() : c.role === 'bend' ? 'Bend lines' : null;
+      const color = c.role === 'coverlay' ? COLORS.coverlay[c.side] || COLORS.coverlay.top : c.role === 'stiffener' ? COLORS.stiffener : COLORS.other;
+      out.push({ label: named ? `${named} (${l.file.name})` : l.file.name, kind: 'gerber', layer: l, color, alpha: named ? 0.45 : 0.8, visible: false, other: true });
+    }
     if (pkg.hits.some(h => h.plated) || pkg.slots.some(s => s.plated)) out.push({ label: 'Plated holes', kind: 'pth', color: '#0b0c0e', alpha: 1, visible: true });
     if (pkg.hits.some(h => !h.plated) || pkg.slots.some(s => !s.plated)) out.push({ label: 'Non-plated holes', kind: 'npth', color: '#0b0c0e', alpha: 1, visible: true });
     out.push({ label: 'Board outline', kind: 'outline', color: '#ffd60a', alpha: 0.9, visible: true });
@@ -2002,6 +2058,9 @@
       case 'theme': { const th = isDark(readTheme()) ? 'light' : 'dark'; writeTheme(th); applyTheme(th); break; }
       case 'nav': toggleSidebar(); break;
       case 'rerun': if (e && e.pkg && e.status === 'ready') runChecks(e, 'Re-running checks'); break;
+      case 'outline-pick': state.outlinePicker = e ? e.id : null; renderAll(); break;
+      case 'outline-close': state.outlinePicker = e ? 'closed:' + e.id : null; renderAll(); break;
+      case 'outline-use': useOutline(e, t.dataset.path); break;
       case 'sev': state.filter = { error: false, warn: false, info: false }; state.filter[t.dataset.sev] = true; state.cat = null; go('findings'); break;
       case 'cat': state.cat = t.dataset.cat; state.filter = { error: true, warn: true, info: true }; go('findings'); break;
       case 'sev-toggle': state.filter[t.dataset.sev] = !state.filter[t.dataset.sev]; dropHiddenSel(e); if (state.view === 'board') { renderRail(e); viewer.draw(); } else renderAll(); break;

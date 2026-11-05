@@ -1,6 +1,7 @@
 """Build the Smart Thermostat demo boards, made up from scratch for the suite demo.
 
     python tools/make_demo_boards.py            write demo/thermostat-*.zip and demo/boards.js
+                                                (and the sensor flex, from tools/make_flex_demo.py)
     python tools/make_demo_boards.py --check    fail if the committed files are out of date
 
 Nothing here comes from a real design. The boards tell the suite demo's story (see ../CLAUDE.md,
@@ -1108,6 +1109,18 @@ def main():
         index.append({'run': b['run'], 'project': b['project'], 'file': 'demo/' + b['zip'], 'name': b['zip'], 'label': b['label'],
                       'size': len(data), 'sha256': sha, 'key': sha[:16], 'profile': 'standard', 'thickness': b['thickness']})
         print('%-32s %8d bytes  sha256 %s' % (b['zip'], len(data), sha[:16]))
+    # The sensor flex (tools/make_flex_demo.py): Fabcheck's demo only, no Signoff EE run.
+    import make_flex_demo
+    data = make_flex_demo.package()
+    sha = hashlib.sha256(data).hexdigest()
+    if check:
+        if not make_flex_demo.OUT.exists() or make_flex_demo.OUT.read_bytes() != data:
+            stale.append(make_flex_demo.OUT.name)
+    else:
+        make_flex_demo.OUT.write_bytes(data)
+    index.append({'run': None, 'project': None, 'file': 'demo/' + make_flex_demo.OUT.name, 'name': make_flex_demo.OUT.name,
+                  'label': 'Sensor Flex (DT-1045 rev A)', 'size': len(data), 'sha256': sha, 'key': sha[:16], 'profile': 'flex', 'thickness': 0.2})
+    print('%-32s %8d bytes  sha256 %s' % (make_flex_demo.OUT.name, len(data), sha[:16]))
     js = ('// Made by tools/make_demo_boards.py; do not edit. The demo boards and the fixed run ids that Signoff\n'
           '// EE\'s demo links to (docs/design.md, Demo boards).\n'
           'window.Fab = window.Fab || {};\nFab.demoBoards = ' + json.dumps(index, indent=2) + ';\n')

@@ -287,6 +287,8 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .k-plane .stk-face, .k-plane .stk-edge { fill: #b37a42; }
 .k-mask .stk-face, .k-mask .stk-edge { fill: #2f8f5b; opacity: 0.55; }
 .k-silk .stk-face, .k-silk .stk-edge { fill: #e8e8ea; opacity: 0.8; }
+.k-coverlay .stk-face, .k-coverlay .stk-edge { fill: #c9962b; opacity: 0.6; }
+.k-stiffener .stk-face, .k-stiffener .stk-edge { fill: #8a949c; opacity: 0.75; }
 .stk-outline { fill: none; stroke: var(--stk-glow); stroke-width: 1.4; opacity: 0; pointer-events: none; }
 .stk-lbl { font: 500 11px var(--sans); fill: var(--text-2); }
 .stk-n { font: 600 11px var(--sans); }
@@ -458,3 +460,15 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .logbox > summary b { color: var(--text); font-weight: 600; }
 .log-last { font: 12px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
 @media (prefers-reduced-motion: reduce) { .stk-burst { display: none; } .stage.fx-enter .stk-layer, .stage.fx-exit .stk-layer, .stage.fx-exit .stk-layer .stk-face, .stage.fx-exit .stg-text > *, .stage.fx-exit .stg-actions, .stage.fx-exit .stg-bar i, .stage.fx-exit .stg-steps::before { animation: none !important; } .stk-layer.scan .stk-scan, .stage.edge-on .stk-outline, .fx-patch, .fx-sweep, .pin.new .pin-ring, .pin.new .pin-dot, .stg-run s::after, .stg-fig, .stk-drill, .stk-npth { animation: none !important; } .stg-steps span { transition: none !important; } }
+/* Board outline picker (overview), and the "Change" link in the package facts. */
+.link-btn { border: none; background: none; padding: 0 2px; color: var(--accent-ink); font: inherit; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.ov-meta .ov-warn { color: var(--warn, #d97706); font-weight: 600; }
+.op-panel { margin: 0 0 16px; padding: 14px 16px; }
+.op-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 12px; }
+.op-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.op-card { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px; text-align: left; cursor: pointer; border: 1px solid var(--hair); font-size: 12px; }
+.op-card:hover { border-color: var(--accent); }
+.op-card.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+.op-svg { width: 100%; height: 96px; margin-bottom: 6px; }
+.op-svg polygon { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.op-name { font-weight: 600; color: var(--text); }

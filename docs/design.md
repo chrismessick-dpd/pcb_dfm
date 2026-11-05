@@ -304,16 +304,17 @@ box. All six matched.
 
 ### Fab rules and capability profiles (`assets/profiles.js`, Fab rules page)
 
-**The rules.** 28 rules in six groups:
+**The rules.** 33 rules in seven groups:
 
 | Group | Rules |
 |---|---|
 | Copper | trace, space, copper to edge, smallest isolated copper reported, BGA pad |
-| Drill & vias | minimum drill, aspect ratio, PTH ring, via ring, largest via drill, plated slot, non-plated slot, via-to-via and hole-to-hole spacing, hole to edge, castellated hole, via in pad allowed, NPTH to copper |
+| Drill & vias | minimum drill, aspect ratio, PTH ring, via ring, largest via drill, plated slot, non-plated slot, via-to-via and hole-to-hole spacing, hole to edge, castellated hole, via in pad allowed, laser microvia, microvia ring, NPTH to copper |
 | Solder mask | expansion, dam |
 | Silkscreen | line, silk to pad, text height (kept, not checked yet) |
 | Thermals | spoke width, spoke count |
 | Board | inside-corner radius, copper balance, default thickness |
+| Flex | coverlay opening to pad, coverlay web, pads and vias from a stiffener edge or bend line (flex packages only) |
 
 Each rule has a plain-English name, a unit (mm first, with mil alongside), a one-line description,
 the checks that use it, and a plausible range.

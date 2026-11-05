@@ -63,6 +63,56 @@ Values in mm, with mil in brackets for lengths, unless noted. P = Prototype, S =
 | Copper balance, symmetric layers | 25 points | 25 points | 25 points | **Rule of thumb.** No source gives a number |
 | Default board thickness | 1.6 (63 mil) | 1.6 (63 mil) | 1.6 (63 mil) | The usual default finished thickness; only used for aspect ratio, and set per run |
 
+## HDI and Flex HDI profiles (2026-11-04)
+
+Two more built-ins, for HDI boards with laser microvias and for flex and HDI flex, and five new rules.
+Sources were read on 2026-11-04. **[search only]** marks a figure seen only in a search summary, not on
+the page.
+
+| Key | Source | What it gives |
+|---|---|---|
+| JLC-F | JLCPCB, flex PCB capabilities, jlcpcb.com/capabilities/flex-pcb-capabilities | Flex trace/space, drill, rings, coverlay expansion and bridge, copper to edge, outline tolerance, stiffeners, silk, thickness |
+| JLC-blog2 | JLCPCB blog, FPC design rules (jlcpcb.com/blog/fpc-design-rules) | Stiffener overlap beyond pads, via to edge |
+| PCBWay-F | PCBWay, FPC and rigid-flex capabilities (pcbway.com/FPC-Rigid-Flex-PCB.html) | Coverlay bridge, outline tolerance |
+| PCBWay-H | PCBWay, HDI PCB (pcbway.com/hdi-pcb.html) | Laser via, mechanical drill, trace/space |
+| Sierra-H | Sierra Circuits, HDI manufacturing capabilities (protoexpress.com) | Laser drill, capture pad, aspect ratio, HDI trace/space, mechanical drill |
+| Sierra-F | Sierra Circuits, flex and rigid-flex (protoexpress.com) | Flex laser drill, trace/space, mechanical drill, LPI on flex |
+| Sierra-CL | Sierra Circuits, what is coverlay (protoexpress.com/kb) | Coverlay dam, trace to opening |
+| Sierra-2223 | Sierra Circuits blog on IPC-2223 violations | Bend ratios; bend-zone rules (hatched planes, perpendicular and staggered traces, teardrops); vias near stiffener edges crack |
+| NextPCB | NextPCB, HDI product page | Laser via aspect ratio, outer/inner trace, filled via |
+| OSH-F | OSH Park, flex service (docs.oshpark.com/services/flex) | Flex trace/space, drill, ring, mask web, copper to edge, tool radius |
+| Epec-HD | Epec, feature sizes for coverlay and soldermask in high-density flex | Coverlay expansion and web, minimum openings, LPI on flex |
+| Rush | Rush PCB, "Flex DFM guidelines part 2" (PCD&F) | Coverlay dam and registration, punched edge, inside-corner radius |
+
+| Rule | HDI | Flex HDI | Source and reasoning |
+|---|---|---|---|
+| Minimum trace width / spacing | 0.075 (3 mil) | 0.102 (4 mil) | HDI: as Advanced (JLC HDI 3/3 mil; Sierra-H 3.5/3 mil inner). Flex: JLC-F 4 mil at 1 oz (3.5 mil at ½ oz), Sierra-F 3.5 mil; OSH-F 6 mil is the outlier |
+| Minimum drill (mechanical) | 0.15 (5.9 mil) | 0.20 (7.9 mil) | HDI: Sierra-H, PCBWay-H, JLC 0.15. Flex: **rule of thumb** above Sierra-F 0.18; JLC-F regular 0.30, PCBWay-F 0.10 |
+| Minimum laser microvia (new) | 0.127 (5 mil) | 0.15 (5.9 mil) | HDI: Sierra-H standard 5 mil (advanced and PCBWay-H 4 mil). Flex: Sierra-F 6 mil (single source). 0 in P/S/A: no laser vias |
+| Annular ring, laser microvias (new) | 0.064 (2.5 mil) | 0.064 (2.5 mil) | Sierra-H capture pad = drill + 5 mil standard. Advanced Circuits gives drill + 8 mil [search only] |
+| Annular ring, vias | 0.075 (3 mil) | 0.127 (5 mil) | HDI: as Advanced. Flex: OSH-F 5 mil; JLC-F pad ≥ hole + 0.2 (0.10 ring) |
+| Annular ring, plated holes | 0.10 (3.9 mil) | 0.25 (9.8 mil) | HDI: as Advanced. Flex: JLC-F 0.25 recommended (0.18 minimum) |
+| Copper to board edge | 0.20 (7.9 mil) | 0.30 (11.8 mil) | Flex: JLC-F 0.30 to a laser-cut edge (its blog says 0.2); OSH-F recommends 0.381, requires 0.152; Rush punched 0.20 |
+| Minimum mask dam | 0.075 (3 mil) | 0.10 (3.9 mil) | Flex LPI: OSH-F 4 mil web, Epec-HD 4 mil, Sierra-F 3–4 mil, Rush 0.075 |
+| Via in pad allowed | yes | yes | Filled and capped at HDI and flex HDI shops (JLC filled 0.15–0.55; NextPCB ≤ 0.45) |
+| Outline inside-corner radius | 0.40 (15.7 mil) | 0.50 (19.7 mil) | Flex: OSH-F interior tool 1.01 mm (radius ≈ 0.5); Rush 0.2 standard; Sierra-F cutter 0.483. A warning on flex packages (tear risk), info on rigid |
+| Coverlay opening to pad (new) | 0.10 | 0.10 (3.9 mil) | JLC-F 0.1 per side; Epec-HD ≥ 3 mil; Rush registration ±0.20 (single source) |
+| Minimum coverlay web (new) | 0.50 | 0.50 (19.7 mil) | JLC-F removes bridges under 0.5; Epec-HD ≈ 0.51. Others allow less: PCBWay-F 0.20, Sierra-CL 0.25, Rush 0.30 / 0.25 |
+| Pads and vias from a stiffener edge or bend line (new) | 1.0 | 1.0 (39 mil) | **Rule of thumb**, from JLC-blog2 (stiffener ≥ 1.0 past the pad). Sierra-2223 says vias near a stiffener edge crack, no number. IPC-2223C via to rigid–flex transition 1.27 mm (Epec, citing it) |
+| Default board thickness | 1.6 (63 mil) | 0.20 (7.9 mil) | Flex: JLC-F 2-layer 0.11–0.20 without stiffener |
+| Everything else | as Advanced | as Standard | Flex sources give no number for slots, hole spacing, thermals, castellations or BGA pads, so Flex HDI keeps Standard's (BGA pad: Advanced's 0.28) |
+
+The new rules in Prototype, Standard and Advanced: laser microvia 0 (none), ring 0.064, and the three
+flex rules as in Flex HDI (they apply only to flex packages).
+
+**Where sources disagree:** coverlay web runs from 0.20 mm (PCBWay-F) to 0.51 mm (Epec-HD); JLC's
+capabilities page and blog disagree on flex copper to edge (0.3 vs 0.2); microvia aspect ratio is 0.75:1
+at the fabs (Sierra-H, Sierra-F) and 1:1 in IPC-2226 (secondary) and NextPCB; bend ratios vary widely
+(single layer 3–6× at PCBWay-F, 6× at JLC-F and Sierra-2223, 10× at OSH-F).
+
+**Not checked yet:** microvia aspect ratio (needs the dielectric thickness), stacked vs staggered
+microvias (needs drill spans), bend radius (needs the bend), teardrops.
+
 ## What changed in this audit
 
 | Rule | Was (P / S / A) | Now | Why |
@@ -91,7 +141,9 @@ Values in mm, with mil in brackets for lengths, unless noted. P = Prototype, S =
 | `bga-pad` | minimum BGA pad | warn | Pads with X2 function BGAPad |
 | `via-in-pad` | via in pad allowed | warn per pad; info when allowed | Only pads with paste: test points and other unpasted pads are listed as info |
 | `outline-corner` | inside-corner radius | info | Sharp concave corners of the outline, every sharp corner of a cutout |
-| `copper-balance` | copper balance | info per board; warn per mirrored layer pair | Raster coverage inside the outline |
+| `copper-balance` | copper balance | info per board; warn per mirrored layer pair | Raster coverage inside the outline. Not warned on flex |
+| `microvia` | laser microvia, ring | info per laser drill size | Plated holes under the minimum drill but at least the laser minimum; their ring uses the microvia ring |
+| `coverlay`, `coverlay-web`, `flex-edge` | the three flex rules | warn; error for a pad under coverlay | Flex packages only; see docs/flex.md |
 
 ## Candidates not added
 

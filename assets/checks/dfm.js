@@ -48,9 +48,11 @@
       const minP = tlist.find(t => t.plated);
       add('drill', 'info', `Smallest drill ${fmt(tlist[0].dia)}`, `${tlist.length} drill sizes. Aspect ratio at ${fl(prof.thickness)} thickness: ${minP ? (prof.thickness / minP.dia).toFixed(1) + ':1 for the smallest plated hole' : 'n/a'}.`);
     }
+    const laser = t => prof.minMicrovia > 0 && t.plated && t.dia < prof.minDrill - 1e-6 && t.dia >= prof.minMicrovia - 1e-6;
     for (const t of tlist) {
       const h = t.hits[0];
-      if (t.dia < prof.minDrill - 1e-6) add('drill', 'error', `Drill ${fmt(t.dia)} below ${fmt(prof.minDrill)}`, `${t.hits.length} ${t.plated ? 'plated' : 'non-plated'} hole(s). Needs laser or a finer drill class.`, { at: h, value: t.dia, limit: prof.minDrill });
+      if (laser(t)) add('microvia', 'info', `${t.hits.length} laser-drilled via(s) ${dia(t.dia)}`, `Below the ${fmt(prof.minDrill)} mechanical drill, at or above the ${fmt(prof.minMicrovia)} laser minimum. Annular ring checked against ${fmt(prof.ringMicrovia)}.`, { at: h, value: t.dia, limit: prof.minMicrovia });
+      else if (t.dia < prof.minDrill - 1e-6) add('drill', 'error', `Drill ${fmt(t.dia)} below ${fmt(prof.minMicrovia > 0 && t.plated ? prof.minMicrovia : prof.minDrill)}`, `${t.hits.length} ${t.plated ? 'plated' : 'non-plated'} hole(s). ${prof.minMicrovia > 0 && t.plated ? 'Smaller than this profile\'s laser minimum.' : 'Needs laser or a finer drill class.'}`, { at: h, value: t.dia, limit: prof.minMicrovia > 0 && t.plated ? prof.minMicrovia : prof.minDrill });
       const ar = prof.thickness / t.dia;
       if (t.plated && ar > prof.maxAspect) add('aspect', 'error', `Aspect ratio ${ar.toFixed(1)}:1 for ${dia(t.dia)}`, `Above ${prof.maxAspect}:1 at ${fl(prof.thickness)} board thickness. ${t.hits.length} hole(s).`, { at: h, value: ar, limit: prof.maxAspect });
     }
@@ -67,7 +69,8 @@
     for (const h of pkg.hits) {
       if (!h.plated) continue;
       const isVia = h.dia <= prof.viaMaxDrill;
-      const limit = isVia ? prof.ringVia : prof.ringPth;
+      const isLaser = prof.minMicrovia > 0 && h.dia < prof.minDrill - 1e-6;
+      const limit = isLaser ? prof.ringMicrovia : isVia ? prof.ringVia : prof.ringPth;
       for (const lay of outer) {
         const prims = C.primsAt(lay, h.x, h.y, p => p.k === 'F');
         if (!prims.length) {
@@ -77,7 +80,7 @@
         const ring = C.depthAt(prims, h.x, h.y) - h.dia / 2;
         if (ring < ringMin.v) ringMin = { v: ring, h, lay };
         const pad = prims.reduce((a, p) => Math.max(a, Math.min(p.ap.w, p.ap.h)), 0);
-        if (ring < limit - 1e-4) ringFail.push({ h, lay, ring, limit, isVia, pad, fn: prims[0].ap.fn });
+        if (ring < limit - 1e-4) ringFail.push({ h, lay, ring, limit, isVia, isLaser, pad, fn: prims[0].ap.fn });
       }
     }
     for (const lay of outer) for (const s of pkg.slots) if (s.plated) {
@@ -92,7 +95,7 @@
     if (isFinite(ringMin.v)) add('ring', 'info', `Smallest outer annular ring ${fmt(ringMin.v)}`, `${dia(ringMin.h.dia)} hole on ${ringMin.lay.file.name}. Limits: PTH ${fl(prof.ringPth)}, via ${fl(prof.ringVia)}.`, { at: ringMin.h });
     ringFail.sort((a, b) => a.ring - b.ring);
     for (const r of ringFail.slice(0, MAX)) add('ring', r.ring < 0 ? 'error' : r.ring < r.limit / 2 ? 'error' : 'warn',
-      `${r.ring < 0 ? 'Breakout' : 'Annular ring ' + fmt(r.ring)} on ${dia(r.h.dia)} ${r.slot ? 'slot' : r.isVia ? 'via' : 'PTH'}`,
+      `${r.ring < 0 ? 'Breakout' : 'Annular ring ' + fmt(r.ring)} on ${dia(r.h.dia)} ${r.slot ? 'slot' : r.isLaser ? 'laser via' : r.isVia ? 'via' : 'PTH'}`,
       `${r.lay.file.name}. Required ${fmt(r.limit)}.` + (r.pad ? ` Pad ${fmt(r.pad)}${r.fn ? ', ' + r.fn.split(',')[0] : ''}${r.pad <= r.h.dia ? ', no larger than the hole' : ''}.` : ''),
       { at: { x: r.h.x, y: r.h.y }, layer: r.lay.file.name, value: r.ring, limit: r.limit });
     if (ringFail.length > MAX) add('ring', 'warn', `…${ringFail.length - MAX} more annular ring findings`, '');
@@ -251,6 +254,8 @@
     for (const side of ['top', 'bottom']) {
       const cu = side === 'top' ? L.top : L.bottom, mask = L.mask[side];
       if (!cu || !mask || cu.polarity === 'negative') continue;
+      // A flex side covered by coverlay, with no mask openings: the Flex checks look at its coverlay.
+      if (pkg.flex && pkg.flex.coverlay[side] && !pkg.onBoard(mask)) continue;
       const midx = C.index(mask);
       const exps = [], tented = { via: 0, pad: [] };
       for (const p of cu.prims) {
@@ -416,9 +421,11 @@
       const ccw = pts => G.area(pts) > 0;
       scan(o.board.pts, ccw(o.board.pts));          // concave corners of the board
       for (const c of o.cutouts) scan(c.pts, !ccw(c.pts)); // every corner of a cutout is an inside corner for the router
-      for (const f of found.slice(0, MAX)) add('outline-corner', 'info', 'Sharp inside corner in the outline',
-        `The router leaves a radius of about ${fmt(prof.minInsideRadius)} here. Draw that radius in the outline if a part must fit into the corner.`, { at: { x: f.x, y: f.y }, value: 0, limit: prof.minInsideRadius });
-      if (found.length > MAX) add('outline-corner', 'info', `…${found.length - MAX} more sharp inside corners`, '');
+      const flexSev = pkg.flex ? 'warn' : 'info';
+      for (const f of found.slice(0, MAX)) add('outline-corner', flexSev, 'Sharp inside corner in the outline', pkg.flex
+        ? `On a flex, a sharp inside corner starts a tear. Round it to at least ${fmt(prof.minInsideRadius)}, or add a tear stop (copper or a drilled hole at the corner).`
+        : `The router leaves a radius of about ${fmt(prof.minInsideRadius)} here. Draw that radius in the outline if a part must fit into the corner.`, { at: { x: f.x, y: f.y }, value: 0, limit: prof.minInsideRadius });
+      if (found.length > MAX) add('outline-corner', flexSev, `…${found.length - MAX} more sharp inside corners`, '');
     }
 
     // ---- pads: BGA size, vias in pads ----
@@ -482,7 +489,7 @@
         const n = L.copper.length;
         for (let i = 0; i < Math.floor(n / 2); i++) {
           const j = n - 1 - i, d = Math.abs(pct[i] - pct[j]);
-          if (d > prof.maxCopperImbalance) add('copper-balance', 'warn', `Copper imbalance ${d.toFixed(0)} points between ${L.copper[i].file.name} and ${L.copper[j].file.name}`,
+          if (d > prof.maxCopperImbalance && !pkg.flex) add('copper-balance', 'warn', `Copper imbalance ${d.toFixed(0)} points between ${L.copper[i].file.name} and ${L.copper[j].file.name}`,
             `${pct[i].toFixed(0)}% vs ${pct[j].toFixed(0)}% coverage on layers that mirror each other in the stackup. Uneven copper bows and twists the board in reflow; add copper thieving or pour on the lighter layer. Limit ${prof.maxCopperImbalance} points.`, { layer: L.copper[pct[i] < pct[j] ? i : j].file.name, value: d, limit: prof.maxCopperImbalance });
         }
       }
@@ -493,6 +500,8 @@
         Fab.raster.maskDams(pkg, mask, prof, add, MAX, pre && pre.mask.get(mask));
       }
     }
+    // Flex packages: coverlay, stiffeners and the flexible area (checks/flex.js, category Flex).
+    if (pkg.flex && C.flexSteps) yield* C.flexSteps(pkg, prof, out);
     return;
   }
 
