@@ -2399,6 +2399,61 @@
     (async () => { for (const u of urls) await openPackage(() => Fab.loader.fromUrl(u), decodeURIComponent(u.split('/').pop())); })();
   }
 
+  // ── Tool updates (as in Signoff EE) ──
+  // A page left open keeps running the version it loaded. Now and then (5 s after opening, every
+  // 5 minutes, when the tab comes back into view) it asks this site which version it serves now.
+  // If that's another one, it reloads into it, but only while nothing is open or running: a
+  // loaded package isn't kept across a reload, so with one open it waits and asks again later.
+  // The new page says "Tool updated". If the site serves the same version, or can't be reached,
+  // the page stays as it is. A version it already reloaded for is never tried twice.
+  // The scripts carry no ?v= stamp, so the browser's copies are refreshed before the reload.
+  const UPDATE_KEY = 'signoff.toolUpdate.' + location.pathname;   // sessionStorage: { tried, from }
+  const haveVersion = () => (window.FABCHECK_VERSION || {}).hash;
+  let updateWaiting = '', updateBusy = false;
+  function updateMemo(v) {
+    try {
+      if (v === undefined) return JSON.parse(sessionStorage.getItem(UPDATE_KEY) || '{}') || {};
+      sessionStorage.setItem(UPDATE_KEY, JSON.stringify(v));
+    } catch (e) { return null; }
+  }
+  function pageIdle() {
+    const a = document.activeElement;
+    const typing = a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable);
+    return !typing && !document.hidden && !document.querySelector('.sheet-wrap, .menu, dialog[open]') && !state.pkgs.length;
+  }
+  async function reloadWhenIdle() {
+    if (!updateWaiting) return;
+    if (!pageIdle()) { setTimeout(reloadWhenIdle, 30000); return; }
+    if (updateMemo({ tried: updateWaiting, from: haveVersion() }) === null) { updateWaiting = ''; return; }
+    const own = u => { try { return new URL(u, location.href).origin === location.origin; } catch (e) { return false; } };
+    const urls = [location.href.split('#')[0]]
+      .concat([...document.scripts].map(s => s.src), [...document.querySelectorAll('link[rel="stylesheet"]')].map(l => l.href))
+      .filter(u => u && own(u));
+    await Promise.all(urls.map(u => fetch(u, { cache: 'reload' }).catch(() => null)));
+    location.reload();
+  }
+  function checkForUpdate() {
+    const have = haveVersion();
+    if (!have || updateBusy || updateWaiting || !window.fetch) return;
+    updateBusy = true;
+    fetch('assets/version.js?nc=' + Date.now(), { cache: 'no-store' })
+      .then(r => r.ok ? r.text() : '')
+      .then(text => {
+        updateBusy = false;
+        const m = /(?:hash"?\s*:\s*|VERSION\s*=\s*)["']([0-9a-f]+)["']/.exec(text || '');
+        if (!m || m[1] === have || (updateMemo() || {}).tried === m[1]) return;
+        updateWaiting = m[1];
+        reloadWhenIdle();
+      }, () => { updateBusy = false; });
+  }
+  {
+    const memo = updateMemo() || {};
+    if (memo.from && memo.from !== haveVersion()) { updateMemo({ tried: memo.tried }); setTimeout(() => toast('Tool updated'), 300); }
+    setTimeout(checkForUpdate, 5000);
+    setInterval(checkForUpdate, 5 * 60000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) checkForUpdate(); });
+  }
+
   Fab.app = { state, get viewer() { return viewer; }, openPackage, runChecks };
   init();
 })(window.Fab);
