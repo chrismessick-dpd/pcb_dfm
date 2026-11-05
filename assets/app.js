@@ -1546,7 +1546,10 @@
     };
   }
   const highlightOf = f => ({ at: f.at ? { x: f.at.x, y: f.at.y } : null, bbox: f.bbox || null });
-  const focusBox = f => Fab.bbox.grow(f.bbox || [f.at.x, f.at.y, f.at.x, f.at.y], Math.max(0.5, (f.at && f.at.dia) || 0));
+  // A finding at a point (a part, a pad) is framed with a few millimeters around it, so the
+  // parts nearby show where on the board it is; one with an extent gets a small margin.
+  const focusBox = f => f.bbox ? Fab.bbox.grow(f.bbox, Math.max(0.5, (f.at && f.at.dia) || 0))
+    : Fab.bbox.grow([f.at.x, f.at.y, f.at.x, f.at.y], Math.max(4, (f.at && f.at.dia) || 0));
 
   function focusFinding(f) {
     const e = active();

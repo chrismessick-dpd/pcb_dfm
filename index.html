@@ -137,5 +137,7 @@
 <script src="assets/checks/dfm.js"></script>
 <script src="assets/stage.js"></script>
 <script src="assets/app.js"></script>
+<!-- Demo tour (signoff/assets/tour.js): loaded only in ?demo, and shown only after the hub starts it. -->
+<script>if (/[?&]demo\b/.test(location.search)) { var t = document.createElement('script'); t.src = '../signoff/assets/tour.js'; document.body.appendChild(t); }</script>
 </body>
 </html>
