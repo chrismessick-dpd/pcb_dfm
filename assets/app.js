@@ -2380,6 +2380,17 @@
         if (next.dataset.id !== state.sel) focusFinding(e.findings.find(f => f.id === next.dataset.id));
         return;
       }
+      // Findings: the same keys step through the rows shown (folded sections skipped), opening each in the inspector.
+      if ((ev.key === 'ArrowDown' || ev.key === 'ArrowUp') && state.view === 'findings' && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+        const rows = [...document.querySelectorAll('.f-row')].filter(r => r.offsetParent), e = active();
+        if (!rows.length || !e) return;
+        ev.preventDefault();
+        const i = rows.findIndex(r => r.dataset.id === state.sel), down = ev.key === 'ArrowDown';
+        const next = rows[i < 0 ? (down ? 0 : rows.length - 1) : Math.max(0, Math.min(rows.length - 1, i + (down ? 1 : -1)))];
+        const f = e.findings.find(x => x.id === next.dataset.id);
+        if (f && f.id !== state.sel) { openInspector(f); next.scrollIntoView({ block: 'nearest' }); }
+        return;
+      }
       if (ev.key === 'o' && !ev.ctrlKey && !ev.metaKey) $('#file-zip').click();
       else if (ev.key === '[' && !ev.ctrlKey && !ev.metaKey) { ev.preventDefault(); toggleSidebar(); }
     });
