@@ -209,7 +209,7 @@ Waivers (2026-11-07, branch `waivers`, cut from `bom-checks`; committed locally,
 Treat as… in the inspector; a closed Waived fold and a Waivers list on Findings; totals count active
 findings only. Send leaves waived findings out unless Details' *Waived, for reference* box is ticked;
 then each check's waived findings go as one reference row (`reference: true`), which the Signoff engine
-counts nowhere (branch `waivers` in EE, ME, FW and PL too, uncommitted). Logic in `assets/waivers.js`, part-type overrides
+counts nowhere (branch `waivers` in EE, ME, FW and PL too; committed locally, not pushed). Logic in `assets/waivers.js`, part-type overrides
 in `checks/common.js` (`C.setPartKinds`, `C.overrideSet`), Send in `signoff.js` (`plan(findings,
 waiverOf)`). Read *Waivers* in `docs/design.md` first. With no rules, the demo boards' findings, summaries
 and Send groups are identical to `bom-checks`. Merge `bom-checks` first (it carries the test point
