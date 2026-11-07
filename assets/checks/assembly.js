@@ -414,7 +414,9 @@
         const comments = [...new Set((l.name ? [l.name] : l.des.map(d => (placed.get(d) || {}).comment)).filter(Boolean))];
         return { l, fps, pads, comments };
       });
-      const fpSet = new Set(rows.flatMap(r => r.fps.map(norm))), padSet = new Set(rows.flatMap(r => r.pads));
+      // Rows differ when their own footprint sets or pad counts differ (a BOM footprint column spelled
+      // unlike the PnP's is the same on every row, so it does not count).
+      const fpSet = new Set(rows.map(r => r.fps.map(norm).sort().join('|'))), padSet = new Set(rows.map(r => r.pads.slice().sort((a, b) => a - b).join('|')));
       const list = rows.map(r => `Row ${r.l.row} (${r.l.des.join(', ')}): ${r.fps.join(' / ') || 'no footprint'}` + (r.pads.length ? `, ${r.pads.join('/')} pads` : '') + (r.comments.length ? `, comment "${r.comments.join('" / "')}"` : '')).join('\n');
       if (fpSet.size > 1 || padSet.size > 1) {
         add('mpn-dup', 'error', `MPN ${ls[0].mpn} is on ${ls.length} BOM rows with different ${fpSet.size > 1 ? 'footprints' : 'pad counts'}`,

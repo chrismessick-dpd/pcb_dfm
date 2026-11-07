@@ -202,7 +202,9 @@ Demo boards (2026-11-02): `tools/make_demo_boards.py` writes two made-up Smart T
 `demo/thermostat-display-board.zip` (DT-1043 rev A, `pdemo11`), plus `demo/boards.js` (their fixed
 run ids `rdemo1042b` / `rdemo1043a`, SHA-256 and settings). Deterministic; `--check` verifies the
 committed files. Each board's planted problems are listed in the script's docstring, and the
-Standard profile finds exactly those (main: 4 errors, 13 warnings; display: 1 error, 5 warnings).
+Standard profile found exactly those (main: 4 errors, 13 warnings; display: 1 error, 5 warnings) until the
+2026-11-07 BOM audit round added a `pkg-code` warning to each and made R7's size mismatch an error
+(main 4/14, display 2/5; see the note above).
 In demo mode the start page offers both boards, and a deep link naming a demo run id opens and
 re-runs its board (`demoRun` in `app.js`), so Signoff EE's demo issues and pictures land here.
 If you change the script: rerun it, regenerate EE's demo issues and pictures (`config.js`

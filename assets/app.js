@@ -586,6 +586,7 @@
   function applyLink(entry, q) {
     state.active = entry.id;
     state.focusCheck = q.check || null;
+    state.check = null;
     state.filter = { error: true, warn: true, info: true };
     state.q = '';
     go('board');
@@ -1299,7 +1300,11 @@
 
   function visibleFindings(e) {
     const q = state.q.trim().toLowerCase();
-    return e.findings.filter(f => state.filter[f.severity] && (!state.cat || f.category === state.cat) && (!state.check || f.category + '/' + f.check === state.check) &&
+    // The category and check filters belong to Findings, which shows them (the category bar, the chip);
+    // the board rail has no control for them, so it keeps only severity and search (and its own
+    // focusCheck, from deep links).
+    const onFindings = state.view === 'findings', cat = onFindings ? state.cat : null, chk = onFindings ? state.check : null;
+    return e.findings.filter(f => state.filter[f.severity] && (!cat || f.category === cat) && (!chk || f.category + '/' + f.check === chk) &&
       (!q || (f.check + ' ' + f.title + ' ' + (f.detail || '') + ' ' + (f.refs || []).join(' ') + ' ' + (f.layer || '')).toLowerCase().includes(q)));
   }
   function whereText(f) {

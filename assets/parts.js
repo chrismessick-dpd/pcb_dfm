@@ -119,7 +119,14 @@
     return null;
   }
   // A board part name that is a value, not a part number ("10K,_0402", "4.7uF,_X5R", "0", "49.9_kO").
-  const isValueLabel = s => /^\d/.test(String(s || '').trim());
+  // The first token (up to a comma, underscore or space) must be a whole value: 10K, 4.7uF, 2.2uH, 0,
+  // 953, 16.2 kO. Part numbers that start with digits (a 0402… capacitor, 1729128) are not.
+  const isValueLabel = s => {
+    const t = String(s || '').trim().replace(/_/g, ' ');
+    const m = /^(\d+(?:\.\d+)?)\s*([pnuµμmkKMRr]?)\s*(F|H|Ω|ohms?|O)?(?=$|[\s,;])/i.exec(t);
+    if (!m) return /^\d+[RKM]\d+(?=$|[\s,;])/i.test(t);   // 4K7, 2R2
+    return !!(m[2] || m[3]) || m[1].replace('.', '').length <= 4;
+  };
 
   // Two part numbers name the same part: equal letters and digits, or one is the other without its
   // packaging suffix (BSS138 / BSS138LT1G) or with a library prefix (IC_TPS62162DSGR / TPS62162DSGR).

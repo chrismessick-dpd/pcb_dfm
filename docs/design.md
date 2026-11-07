@@ -189,7 +189,7 @@ data.
 | Missing description parameters for alternate sourcing (dielectric, tolerance, current rating) | 2 |
 | "No substitution without approval" candidates (soft-termination, high-voltage, automotive, crystals) | 2 |
 | Online lifecycle/stock (Octopart/DigiKey). Opt-in only, because it sends MPNs off the machine | 4 |
-| Datasheet facts the package doesn't carry: current and voltage ratings, body length against the land pattern (a 3.2 mm crystal on a 3.0 mm footprint). Best taken from parametric columns exported into the BOM from the CAD tool's part data, then compared offline; a parts API breaks the client-side rule | not built |
+| Datasheet facts the package doesn't carry: current and voltage ratings, a body longer than its land pattern. Best taken from parametric columns exported into the BOM from the CAD tool's part data, then compared offline; a parts API breaks the client-side rule | not built |
 
 Test points, fiducials and mounting holes (pad-only parts) are recognized by designator, by footprint
 (`TP_…`, `TESTPOINT`, `FIDUCIAL`, `MOUNTING_HOLE`) and by a "Test Point" or "Fiducial" comment or ODB++
