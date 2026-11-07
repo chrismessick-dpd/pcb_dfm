@@ -189,22 +189,26 @@ Findings carry the check matrix (`matrixHtml` in `app.js`; see *Overview* in `do
 On that board: Assembly and BOM non-info findings went from ~185 to 51, with every fab item caught
 except the two that need datasheet facts (a regulator's current rating, a crystal's body length).
 Demo effect: the flex demo now plants R1 marked 4.7k on a 10 kΩ part number and U1's footprint named
-IC_OPT3001DNPR (its zip and `demo/boards.js` changed). The thermostat zips are byte-identical, but their
-counts moved: main 4 errors, 14 warnings; display 2 errors, 5 warnings (R7's size mismatch is now an
-error). The new warning on each is a real inconsistency in the made-up data that `pkg-code` found:
-TPS62162DSGR (a SON) and TPS61169DCKR (an SC70) both sit on SOT-23-6 footprints. Fixing them means new
-part numbers in `make_demo_boards.py`, so new zips, and then EE's demo run records and issue hints
-(SHA-256 prefixes), its demo `VERSION` and PL's snapshot. Not done; EE's demo run records keep the old counts,
-which demo re-runs tolerate (`exp.run.demo`).
+IC_OPT3001DNPR. `pkg-code` also found two real slips in the made-up thermostat data (TPS62162DSGR, a
+SON, and TPS61169DCKR, an SC70, on SOT-23-6 footprints); they are now TPS562201DDCR and TPS61165DBVR,
+both SOT-23-6, so only the thermostat BOMs and pick-and-places changed (the board pictures did not).
+Standard now finds main 4 errors, 13 warnings, 40 info (`ef0e0f5b…`) and display 2 errors, 4 warnings
+(R7's size mismatch is an error). EE's demo run record and issue hints carry the new hash and counts,
+its demo `VERSION` is 9 (synced into ME and FW); PL's snapshot did not change apart from dates, so it
+was left alone (PL tests pass). Same branch name, `bom-checks`, in `ee_design_review`,
+`me_design_review` and `fw_design_review`; merge all four together, since EE's demo names this
+branch's zip hash.
+Also fixed: the initial state's `profile: 'standard', thickness: 1.6` had been swallowed by a comment
+since 2026-11-03, so a browser with no remembered profile ran with no board thickness (aspect ratio)
+and the profile picker showed Prototype.
 
 Demo boards (2026-11-02): `tools/make_demo_boards.py` writes two made-up Smart Thermostat packages,
 `demo/thermostat-main-pcba.zip` (DT-1042 rev B, Signoff EE `pdemo7`) and
 `demo/thermostat-display-board.zip` (DT-1043 rev A, `pdemo11`), plus `demo/boards.js` (their fixed
 run ids `rdemo1042b` / `rdemo1043a`, SHA-256 and settings). Deterministic; `--check` verifies the
 committed files. Each board's planted problems are listed in the script's docstring, and the
-Standard profile found exactly those (main: 4 errors, 13 warnings; display: 1 error, 5 warnings) until the
-2026-11-07 BOM audit round added a `pkg-code` warning to each and made R7's size mismatch an error
-(main 4/14, display 2/5; see the note above).
+Standard profile finds exactly those (main: 4 errors, 13 warnings; display: 2 errors, 4 warnings since
+R7's size mismatch became an error on 2026-11-07).
 In demo mode the start page offers both boards, and a deep link naming a demo run id opens and
 re-runs its board (`demoRun` in `app.js`), so Signoff EE's demo issues and pictures land here.
 If you change the script: rerun it, regenerate EE's demo issues and pictures (`config.js`

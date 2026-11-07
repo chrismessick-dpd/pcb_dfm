@@ -40,7 +40,8 @@
   const state = {
     pkgs: [], active: null, view: 'overview', filter: { error: true, warn: true, info: false }, cat: null, check: null, q: '',
     closed: new Set(), sel: null, showPnp: true,
-    placing: false, draft: null, // review notes: waiting for a click on the board; the note being written profile: 'standard', thickness: 1.6,
+    placing: false, draft: null, // review notes: waiting for a click on the board; the note being written
+    profile: 'standard', thickness: 1.6,
     repoProbe: new Map(), // per Signoff project id: write access to its repo
     baseCache: new Map(), // Revisions baselines read from kept runs, by key
   };

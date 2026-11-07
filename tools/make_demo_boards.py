@@ -299,7 +299,7 @@ def main_board():
           Part('D5', 'SOD-123', 48.0, 44.0, 0, mpn='1N4148W-7-F', mfr='Diodes Incorporated', desc='DIODE GEN PURP 100V 300MA SOD123'),
           r0402('R1', 37.5, 19.0, '1k', '1K', 90), r0402('R2', 37.5, 10.0, '1k', '1K', 90)]
     # Low-voltage side (right): 3V3 buck, MCU, Wi-Fi module, USB-C, display connector, LEDs.
-    P += [Part('U7', 'SOT-23-6', 47.0, 34.0, 180, mpn='TPS62162DSGR', mfr='Texas Instruments', desc='IC REG BUCK 3.3V 1A'),
+    P += [Part('U7', 'SOT-23-6', 47.0, 34.0, 180, mpn='TPS562201DDCR', mfr='Texas Instruments', desc='IC REG BUCK ADJ 2A SOT23-6'),
           Part('L1', 'IND-4x4', 47.0, 28.5, 0, mpn='XAL4020-222MEB', mfr='Coilcraft', desc='FIXED IND 2.2UH 5.5A 35 MOHM SMD', comment='2.2uH'),
           c0805('C1', 51.5, 34.0, 90), c0805('C2', 51.5, 28.5, 90, '22uF'), c0402('C3', 44.0, 31.5, 90),
           Part('U4', 'QFN-32', 56.0, 18.0, 0, mpn='STM32G071KBU6', mfr='STMicroelectronics', desc='IC MCU 32BIT 128KB FLASH 32UFQFPN'),
@@ -388,7 +388,7 @@ def display_board():
          Part('J2', 'FPC-18P-0.5', 36.0, 41.5, 180, mpn='FH34SRJ-18S-0.5SH(50)', mfr='Hirose', desc='CONN FPC BOTTOM 18POS 0.50MM R/A', comment='FH34SRJ-18S'),
          Part('U3', 'QFN-20', 18.0, 25.0, 0, mpn='CAP1214-1-AP-TR', mfr='Microchip Technology', desc='IC TOUCH SENSOR 14CH 20QFN', comment='CAP1214'),
          c0402('C1', 14.0, 25.0, 90), c0402('C2', 22.0, 25.0, 90, val='1uF'),
-         Part('U7', 'SOT-23-6', 52.0, 26.0, 0, mpn='TPS61169DCKR', mfr='Texas Instruments', desc='IC LED DRIVER BOOST 1.2MHZ', comment='TPS61169'),
+         Part('U7', 'SOT-23-6', 52.0, 26.0, 0, mpn='TPS61165DBVR', mfr='Texas Instruments', desc='IC LED DRIVER BOOST 1.2MHZ SOT23-6', comment='TPS61165'),
          Part('L2', 'IND-4x4', 52.0, 20.5, 0, mpn='XAL4020-222MEB', mfr='Coilcraft', desc='FIXED IND 2.2UH 5.5A 35 MOHM SMD', comment='2.2uH'),
          Part('D1', 'SOD-123', 57.0, 22.0, 90, mpn='BAT54HT1G', mfr='onsemi', desc='DIODE SCHOTTKY 30V 200MA SOD123', comment='BAT54H'),
          c0805('C3', 57.0, 28.0, 90), c0402('C4', 48.5, 26.0, 90),
