@@ -113,6 +113,13 @@
     $('#app').classList.toggle('side-collapsed', on);
     try { localStorage.setItem(SIDE_KEY, on ? '1' : '0'); } catch (e) { /* storage blocked */ }
   }
+  // On a narrow window a tap outside the open menu (on its scrim, suite.css) closes it and goes
+  // no further, as in Signoff EE and Loom.
+  document.addEventListener('click', e => {
+    const app = $('#app');
+    if (!app.classList.contains('nav-open') || e.target !== app) return; // the scrim is #app's ::after
+    app.classList.remove('nav-open'); e.preventDefault(); e.stopPropagation();
+  }, true);
 
   // The board's layers panel: its width (dragged from the board's left edge) and whether it is
   // folded to a strip, remembered in this browser. layersUi(set) saves set, then applies the result.
@@ -2394,7 +2401,9 @@
       if (ev.key === 'o' && !ev.ctrlKey && !ev.metaKey) $('#file-zip').click();
       else if (ev.key === '[' && !ev.ctrlKey && !ev.metaKey) { ev.preventDefault(); toggleSidebar(); }
     });
-    try { if (localStorage.getItem(SIDE_KEY) === '1' && !narrow.matches) $('#app').classList.add('side-collapsed'); } catch (e) { /* storage blocked */ }
+    // Applied on narrow windows too (suite.css only hides it above 860 px), so widening the window
+    // later shows the sidebar as it was left.
+    try { if (localStorage.getItem(SIDE_KEY) === '1') $('#app').classList.add('side-collapsed'); } catch (e) { /* storage blocked */ }
     bindLayersResize();
     $('#file-profile').addEventListener('change', async ev => {
       const f = ev.target.files[0]; ev.target.value = '';

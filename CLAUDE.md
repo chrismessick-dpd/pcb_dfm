@@ -85,6 +85,10 @@ non-info; 16 before neck classification by shape, 2026-10-31).
 Before every commit: `python tools/stamp_version.py` (writes `assets/version.js`) and
 `python tools/sync_vendor.py --check`. Commit and push to `main` when the task says so.
 
+The board viewer keeps its picture in place on screen while its pane's left or top edge moves (the
+sidebar sliding, the layers panel): `resize()` in `render.js` shifts `view.cx`/`cy` by the pane's
+movement (2026-11-07, as in Loom). A window resize with the edges still keeps it centered.
+
 Browser-pane gotchas:
 - A hash-only navigation doesn't reload the page; load another URL (e.g. `README.md`) first.
 - A stale tab holding an IndexedDB connection blocks a delete, and later opens hang. Close old tabs.

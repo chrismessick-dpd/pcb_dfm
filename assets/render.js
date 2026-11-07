@@ -126,6 +126,17 @@
     resize() {
       const r = this.canvas.parentElement.getBoundingClientRect();
       const dpr = window.devicePixelRatio || 1;
+      // The board stays where it is on screen while its pane's left or top edge moves (the sidebar
+      // sliding, the layers panel), as in Loom: the view's center follows the pane, every frame of
+      // a slide. A window resize or a turned phone (edges still) keeps it centered, as before; and
+      // not when the pane appears from hidden.
+      const was = this._rect;
+      this._rect = r.width > 10 && r.height > 10 ? { left: r.left, top: r.top, W: r.width, H: r.height } : null;
+      if (was && this._rect && this._fitted && (r.left !== was.left || r.top !== was.top)) {
+        const v = this.view;
+        v.cx += (v.flip ? -1 : 1) * ((r.left - was.left) + (r.width - was.W) / 2) / v.scale;
+        v.cy -= ((r.top - was.top) + (r.height - was.H) / 2) / v.scale;
+      }
       this.dpr = dpr;
       this.W = Math.max(1, r.width); this.H = Math.max(1, r.height);
       for (const c of [this.canvas, this.scratch, this.knockC, this.scratch2, this.scratch3]) { c.width = Math.round(this.W * dpr); c.height = Math.round(this.H * dpr); }
