@@ -1043,10 +1043,11 @@
       return h + `<p style="margin:0 0 12px;color:var(--text-2)">For design reviews in Signoff EE: send this run's issues to a board's review, with the fab package, which Signoff keeps as one of the board's revisions. ${signedIn ? 'Open <a href="../ee_design_review/index.html" style="color:var(--accent)">Signoff EE</a> once at this same address (it keeps its projects in this browser), then come back.' : 'Sign in with GitHub, then open Signoff EE once at this same address.'}</p>` +
         (signedIn ? '' : `<button class="btn" data-act="gh-signin">Sign in with GitHub…</button>`) + '</div>';
     }
-    // Guess the board's project from the package name (e.g. PCB-1042-03 → board PCB-1042).
+    // The board's project: the one this run was sent to or opened from, else a guess from the package
+    // name (e.g. PCB-1042-03 → board PCB-1042).
     if (!e.signoffSlug || !projects.some(p => p.slug === e.signoffSlug)) {
-      const lab = e.label.toLowerCase();
-      const guess = projects.find(p => [p.meta.board, p.meta.name].some(s => s && lab.includes(String(s).toLowerCase().replace(/\s+/g, '')))) ||
+      const lab = e.label.toLowerCase(), pid = signoffProject(e);
+      const guess = (pid && projects.find(p => p.id === pid)) || projects.find(p => [p.meta.board, p.meta.name].some(s => s && lab.includes(String(s).toLowerCase().replace(/\s+/g, '')))) ||
         projects.find(p => (p.meta.checklists || []).includes('fab')) || projects[0];
       e.signoffSlug = guess.slug;
     }
