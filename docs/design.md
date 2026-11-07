@@ -160,9 +160,10 @@ data.
 |---|---|
 | Variant named in each status report and in the PnP header; mixed variants, or "no variant" while the BOM leaves parts off | 1 |
 | ODB++ `comp_+_top/bot`: `.no_pop` agrees with the BOM; placed in ODB++ but not on the BOM; on the BOM but missing from ODB++ | 1 |
-| ODB++ part name vs BOM MPN (substitutions), ignoring generic library names | 1 |
+| ODB++ part name vs BOM MPN (substitutions), ignoring generic library names. Compared by letters and digits; the part number without its packaging suffix, or with a library prefix, matches. Value labels ("10K, 0402") go to the BOM audit's value check | 1 (2026-11-07) |
 | PnP vs ODB++ position and side (side error; centroid-vs-origin offsets listed as info) | 1 |
-| Paste per pin (from ODB++ toeprints): fitted SMD pins have paste (windowed thermal pads recognized); unfitted parts have none; paste not on any pin | 1 |
+| Paste per pin (from ODB++ toeprints): fitted SMD pins have paste (windowed thermal pads recognized); unfitted parts have none; paste not on any pin. A fitted part with no paste on any pad is an error | 1 (error 2026-11-07) |
+| Placement vs pasted pads (`paste-center`): on a part with paste on only some pads (an alternate-position footprint, such as a 0 Ω that sits on pads 1-2 or 1-3), the PnP point against the center of the pasted pads | 2026-11-07 |
 | ODB++ `.tgz`/`.zip` archives match the extracted `odb/` tree; package SHA-256; compare with another copy | 1 |
 | Revision compare: two packages, or the package BOM vs a previously used BOM. Lists added/removed designators, changed MPN/footprint/description, and Gerber geometry diffs per layer | 1 (first cut) |
 
@@ -172,11 +173,15 @@ data.
 |---|---|
 | Missing MPN or manufacturer | 1 |
 | Duplicate designators across lines | 1 |
-| Same MPN on several lines with different values or footprints | 1 |
+| Same MPN on several lines: an error when the lines use different footprints or pad counts (one line has the wrong part number), a warning otherwise, naming the comments that split them | 1 (2026-11-07) |
+| Value on the board data (`value`): the value in the PnP comment and description and the ODB++ part name against the value the MPN decodes to. Size codes and ratings are dropped first; on resistors a bare number is ohms | 2026-11-07 |
+| Footprint named for another part (`fp-name`): a footprint whose name carries another part number (a copied footprint). Only names that read like a part number count | 2026-11-07 |
+| TI package designator vs footprint family (`pkg-code`): TPS62162DSGR ends in DSG, a SON; a SOT-23 footprint is flagged. QFN and SON are one family | 2026-11-07 |
+| Pin count stated in a description vs the part's pads (`pins`), one exposed pad allowed, connectors skipped | 2026-11-07 |
 | Name/Comment looks like an MPN but differs from MPN 1 | 1 |
 | Lifecycle / revision status: Obsolete, EOL, NRND, Last Time Buy, Deleted | 1 |
 | Single-source summary: no Manufacturer 2 column, or it is empty | 1 |
-| Size code mismatch: 0402/0603/0805… in footprint vs description/MPN | 1 |
+| Size code mismatch: 0402/0603/0805… in footprint vs description/MPN; a part number of another size than the footprint is an error (2026-11-07). Families with a size field include Susumu RG/RR, Murata BLM/LQM/LQG/NCP and KOA RK73 | 1 |
 | Part number decoded offline vs description: value, voltage, dielectric, tolerance (Cal-Chip, Yageo, Murata, Samsung, KEMET, AVX, TDK, Vishay, Panasonic, Stackpole passives) | 1 |
 | Manufacturer column vs part-number prefix (e.g. a KEMET number listed as Yageo) | 1 |
 | Value column vs part type (pF on a diode, kΩ on an LED) | 1 |
@@ -184,6 +189,12 @@ data.
 | Missing description parameters for alternate sourcing (dielectric, tolerance, current rating) | 2 |
 | "No substitution without approval" candidates (soft-termination, high-voltage, automotive, crystals) | 2 |
 | Online lifecycle/stock (Octopart/DigiKey). Opt-in only, because it sends MPNs off the machine | 4 |
+| Datasheet facts the package doesn't carry: current and voltage ratings, body length against the land pattern (a 3.2 mm crystal on a 3.0 mm footprint). Best taken from parametric columns exported into the BOM from the CAD tool's part data, then compared offline; a parts API breaks the client-side rule | not built |
+
+Test points, fiducials and mounting holes (pad-only parts) are recognized by designator, by footprint
+(`TP_…`, `TESTPOINT`, `FIDUCIAL`, `MOUNTING_HOLE`) and by a "Test Point" or "Fiducial" comment or ODB++
+part name (`C.isPadOnly`), since many designs name test points by their net. Without that, a board with
+40 net-named test points drowned its real findings under 90 warnings and paste errors (2026-11-07).
 
 ### D. Fabrication DFM
 
@@ -380,7 +391,14 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
   tabs compare.
 - **Overview.** The fab profile beside "Run checks again" in the header, the **inspection stage** (with
   "Open board" under its summary)
-  with the run log under it, then stats and one card per check category. Fab rules is reached from
+  with the run log under it, then stats and the **check matrix**: one row per category, one cell per
+  check, colored by its worst finding (error, warning, info only, nothing found) with the count.
+  Clean checks show too, so a reviewer sees what was checked as well as what failed. A click on a
+  cell filters Findings to that check (`state.check`, cleared by the chip in the filter bar); the
+  row heading filters to the category. Findings carries the same matrix at its top as numbered
+  squares with names on hover ("Show check names" switches, kept in `fabcheck.v1.matrixNames`).
+  Cells come from the check catalog for Package, Assembly and BOM, and from fixed lists in `app.js`
+  (`DFM_CHECKS`, `FLEX_CHECKS`) for the DFM and Flex categories, plus any other check that found something. Fab rules is reached from
   its menu item only; its tab bar carries the open board's thickness on the right (overriding the
   profile's default thickness for the run, and re-checking when changed). The package build and every check module are generators that
   yield a label before each step. The pipeline runs one step, prints its result (errors and warnings,

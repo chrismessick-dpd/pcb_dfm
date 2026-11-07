@@ -176,6 +176,27 @@ Open:
   Gerber diff beyond what `revisions.js` does, ODB++ archive vs folder equality.
 - The bottom-side pin-1 rule is unverified (no sample with 3+ bottom parts sharing a footprint).
 
+BOM audit round and check matrix (2026-11-07, branch `bom-checks`, not merged): from a fab house's
+assembly DRC on a client board, where Fabcheck had caught about half the items, buried under ~200
+findings. New checks: `value` (values in PnP comment/description and ODB++ part name vs the decoded
+MPN), `fp-name` (footprint named for another part number), `pkg-code` (TI package designator vs the
+footprint's family), `pins` (pin count in a description vs pads), `paste-center` (alternate-position
+footprints placed off their pasted pads); `mpn-dup` is an error when the rows differ in footprint or pad
+count; a part with no paste on any pad and a part number of another size than its footprint are errors.
+Test points are recognized by footprint and comment (`C.isPadOnly`), and `odb-pn`/`comment` compare part
+numbers by letters and digits (`Fab.parts.samePn`). The offline helpers are in `parts.js`. Overview and
+Findings carry the check matrix (`matrixHtml` in `app.js`; see *Overview* in `docs/design.md`).
+On that board: Assembly and BOM non-info findings went from ~185 to 51, with every fab item caught
+except the two that need datasheet facts (a regulator's current rating, a crystal's body length).
+Demo effect: the flex demo now plants R1 marked 4.7k on a 10 kΩ part number and U1's footprint named
+IC_OPT3001DNPR (its zip and `demo/boards.js` changed). The thermostat zips are byte-identical, but their
+counts moved: main 4 errors, 14 warnings; display 2 errors, 5 warnings (R7's size mismatch is now an
+error). The new warning on each is a real inconsistency in the made-up data that `pkg-code` found:
+TPS62162DSGR (a SON) and TPS61169DCKR (an SC70) both sit on SOT-23-6 footprints. Fixing them means new
+part numbers in `make_demo_boards.py`, so new zips, and then EE's demo run records and issue hints
+(SHA-256 prefixes), its demo `VERSION` and PL's snapshot. Not done; EE's demo run records keep the old counts,
+which demo re-runs tolerate (`exp.run.demo`).
+
 Demo boards (2026-11-02): `tools/make_demo_boards.py` writes two made-up Smart Thermostat packages,
 `demo/thermostat-main-pcba.zip` (DT-1042 rev B, Signoff EE `pdemo7`) and
 `demo/thermostat-display-board.zip` (DT-1043 rev A, `pdemo11`), plus `demo/boards.js` (their fixed

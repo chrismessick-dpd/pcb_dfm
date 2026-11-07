@@ -137,7 +137,8 @@
   // designators such as DSG0008A, generic packages with a pin count).
   const PKG_NAME = /^(RESC|CAPC|INDC|LEDC|DIOC|RESM|CAPM|FUSC|BEADC|SOIC|SOP|SSOP|TSSOP|MSOP|QFN|DFN|SON|BGA|LGA|CSP|WLP|SOT|SOD|TO\d|QFP|LQFP|TQFP|PQFP|PLCC|DIP|SIP|XTAL|CRYSTAL|OSC|IND|CAP|RES|LED|FID|TP|MH|HDR|HEADER|PIN|CONN)/i;
   const PKG_ANY = /(QFN|SON|DFN|BGA|CSP|WLP|SOT|SOIC|QFP|LGA|SOD|DPAK|TSOP|SSOP|MSOP)/i;
-  const TI_PKG = /^[A-Z]{3}\d{4}[A-Z]?$/;
+  // DSG0008A, RPW0010A-MFG: the designator then a non-alphanumeric or the end (OPT3001DNPR is a part number).
+  const TI_PKG = /^[A-Z]{3}\d{4}[A-Z]?([^A-Z0-9]|$)/i;
   // Library prefixes before the part number in a footprint name.
   const FP_PREFIX = /^(IC|U|HRS|JST|XTAL|CONN|MOLEX|TE|SAMTEC|WURTH|WE|TI|ADI|ST|NXP|MURATA|KEMET|AMP|FCI|CUI|GCT)[_ -]/i;
   // Part-number-like tokens in a footprint name ("IC_OPT3001DNPR" → OPT3001DNPR); [] for package and
@@ -151,7 +152,7 @@
       tok = tok.trim();
       const a = alnum(tok);
       if (a.length < 8 || /^\d/.test(a) || !/[A-Z]{2,}\d{3,}/.test(a) || /\./.test(tok)) continue;
-      if (PKG_NAME.test(tok) || PKG_ANY.test(tok) || TI_PKG.test(a.slice(0, 8)) || /\d+(\.\d+)?X\d/i.test(tok) || SIZE_RUN.test(tok) || /-\d+P(-|$)/i.test(tok)) continue;
+      if (PKG_NAME.test(tok) || PKG_ANY.test(tok) || TI_PKG.test(tok) || /\d+(\.\d+)?X\d/i.test(tok) || SIZE_RUN.test(tok) || /-\d+P(-|$)/i.test(tok)) continue;
       out.push(tok);
     }
     return out;

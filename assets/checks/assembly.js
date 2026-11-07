@@ -108,7 +108,7 @@
       sev: { error: 'a part is marked with another value than its part number', info: 'how many parts were compared' },
       uses: ['BOM MPN (decoded offline)', 'Pick-and-place comment and description', 'ODB++ part name'],
       rules: () => ['Decodes ' + DECODED + '.', `Values match within ${+(T.valueTol * 100).toFixed(1)}%.`, 'Size codes, tolerances and ratings are ignored, so "4K7, 0402" reads as 4.7 kΩ; on resistors a bare number is ohms ("680" is 680 Ω).', 'Texts that are the part number itself, or state no value, are skipped.'],
-      example: 'BOM row 4: RC0402FR-0710KL is 10 kΩ, but R1 is marked 4.7 kΩ' },
+      example: 'BOM row 5: RC0402FR-0710KL is 10 kΩ, but R1 is marked 4.7 kΩ' },
     { check: 'fp-name', name: 'Footprint named for another part', looks: 'A footprint whose name carries a part number other than the BOM line\'s (IC_OPT3001DNPR on a TMP117AIDRVR), a sign it was copied from that part.',
       sev: { warn: 'the footprint names another part' }, uses: ['BOM MPN, footprint', 'Pick-and-place footprint'],
       rules: () => ['Library prefixes (IC_, HRS_, JST_, XTAL_, FP-…) are dropped. A name counts as a part number only with 8+ letters and digits, a letter run followed by 3+ digits, no decimal point, no size code (0402, 2012…), no pin count (-16P) and no package word (QFN, SON, BGA, SOT…, IPC-7351 names, TI designators such as DSG0008A).',

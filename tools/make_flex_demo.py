@@ -21,6 +21,9 @@ Planted problems (the Flex HDI profile finds these):
   - a via 0.5 mm from the top stiffener's edge;
   - a laser via with a thin capture ring;
   - vias, a solid pour and traces stacked on both layers in the flexible area.
+Planted for the BOM audit (any profile):
+  - R1 marked 4.7k in the comment while its part number is a 10 kΩ (value);
+  - U1's footprint named for another part, IC_OPT3001DNPR (fp-name).
 """
 import hashlib
 import io
@@ -48,9 +51,11 @@ PARTS = [
     ('J1', 'bottom', 5.5, 6.0, row(5.5, 4.75, 6, 0.5, 1.2, 0.25), 'FH19C-6S-0.5SH(10)', 'FPC-6P-0.5', 'FH19C-6S-0.5SH(10)', 'Hirose', 'CONN FFC BOTTOM 6POS 0.50MM R/A'),
     ('U1', 'top', 32.5, 6.0, [('1', 31.9, 5.5, 0.25, 0.6), ('2', 31.9, 6.0, 0.25, 0.6), ('3', 31.9, 6.5, 0.25, 0.6),
                               ('4', 33.1, 6.5, 0.25, 0.6), ('5', 33.1, 6.0, 0.25, 0.6), ('6', 33.1, 5.5, 0.25, 0.6)],
-     'TMP117AIDRVR', 'WSON-6', 'TMP117AIDRVR', 'Texas Instruments', 'SENSOR DIGITAL -55C-150C 6WSON'),
+     # U1's footprint was copied from the light sensor on the display board and never renamed (fp-name).
+     'TMP117AIDRVR', 'IC_OPT3001DNPR', 'TMP117AIDRVR', 'Texas Instruments', 'SENSOR DIGITAL -55C-150C 6WSON'),
     ('C1', 'top', 30.0, 9.0, [('1', 29.52, 9.0, 0.5, 0.6), ('2', 30.48, 9.0, 0.5, 0.6)], 'GRM155R71C104KA88D', 'C0402', 'GRM155R71C104KA88D', 'Murata', 'CAP CER 0.1UF 16V X7R 0402'),
-    ('R1', 'top', 31.9, 9.0, [('1', 31.42, 9.0, 0.5, 0.6), ('2', 32.38, 9.0, 0.5, 0.6)], 'RC0402FR-0710KL', 'R0402', 'RC0402FR-0710KL', 'Yageo', 'RES SMD 10K OHM 1% 1/16W 0402'),
+    # R1's comment says 4.7k, its part number is a 10 kΩ (value).
+    ('R1', 'top', 31.9, 9.0, [('1', 31.42, 9.0, 0.5, 0.6), ('2', 32.38, 9.0, 0.5, 0.6)], '4.7k', 'R0402', 'RC0402FR-0710KL', 'Yageo', 'RES SMD 10K OHM 1% 1/16W 0402'),
     ('J2', 'top', 38.6, 6.0, row(38.6, 3.75, 4, 1.5, 1.2, 0.6), 'AC-FPC-04-1.5', 'FPC-4P-1.5', 'AC-FPC-04-1.5', 'Acme Connect', 'CONN FPC TOP 4POS 1.50MM, sensor end'),
 ]
 TIGHT = ('C1', '1')        # its coverlay opening is only 0.03 mm over the pad
