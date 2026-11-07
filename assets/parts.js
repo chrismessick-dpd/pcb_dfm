@@ -82,7 +82,7 @@
     [/^G(RM|CM|JM|QM|CJ|RT)|^BLM|^LQ[GHMW]|^NCP|^NFM/i, ['murata']],
     [/^CL\d\d[A-Z]/i, ['samsung']],
     [/^GMC\d\d/i, ['cal-chip', 'calchip', 'cal chip']],
-    [/^(CC|RC|RT|AC|CQ)\d{4}/i, ['yageo']],
+    [/^(CC|RC|RT|AC|CQ)(0201|0402|0603|0805|1206|1210|1812|2010|2512)/i, ['yageo']],
     [/^C\d{4}C\d{3}/i, ['kemet']],
     [/^(CGA|CGJ|C\d{4}X|MLZ|MPZ|VLS|SPM|NLV)/i, ['tdk']],
     [/^(ERJ|ERA|ERT|EEE|ECA|EEH)/i, ['panasonic']],
@@ -100,8 +100,136 @@
     return null;
   }
 
+  // ---- values written on the board data (PnP comment and description, ODB++ part name) ----
+  // Size codes, tolerances and ratings are dropped first, so "1K, 0402" reads as 1 kΩ, not 402 Ω.
+  const SIZE_TOKENS = /(^|[^\d.])(01005|0201|0402|0603|0805|1206|1210|1812|2010|2512|1005|1608|2012|3216|3225|4532|5025|6332)(?![\d.])(\s*metric)?/gi;
+  // The capacitance or resistance a text states, in F or Ω; null when it states none.
+  function valueOf(text, kind) {
+    const t = String(text || '').replace(/_/g, ' ').trim();
+    if (!t) return null;
+    const d = parseDesc(t);
+    if (kind === 'C') return d.cap != null ? d.cap : null;
+    if (kind !== 'R') return null;
+    if (d.res != null && isFinite(d.res)) return d.res;
+    const s = ' ' + t.replace(SIZE_TOKENS, '$1 ').replace(/\d+(\.\d+)?\s*%/g, ' ').replace(/\d+\/\d+\s*W\b/gi, ' ').replace(/\d+(\.\d+)?\s*[mk]?[WV]\b/gi, ' ') + ' ';
+    let m = /[\s,;(](\d+(?:\.\d+)?)\s*([kKmM]?)(?=[\s,;)])/.exec(s);
+    if (m) return parseFloat(m[1]) * ({ k: 1e3, m: 1e6 }[m[2].toLowerCase()] || 1);
+    m = /[\s,;(](\d*)([RrKkMm])(\d*)(?=[\s,;)])/.exec(s);
+    if (m && (m[1] || m[3])) return parseFloat((m[1] || '0') + '.' + (m[3] || '0')) * { r: 1, k: 1e3, m: 1e6 }[m[2].toLowerCase()];
+    return null;
+  }
+  // A board part name that is a value, not a part number ("10K,_0402", "4.7uF,_X5R", "0", "49.9_kO").
+  const isValueLabel = s => /^\d/.test(String(s || '').trim());
+
+  // Two part numbers name the same part: equal letters and digits, or one is the other without its
+  // packaging suffix (BSS138 / BSS138LT1G) or with a library prefix (IC_TPS62162DSGR / TPS62162DSGR).
+  const alnum = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  function samePn(a, b) {
+    const x = alnum(a), y = alnum(b);
+    if (!x || !y) return false;
+    if (x === y) return true;
+    const [s, l] = x.length < y.length ? [x, y] : [y, x];
+    return s.length >= 6 && (l.startsWith(s) || l.endsWith(s));
+  }
+
+  // ---- footprint names ----
+  // Package and land-pattern names that look like part numbers but are not (IPC-7351 names, TI package
+  // designators such as DSG0008A, generic packages with a pin count).
+  const PKG_NAME = /^(RESC|CAPC|INDC|LEDC|DIOC|RESM|CAPM|FUSC|BEADC|SOIC|SOP|SSOP|TSSOP|MSOP|QFN|DFN|SON|BGA|LGA|CSP|WLP|SOT|SOD|TO\d|QFP|LQFP|TQFP|PQFP|PLCC|DIP|SIP|XTAL|CRYSTAL|OSC|IND|CAP|RES|LED|FID|TP|MH|HDR|HEADER|PIN|CONN)/i;
+  const PKG_ANY = /(QFN|SON|DFN|BGA|CSP|WLP|SOT|SOIC|QFP|LGA|SOD|DPAK|TSOP|SSOP|MSOP)/i;
+  const TI_PKG = /^[A-Z]{3}\d{4}[A-Z]?$/;
+  // Library prefixes before the part number in a footprint name.
+  const FP_PREFIX = /^(IC|U|HRS|JST|XTAL|CONN|MOLEX|TE|SAMTEC|WURTH|WE|TI|ADI|ST|NXP|MURATA|KEMET|AMP|FCI|CUI|GCT)[_ -]/i;
+  // Part-number-like tokens in a footprint name ("IC_OPT3001DNPR" → OPT3001DNPR); [] for package and
+  // generic names. A token counts only when it reads like a manufacturer part number: 8+ letters and
+  // digits, a letter run then 3+ digits, and none of what generic footprint names carry (dimensions with
+  // a decimal point, a size code, a pin count such as -16P, package words).
+  const SIZE_RUN = /(^|\D)(01005|0201|0402|0603|0805|1206|1210|1812|2010|2512|1005|1608|2012|3216|3225|4532|5025|6332)(\D|$)/;
+  function fpPartTokens(fp) {
+    const out = [];
+    for (let tok of String(fp || '').replace(FP_PREFIX, '').replace(/^FP[_ -]/i, '').split('_')) {
+      tok = tok.trim();
+      const a = alnum(tok);
+      if (a.length < 8 || /^\d/.test(a) || !/[A-Z]{2,}\d{3,}/.test(a) || /\./.test(tok)) continue;
+      if (PKG_NAME.test(tok) || PKG_ANY.test(tok) || TI_PKG.test(a.slice(0, 8)) || /\d+(\.\d+)?X\d/i.test(tok) || SIZE_RUN.test(tok) || /-\d+P(-|$)/i.test(tok)) continue;
+      out.push(tok);
+    }
+    return out;
+  }
+  // A footprint token names this part: the same part number (samePn), the same family (4+ leading
+  // letters and digits in common), or the part number inside it with X as a wildcard (LTST-C19X for
+  // LTST-C190, a footprint shared by a family).
+  function namesPart(tok, pn, prefix) {
+    if (samePn(tok, pn) || commonPrefix(tok, pn) >= (prefix || 4)) return true;
+    const t = alnum(tok), p = alnum(pn), need = Math.min(6, p.length);
+    for (let i = 0; i + need <= t.length; i++) {
+      let k = 0;
+      while (k < p.length && i + k < t.length && (t[i + k] === p[k] || t[i + k] === 'X')) k++;
+      if (k >= need) return true;
+    }
+    return false;
+  }
+  // Letters and digits two part numbers share from the start.
+  function commonPrefix(a, b) {
+    const x = alnum(a), y = alnum(b);
+    let i = 0;
+    while (i < x.length && i < y.length && x[i] === y[i]) i++;
+    return i;
+  }
+
+  // ---- TI package designators ----
+  // TI orderable part numbers end in a package designator and a reel letter (TPS62162DSGR → DSG).
+  // Only designators with a well-known package family are listed.
+  const TI_FAMILY = {
+    DBV: 'SOT-23', DDC: 'SOT-23', DCK: 'SC70', DCN: 'SOT-23', DBZ: 'SOT-23', DRL: 'SOT-563', DYY: 'SOT-23',
+    DRY: 'SON', DSK: 'SON', DSG: 'SON', DRV: 'SON', DQA: 'SON', DQN: 'SON', DSE: 'SON', DRC: 'SON', DGS: 'MSOP', DGK: 'MSOP',
+    DRB: 'SON', DNP: 'SON', DMR: 'SON', DQE: 'SON', DPW: 'SON', DTQ: 'SON',
+    RGT: 'QFN', RGE: 'QFN', RTE: 'QFN', RGW: 'QFN', RHB: 'QFN', RGZ: 'QFN', RSA: 'QFN', RTW: 'QFN', RUK: 'QFN', RPW: 'QFN', RNR: 'QFN',
+    RWB: 'QFN', RSW: 'QFN', RUG: 'QFN', RSE: 'QFN', RVA: 'QFN', RLT: 'QFN', RUM: 'QFN', RGR: 'QFN', RGY: 'QFN', RSN: 'QFN',
+    YBG: 'CSP', YFF: 'CSP', YZF: 'CSP', YBH: 'CSP', YFP: 'CSP', YZP: 'CSP', YKA: 'CSP', YBJ: 'CSP', YZT: 'CSP', YZR: 'CSP', YFA: 'CSP',
+    PW: 'TSSOP', PWP: 'TSSOP', DGQ: 'MSOP', DDA: 'SOIC',
+  };
+  const TI_MPN = /^(TPS|TLV|TLC|TMP|INA|OPA|ADS|DAC|LMR|LMV|LMZ|LM\d|LP\d|LPV|SN74|SN65|TXS|TXB|TCA|TPD|TUSB|BQ\d|DRV|ISO|CSD|UCC|TPA|HDC|OPT|DRV|LMK|CDC|TS3|TS5|TL\d)/i;
+  function tiPackage(mpn, mfr) {
+    const s = String(mpn || '').trim().toUpperCase();
+    if (!(TI_MPN.test(s) || /texas|^ti$/i.test(String(mfr || '').trim()))) return null;
+    const m = /([A-Z]{2,3})[RT](Q1)?$/.exec(s);
+    if (!m) return null;
+    const code = TI_FAMILY[m[1]] ? m[1] : TI_FAMILY[m[1].slice(-2)] && m[1].length === 3 ? m[1].slice(-2) : null;
+    return code ? { code, family: TI_FAMILY[code] } : null;
+  }
+  // The package family a footprint name names, or null. TI designators (DSG0008A) map through TI_FAMILY.
+  function fpFamily(fp) {
+    const s = String(fp || '').toUpperCase();
+    const ti = /(?:^|[^A-Z])([A-Z]{3})\d{4}[A-Z]?(?:[^A-Z0-9]|$)/.exec(s);
+    if (ti && TI_FAMILY[ti[1]]) return TI_FAMILY[ti[1]];
+    if (/WCSP|WLCSP|WL-CSP|DSBGA|WLP|CSP|BGA/.test(s)) return 'CSP';
+    if (/SC-?70|SOT-?323|SOT-?353|SOT-?363/.test(s)) return 'SC70';
+    if (/SOT-?563|SOT-?666/.test(s)) return 'SOT-563';
+    if (/SOT-?23|SOT23|SOT-?25|SOT-?26|SOT-?323/.test(s)) return 'SOT-23';
+    if (/QFN|VQFN|WQFN|UQFN/.test(s)) return 'QFN';
+    if (/SON|DFN|WSON|USON|VSON/.test(s)) return 'SON';
+    if (/TSSOP|HTSSOP/.test(s)) return 'TSSOP';
+    if (/MSOP|VSSOP/.test(s)) return 'MSOP';
+    if (/SOIC/.test(s)) return 'SOIC';
+    return null;
+  }
+  // QFN and SON are one family for this comparison: TI calls the same body a QFN or a SON by pin layout.
+  const sameFamily = (a, b) => a === b || ([a, b].every(f => f === 'QFN' || f === 'SON'));
+
+  // ---- pin counts stated in text ("6-SON", "64LQFP", "SOT-89-5", "15-WL-CSP", "8 pins") ----
+  const PIN_PKG = /(?:^|[^\w.])(\d{1,3})[ -]?(?:PIN[ -]?)?(X?SON|WSON|USON|VSON|DFN|XDFN|UDFN|X2QFN|QFN|UQFN|VQFN|WQFN|WLP|WLCSP|WL-CSP|CSP|DSBGA|UFBGA|BGA|LQFP|TQFP|QFP|SOT-?23|SOIC|TSSOP|MSOP|SSOP|SOP|LGA|SC-?70)\b/gi;
+  function pinCounts(text) {
+    const t = String(text || ''), out = new Set();
+    for (const m of t.matchAll(PIN_PKG)) out.add(+m[1]);
+    for (const m of t.matchAll(/\b(?:SOT|SC|TO)-?\d{2,3}-(\d{1,2})\b/gi)) out.add(+m[1]);
+    for (const m of t.matchAll(/\b(\d{1,3})[ -]?pins?\b/gi)) out.add(+m[1]);
+    return [...out].filter(n => n >= 2);
+  }
+
   const fmtCap = v => v >= 1e-6 ? +(v / 1e-6).toPrecision(3) + ' µF' : v >= 1e-9 ? +(v / 1e-9).toPrecision(3) + ' nF' : +(v / 1e-12).toPrecision(3) + ' pF';
   const fmtRes = v => v >= 1e6 ? +(v / 1e6).toPrecision(3) + ' MΩ' : v >= 1e3 ? +(v / 1e3).toPrecision(3) + ' kΩ' : +v.toPrecision(3) + ' Ω';
 
-  Fab.parts = { decode, parseDesc, expectedMfr, fmtCap, fmtRes, PREFIX_MFR };
+  Fab.parts = { decode, parseDesc, expectedMfr, fmtCap, fmtRes, PREFIX_MFR, valueOf, isValueLabel, samePn, alnum, fpPartTokens, commonPrefix, namesPart,
+    tiPackage, fpFamily, sameFamily, pinCounts, TI_FAMILY };
 })(window.Fab);

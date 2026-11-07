@@ -308,7 +308,7 @@
     // spacing step, and the raster pass about as much as everything else, filled by the area of
     // its finished jobs. A module that returns early jumps to its end.
     const nCu = pkg.layers.copper.length, nMask = ['top', 'bottom'].filter(s => pkg.layers.mask[s]).length;
-    const most = { package: 7, assembly: 5, build: 3, pins: 3, bom: 1, dfm: 11 + 4 * nCu + nMask };
+    const most = { package: 7, assembly: 5, build: 3, pins: 3, bom: 3, dfm: 11 + 4 * nCu + nMask };
     const other = Object.values(most).reduce((a, b) => a + b, 0), rasterUnits = Math.round(1.2 * other);
     most.dfm += rasterUnits;
     const total = other + rasterUnits;

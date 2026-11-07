@@ -5,8 +5,7 @@
   const C = Fab.checks;
   const F = Fab.finding;
   const norm = s => String(s || '').trim().toLowerCase();
-  const padOnly = d => C.PAD_ONLY.test(d);
-  const T = { odbMove: 0.05, thtPin: 0.05, shown: 30 };
+  const T = { odbMove: 0.05, thtPin: 0.05, shown: 30, pasteCenter: 0.15 };
   // Library names that are not part numbers ("Resistor_100k_+/-1%_0603…", "empty_part_name").
   const GENERIC = /resistor|capacitor|inductor|header|empty_part|%|\s/i;
 
@@ -19,12 +18,18 @@
       uses: ['ODB++ components (extracted odb/ tree)', 'BOM', 'Pick-and-place'], rules: () => [`Positions agree within ${Fab.fmtLen(T.odbMove)}; larger offsets on the same side are listed as info, since ODB++ uses the footprint origin.`, `Pad-only designators (${C.pattern(C.PAD_ONLY)}) are skipped.`],
       example: 'R33 is on the BOM but ODB++ marks it not placed' },
     { check: 'odb-pn', name: 'ODB++ part vs BOM part number', looks: "The board's part name in ODB++ against the BOM's part number and name.", sev: { warn: 'it names a different part' },
-      uses: ['ODB++ component part name', 'BOM MPN, name, MPN 2'], rules: () => [`Generic library names are skipped: containing ${C.pattern(GENERIC).split('|').join(', ')} or a space, or with more than one underscore.`],
+      uses: ['ODB++ component part name', 'BOM MPN, name, MPN 2'], rules: () => [`Generic library names are skipped: containing ${C.pattern(GENERIC).split('|').join(', ')} or a space, or with more than one underscore.`,
+        'Names that start with a digit are value labels ("10K, 0402"); the BOM audit compares their value with the part number (check value).',
+        'Letters and digits only are compared, so punctuation does not count; a name that is the part number without its packaging suffix (BSS138 for BSS138LT1G), or with a library prefix (IC_…), matches.'],
       example: 'BOM row 11: MPN TLV70033DDCR ≠ board part TLV70033DDCT' },
     { check: 'paste', name: 'Paste per pin', looks: 'Stencil apertures on every SMD pin of fitted parts, and none on unfitted parts.',
-      sev: { error: 'an unfitted part gets paste', warn: 'a fitted part has SMD pads without paste', info: 'how many parts were checked' }, uses: ['ODB++ component pins', 'Paste layers', 'BOM DNP', 'Copper pads'],
-      rules: () => [`Pins within ${Fab.fmtLen(T.thtPin)} of a drill hit are through-hole and need no paste.`, 'Windowed paste inside an exposed/thermal pad counts for that pad.', `Pad-only designators are skipped; the first ${T.shown} parts with missing paste are listed.`],
+      sev: { error: 'an unfitted part gets paste, or a fitted part gets none on any pad', warn: 'a fitted part has some SMD pads without paste', info: 'how many parts were checked' }, uses: ['ODB++ component pins', 'Paste layers', 'BOM DNP', 'Copper pads'],
+      rules: () => [`Pins within ${Fab.fmtLen(T.thtPin)} of a drill hit are through-hole and need no paste.`, 'Windowed paste inside an exposed/thermal pad counts for that pad.', `Pad-only designators (test points, fiducials, mounting holes, by designator, footprint or a "Test Point" comment) are skipped; the first ${T.shown} parts with some pads missing paste are listed.`],
       example: 'J4 is not fitted but the stencil prints paste on 6 pad(s)' },
+    { check: 'paste-center', name: 'Placement vs pasted pads', looks: 'Parts with paste on only some of their pads (alternate-position footprints): whether the pick-and-place point is the center of the pasted pads, where the part actually goes.',
+      sev: { warn: 'the placement is off the pasted pads', info: 'every such part is placed on its pasted pads' }, uses: ['ODB++ component pins', 'Paste layers', 'Pick-and-place X/Y'],
+      rules: () => [`Off when the center of the pasted pads is more than ${Fab.fmtLen(T.pasteCenter)} from the pick-and-place point.`, 'Needs at least two pasted pads and at least one without paste. Connectors are skipped (unpasted shell or peg pads are usual).'],
+      example: 'R9: placement is 0.50 mm (19.7 mil) from the pads that get paste' },
   ]);
 
   function* run(pkg, out) {
@@ -33,6 +38,7 @@
     const bomDes = new Map();
     if (bom) for (const l of bom.lines) for (const d of l.des) if (!bomDes.has(d)) bomDes.set(d, l);
     const fitted = d => bomDes.has(d) && !bomDes.get(d).dnp;
+    const padOnly = d => C.isPadOnly(pkg, d);
 
     // ---- variant ----
     yield 'Variant';
@@ -72,9 +78,11 @@
       for (const c of comps) {
         const l = bomDes.get(c.des);
         if (!l || c.noPop) continue;
-        const ok = [l.mpn, l.name, l.mpn2].map(norm).includes(norm(c.part));
-        // Generic library names ("Resistor_100k_+/-1%_0603…", "empty_part_name") are not part numbers.
-        const generic = GENERIC.test(c.part) || (c.part.match(/_/g) || []).length > 1;
+        if (!l.mpn) continue;   // the BOM audit's mpn check already reports the missing part number
+        const ok = [l.mpn, l.name, l.mpn2].some(pn => Fab.parts.samePn(c.part, pn));
+        // Generic library names ("Resistor_100k_+/-1%_0603…", "empty_part_name") are not part numbers,
+        // and value labels ("10K,_0402", "4.7uF,_X5R") are compared by value in the BOM audit.
+        const generic = GENERIC.test(c.part) || (c.part.match(/_/g) || []).length > 1 || Fab.parts.isValueLabel(c.part);
         if (!ok && !generic) badPn.push({ c, l });
       }
       const byLine = new Map();
@@ -106,7 +114,7 @@
     yield 'Paste per pin';
     const paste = pkg.layers.paste;
     if (paste.top || paste.bottom) {
-      const fittedNoPaste = [], unfittedPaste = [];
+      const fittedNoPaste = [], unfittedPaste = [], partial = [];
       const holes = new C.__HitIndex(pkg.hits);
       let checked = 0;
       const used = new Set();
@@ -131,13 +139,36 @@
         if (isFitted) {
           checked++;
           if (smdPins.length && withPaste < smdPins.length && !padOnly(c.des)) fittedNoPaste.push({ c, missing: smdPins.length - withPaste, of: smdPins.length });
+          // Some pads pasted and some not (an alternate-position footprint): the part sits on the pasted ones.
+          if (withPaste >= 2 && withPaste < smdPins.length && !padOnly(c.des)) partial.push({ c, pins: smdPins.filter((p, i) => hits[i].length), of: smdPins.length });
         } else if (withPaste && !padOnly(c.des)) unfittedPaste.push({ c, n: withPaste });
       }
       for (const u of unfittedPaste) add('paste', 'error', `${u.c.des} is not fitted but the stencil prints paste on ${u.n} pad(s)`, `${u.c.part} (${u.c.side}). Solder on unfitted pads (e.g. Tag-Connect or debug headers) causes bridges and poor probe contact. Generate the paste layers from the build variant.`, { at: { x: u.c.x, y: u.c.y }, refs: [u.c.des], side: u.c.side });
-      for (const f of fittedNoPaste.slice(0, T.shown)) add('paste', 'warn', `${f.c.des}: ${f.missing} of ${f.of} SMD pads have no paste`, `${f.c.part} (${f.c.side}). Confirm it is intended (e.g. a battery contact pad); windowed paste on thermal pads is already recognized.`, { at: { x: f.c.x, y: f.c.y }, refs: [f.c.des], side: f.c.side });
+      // A fitted part with no paste on any pad cannot be reflowed: the stencil is missing its apertures.
+      for (const f of fittedNoPaste.filter(f => f.missing === f.of)) add('paste', 'error', `${f.c.des}: none of its ${f.of} SMD pads get paste`, `${f.c.part} (${f.c.side}). The stencil has no apertures for this part, so it can't be soldered in reflow. Check the paste layer of its footprint (paste mask expansion, or pads set to no paste).`, { at: { x: f.c.x, y: f.c.y }, refs: [f.c.des], side: f.c.side });
+      for (const f of fittedNoPaste.filter(f => f.missing < f.of).slice(0, T.shown)) add('paste', 'warn', `${f.c.des}: ${f.missing} of ${f.of} SMD pads have no paste`, `${f.c.part} (${f.c.side}). Confirm it is intended (e.g. a battery contact pad, or the unused position of an alternate-position footprint); windowed paste on thermal pads is already recognized.`, { at: { x: f.c.x, y: f.c.y }, refs: [f.c.des], side: f.c.side });
       let orphan = 0;
       for (const side of ['top', 'bottom']) if (paste[side]) for (const p of paste[side].prims) if (p.dark && !used.has(p)) orphan++;
       add('paste', 'info', `Paste checked on ${checked} fitted SMD parts`, `${fittedNoPaste.length} with missing paste, ${unfittedPaste.length} unfitted with paste. ${orphan} paste feature(s) not on any component pin center (windowed thermal pads produce some).`);
+
+      // ---- placement vs pasted pads ----
+      // On an alternate-position footprint (a 0 Ω that can sit on pads 1-2 or 1-3) the pick-and-place
+      // point is the footprint's center, but the part goes on the pads that get paste.
+      const placedAt = new Map(((pnp && pnp.parts) || []).filter(p => p.gx != null).map(p => [p.des, p]));
+      const offPaste = [];
+      for (const q of partial) {
+        const p = placedAt.get(q.c.des);
+        if (!p || C.connectorLike(p.des, p.description)) continue;
+        const b = Fab.bbox.empty();
+        for (const pin of q.pins) Fab.bbox.addPt(b, pin.x, pin.y);
+        const ctr = Fab.bbox.center(b), d = Math.hypot(ctr.x - p.gx, ctr.y - p.gy);
+        if (d > T.pasteCenter) offPaste.push({ q, p, ctr, d });
+      }
+      for (const o of offPaste.slice(0, T.shown)) add('paste-center', 'warn', `${o.p.des}: placement is ${Fab.fmtLen(o.d, 2)} from the pads that get paste`,
+        `${o.q.pins.length} of ${o.q.of} pads get paste (${o.q.pins.map(pin => pin.name || pin.pin || '?').join(', ')}), centered at ${o.ctr.x.toFixed(3)}, ${o.ctr.y.toFixed(3)} mm; the pick-and-place says ${o.p.gx.toFixed(3)}, ${o.p.gy.toFixed(3)} mm (${o.p.footprint}). ` +
+        'The machine centers the part on the pick-and-place point, so it would land between positions. Move the footprint origin to the fitted position, or give the assembler the corrected point.',
+        { at: { x: o.ctr.x, y: o.ctr.y }, refs: [o.p.des], side: o.p.side });
+      if (partial.length && !offPaste.length) add('paste-center', 'info', `${partial.length} part(s) with paste on only some pads are placed on their pasted pads`, partial.map(q => q.c.des).sort(Fab.natCmp).join(', ') + '.', { refs: partial.map(q => q.c.des) });
     }
     return;
   }

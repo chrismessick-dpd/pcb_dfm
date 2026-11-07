@@ -12,9 +12,14 @@
     [/^(GRM|GCM|GRT|GJM|GCJ|GQM)(03|15|18|21|31|32)/i, m => ({ '03': '0201', '15': '0402', '18': '0603', '21': '0805', '31': '1206', '32': '1210' })[m[2]]],
     [/^GMC(02|04|10|21|31|32)/i, m => ({ '02': '0201', '04': '0402', '10': '0603', '21': '0805', '31': '1206', '32': '1210' })[m[2]]],
     [/^(RC|CC|AC|RT|RL|CQ|AF)(0201|0402|0603|0805|1206|1210|2010|2512)/i, m => m[2]],
-    [/^(ERJ|ERA)-?(1G|2G|3G|3E|6G|6E|8G|8E|14|12)/i, m => ({ '1G': '0201', '2G': '0402', '3G': '0603', '3E': '0603', '6G': '0805', '6E': '0805', '8G': '1206', '8E': '1206', '14': '1210', '12': '1812' })[m[2].toUpperCase()]],
+    [/^(ERJ|ERA)-?(1G|2G|2R|3G|3E|6G|6E|8G|8E|14|12)/i, m => ({ '1G': '0201', '2G': '0402', '2R': '0402', '3G': '0603', '3E': '0603', '6G': '0805', '6E': '0805', '8G': '1206', '8E': '1206', '14': '1210', '12': '1812' })[m[2].toUpperCase()]],
     [/^CRCW(0201|0402|0603|0805|1206|1210|2010|2512)/i, m => m[1]],
     [/^C(0402|0603|0805|1206|1210)C/i, m => m[1]],
+    // Susumu thin film: the metric size in the part number (RG1608 is an 0603).
+    [/^(RG|RR|PRG)(1005|1608|2012|3216|3225|5025)/i, m => METRIC2IMP[m[2]]],
+    // Murata ferrites, inductors and NTCs: BLM18, LQM18, NCP15…
+    [/^(BLM|LQM|LQG|LQW|LQP|NCP|NFM)(03|15|18|21|31)/i, m => ({ '03': '0201', '15': '0402', '18': '0603', '21': '0805', '31': '1206' })[m[2]]],
+    [/^RK73[BHZ](1E|1J|2A|2B)/i, m => ({ '1E': '0402', '1J': '0603', '2A': '0805', '2B': '1206' })[m[1].toUpperCase()]],
     [/^CL(03|05|10|21|31|32)/i, m => ({ '03': '0201', '05': '0402', '10': '0603', '21': '0805', '31': '1206', '32': '1210' })[m[1]]],
   ];
   function footprintSize(fp) {
@@ -41,7 +46,7 @@
   const looksLikeMpn = s => !!s && s.length >= 6 && !/\s/.test(s) && /\d/.test(s) && /[A-Za-z]/.test(s);
   const norm = s => String(s || '').trim().toLowerCase();
 
-  const T = { padNear: 2.5, padFar: 8, pairCenter: 0.03, rotGroup: 3, rotOutliers: 1 / 4, valueTol: 0.011, absTolBelow: 10e-12 };
+  const T = { padNear: 2.5, padFar: 8, pairCenter: 0.03, rotGroup: 3, rotOutliers: 1 / 4, valueTol: 0.011, absTolBelow: 10e-12, fpPrefix: 4, shown: 30 };
   const LC_ERROR = /obsolete|end of life|eol|nrnd|not recommended|last time|discontinued/;
   const LC_WARN = /deleted|unknown|preview|new product/;
   const REV_BAD = /deleted|obsolete/i;
@@ -65,17 +70,18 @@
       example: 'C41: rotation 90° is 90° off from its pads' },
     { check: 'bom-pnp', name: 'Pick-and-place vs BOM', looks: 'Designators placed but not on the BOM, and BOM designators with no placement.',
       sev: { error: 'a fitted BOM designator has no placement', warn: 'a placed part has no BOM line', info: 'test points and fiducials without a BOM line, or everything matches' },
-      uses: ['BOM designators, DNP', 'Pick-and-place designators'], rules: () => [`Pad-only designators (${re(C.PAD_ONLY)}) without a BOM line are info, not warnings.`],
+      uses: ['BOM designators, DNP', 'Pick-and-place designators'], rules: () => [`Pad-only parts without a BOM line are info, not warnings: designators ${re(C.PAD_ONLY)}, footprints ${re(C.PAD_ONLY_FP)}, or a comment or ODB++ part name such as "Test Point" or "Fiducial".`],
       example: 'U7 is in the BOM but has no placement' },
     { check: 'dnp', name: 'DNP parts placed', looks: 'Parts marked do-not-populate that still appear in the pick-and-place.', sev: { info: 'lists them' },
       uses: ['BOM DNP / Fitted column', 'Pick-and-place'], example: '3 DNP part(s) appear in the pick-and-place' },
     { check: 'footprint', name: 'One footprint per BOM line', looks: 'BOM lines whose designators use different footprints in the pick-and-place.', sev: { warn: 'a line has more than one footprint' },
       uses: ['BOM designators', 'Pick-and-place footprint'], example: 'BOM row 14 (GRM155R71C104KA88D) uses 2 different footprints' },
     { check: 'comment', name: 'Comment vs BOM', looks: "Pick-and-place comments that don't match the BOM line's name, part number or value.", sev: { warn: 'a comment matches none of them' },
-      uses: ['Pick-and-place comment', 'BOM name, MPN, value'], rules: () => ['Compared only when the BOM has a name column or the comment looks like a part number (6+ characters, letters and digits, no spaces).', 'Case-insensitive, exact.'],
+      uses: ['Pick-and-place comment', 'BOM name, MPN, value'], rules: () => ['Compared only when the BOM has a name column or the comment looks like a part number (6+ characters, letters and digits, no spaces).',
+        'Letters and digits only; the part number without its packaging suffix, or with a library prefix, matches.', 'A comment that states a value for a part number Fabcheck decodes is compared by value instead (BOM audit, check value).'],
       example: 'PnP comment differs from BOM row 22' },
     { check: 'package', name: 'Package size code', looks: 'The size code of the footprint (0402, 0603…) against the description and the size the part number implies.',
-      sev: { warn: 'they disagree', info: 'how many lines were checked' }, uses: ['Pick-and-place footprint', 'BOM description', 'BOM MPN'],
+      sev: { error: 'the part number is another size than the footprint', warn: 'the description disagrees with the footprint', info: 'how many lines were checked' }, uses: ['Pick-and-place footprint', 'BOM description', 'BOM MPN'],
       rules: () => ['Footprint: IPC names (RESC1005…, converted from metric), "0603(1608)" or a bare size code.', 'Description: a size code, or "(1005 metric)".', 'Part number families with a size field: ' + sizeFamilies() + '.'],
       example: 'Package mismatch on BOM row 9: footprint 0402' },
   ]);
@@ -95,8 +101,27 @@
       sev: { error: 'obsolete, end of life, NRND or last-time buy', warn: 'deleted, unknown, preview or new, or a deleted/obsolete library revision' }, uses: ['BOM lifecycle column', 'Altium component revision status'],
       rules: () => [`Error when the lifecycle matches: ${LC_ERROR.source.split('|').join(', ')}.`, `Warning when it matches: ${LC_WARN.source.split('|').join(', ')}.`, `Warning when the revision status matches: ${REV_BAD.source.split('|').join(', ')}.`],
       example: 'BOM row 18: TPS62130RGTR lifecycle "NRND"' },
-    { check: 'mpn-dup', name: 'One line per part number', looks: 'The same part number on several BOM lines.', sev: { warn: 'the lines differ in value or footprint', info: 'they are identical' },
-      uses: ['BOM MPN, value, footprint'], example: 'MPN RC0402FR-0710KL is on 2 BOM rows' },
+    { check: 'mpn-dup', name: 'One line per part number', looks: 'The same part number on several BOM lines. Assemblers ask for one line per part; lines that disagree on footprint or pad count mean one line has the wrong part number.',
+      sev: { error: 'the lines use different footprints or pad counts', warn: 'the lines are split anyway (usually by a different comment)' },
+      uses: ['BOM MPN, footprint, comment', 'Pick-and-place footprint, comment', 'ODB++ or IPC-356 pad counts'], example: 'MPN TLV75533PDBVR is on 2 BOM rows with different footprints' },
+    { check: 'value', name: 'Value on the board data', looks: "The value written for each part in the pick-and-place (comment, description) and ODB++ (part name), against the value its part number decodes to.",
+      sev: { error: 'a part is marked with another value than its part number', info: 'how many parts were compared' },
+      uses: ['BOM MPN (decoded offline)', 'Pick-and-place comment and description', 'ODB++ part name'],
+      rules: () => ['Decodes ' + DECODED + '.', `Values match within ${+(T.valueTol * 100).toFixed(1)}%.`, 'Size codes, tolerances and ratings are ignored, so "4K7, 0402" reads as 4.7 kΩ; on resistors a bare number is ohms ("680" is 680 Ω).', 'Texts that are the part number itself, or state no value, are skipped.'],
+      example: 'BOM row 4: RC0402FR-0710KL is 10 kΩ, but R1 is marked 4.7 kΩ' },
+    { check: 'fp-name', name: 'Footprint named for another part', looks: 'A footprint whose name carries a part number other than the BOM line\'s (IC_OPT3001DNPR on a TMP117AIDRVR), a sign it was copied from that part.',
+      sev: { warn: 'the footprint names another part' }, uses: ['BOM MPN, footprint', 'Pick-and-place footprint'],
+      rules: () => ['Library prefixes (IC_, HRS_, JST_, XTAL_, FP-…) are dropped. A name counts as a part number only with 8+ letters and digits, a letter run followed by 3+ digits, no decimal point, no size code (0402, 2012…), no pin count (-16P) and no package word (QFN, SON, BGA, SOT…, IPC-7351 names, TI designators such as DSG0008A).',
+        `It names the same part when it shares ${T.fpPrefix}+ leading letters and digits with the part number, or holds the part number with X as a wildcard (a family footprint such as LTST-C19X for LTST-C190).`],
+      example: 'U1: footprint IC_OPT3001DNPR is named for OPT3001DNPR, not TMP117AIDRVR' },
+    { check: 'pkg-code', name: 'Package code vs footprint', looks: "The package a TI part number ends in (TPS62162DSGR → DSG, a SON) against the package family its footprint names.",
+      sev: { warn: 'the families differ', info: 'how many parts were checked' }, uses: ['BOM MPN, manufacturer', 'Footprint name'],
+      rules: () => ['TI orderable part numbers end in a package designator and a reel letter (R or T, optionally Q1). Designators known: ' + Object.keys(Fab.parts.TI_FAMILY).join(', ') + '.', 'QFN and SON count as one family. Footprints named after the part itself are skipped.'],
+      example: 'BOM row 26: TPS62162DSGR is a SON (DSG), but its footprint SOT-23-6 is a SOT-23' },
+    { check: 'pins', name: 'Pin count vs pads', looks: 'A pin count stated in a description ("6-SON", "64LQFP", "SOT-89-5", "8 pins") against the pads the part has on the board.',
+      sev: { warn: 'they differ', info: 'how many parts were checked' }, uses: ['BOM and pick-and-place description', 'ODB++ component pins or IPC-356 pads'],
+      rules: () => ['One extra pad is allowed (an exposed thermal pad).', `Connectors are skipped (designators ${re(C.CONNECTOR_DES)}, or a description naming a connector, header or socket): shells and pegs add pads.`],
+      example: 'U4: 8 pads, but the description says 6-SON' },
     { check: 'single-source', name: 'Single-source lines', looks: 'Lines with no approved alternate.', sev: { info: 'lists them' }, uses: ['BOM Manufacturer 2 / MPN 2 columns'], example: '61 of 84 BOM lines are single-source' },
     { check: 'pn-desc', name: 'Part number vs description', looks: 'Passive part numbers decoded offline (value, voltage, dielectric, tolerance) against the description and value columns.',
       sev: { error: 'value or voltage disagrees', warn: 'dielectric or tolerance disagrees', info: 'how many lines were decoded' }, uses: ['BOM MPN, description, value'],
@@ -259,7 +284,7 @@
     }
     for (const [d, line] of bomDes) if (!placed.has(d) && !line.dnp) notPlaced.push({ d, line });
     // Test points, fiducials and mounting holes usually have no BOM line on purpose.
-    const padOnly = p => C.PAD_ONLY.test(p.des);
+    const padOnly = p => C.isPadOnly(pkg, p.des);
     const quiet = notInBom.filter(padOnly);
     if (quiet.length) add('bom-pnp', 'info', `${quiet.length} test point / fiducial placement(s) have no BOM line`,
       quiet.map(p => p.des).sort(Fab.natCmp).join(', ') + '. Fine if they are bare pads; remove them from the PnP or mark them "No BOM" so the assembler does not ask.', { refs: quiet.map(p => p.des) });
@@ -279,11 +304,15 @@
       if (!parts.length) continue;
       const fps = new Set(parts.map(p => p.footprint));
       if (fps.size > 1) add('footprint', 'warn', `BOM row ${line.row} (${line.mpn || line.name}) uses ${fps.size} different footprints`, [...fps].map(fp => fp + ': ' + parts.filter(p => p.footprint === fp).map(p => p.des).join(', ')).join('\n'), { refs: line.des });
-      const names = [line.name, line.mpn, line.value, line.mpn2].map(norm).filter(Boolean);
+      const names = [line.name, line.mpn, line.value, line.mpn2].filter(Boolean);
       // A generic PnP comment ("Capacitor 100 nF …") can only be compared when the BOM has a name column
-      // or the comment itself is a part number.
-      const comparable = p => bom.cols.name != null || looksLikeMpn(p.comment);
-      const badC = parts.filter(p => p.comment && comparable(p) && !names.includes(norm(p.comment)));
+      // or the comment itself is a part number. A comment that states a value for a part number Fabcheck
+      // decodes is compared by value in the BOM audit (check value), and a missing part number is the
+      // mpn check's.
+      const dec = line.mpn ? Fab.parts.decode(line.mpn) : null;
+      const byValue = p => dec && dec.value != null && Fab.parts.valueOf(p.comment, dec.kind) != null;
+      const comparable = p => line.mpn && (bom.cols.name != null || looksLikeMpn(p.comment)) && !byValue(p);
+      const badC = parts.filter(p => p.comment && comparable(p) && !names.some(n => norm(n) === norm(p.comment) || Fab.parts.samePn(p.comment, n)));
       if (badC.length) add('comment', 'warn', `PnP comment differs from BOM row ${line.row}`, badC.slice(0, 8).map(p => `${p.des}: "${p.comment}"`).join(', ') + ` vs BOM "${line.name || line.mpn}".`, { refs: badC.map(p => p.des) });
       // Size code: footprint vs description / MPN
       const fpSize = footprintSize(parts[0].footprint);
@@ -291,7 +320,8 @@
       const mSize = mpnSize(line.mpn);
       if (fpSize && (dSizes.size || mSize)) sizeChecked++;
       if (fpSize && (dSizes.size && !dSizes.has(fpSize) || mSize && mSize !== fpSize)) {
-        add('package', 'warn', `Package mismatch on BOM row ${line.row}: footprint ${fpSize}`,
+        // The part number decides what is bought, so a part number of another size is an error.
+        add('package', mSize && mSize !== fpSize ? 'error' : 'warn', `Package mismatch on BOM row ${line.row}: footprint ${fpSize}`,
           `${line.mpn || line.name}: footprint ${parts[0].footprint} is ${fpSize}, but ` +
           [dSizes.size && !dSizes.has(fpSize) ? `the description says ${[...dSizes].join('/')}` : '', mSize && mSize !== fpSize ? `the MPN implies ${mSize}` : ''].filter(Boolean).join(' and ') + '.',
           { refs: line.des });
@@ -366,11 +396,121 @@
       for (const s of [l.value, l.description, l.name]) if (s && s.indexOf('�') >= 0) lostChars++;
       auditPart(l, ref, add);
     }
+    // Board data per designator: the placement (footprint, comment, description) and the pad count.
+    const placed = new Map(((pkg.pnp && pkg.pnp.parts) || []).map(p => [p.des, p]));
+    const comps = new Map(((pkg.odb && pkg.odb.comps) || []).map(c => [c.des, c]));
+    const padsOf = d => {
+      const c = comps.get(d);
+      if (c && c.pins && c.pins.length) return c.pins.length;
+      const n = pkg.netlist && pkg.netlist.byDes.get(d);
+      return n ? n.length : null;
+    };
+    const fpsOf = l => [...new Set([l.footprint].concat(l.des.map(d => (placed.get(d) || {}).footprint)).filter(Boolean))];
+    const atOf = l => { const p = l.des.map(d => placed.get(d)).find(p => p && p.gx != null); return p ? { at: { x: p.gx, y: p.gy }, side: p.side } : {}; };
+
     for (const [k, ls] of byMpn) if (ls.length > 1) {
-      const vals = new Set(ls.map(l => norm(l.value))), fps = new Set(ls.map(l => norm(l.footprint)));
-      add('mpn-dup', vals.size > 1 || fps.size > 1 ? 'warn' : 'info', `MPN ${ls[0].mpn} is on ${ls.length} BOM rows`,
-        `Rows ${ls.map(l => l.row).join(', ')}` + (vals.size > 1 ? ` with different values (${[...vals].join(', ')})` : '') + '. Merge or explain.', { refs: ls.flatMap(l => l.des) });
+      const rows = ls.map(l => {
+        const fps = fpsOf(l), pads = [...new Set(l.des.map(padsOf).filter(n => n != null))];
+        const comments = [...new Set((l.name ? [l.name] : l.des.map(d => (placed.get(d) || {}).comment)).filter(Boolean))];
+        return { l, fps, pads, comments };
+      });
+      const fpSet = new Set(rows.flatMap(r => r.fps.map(norm))), padSet = new Set(rows.flatMap(r => r.pads));
+      const list = rows.map(r => `Row ${r.l.row} (${r.l.des.join(', ')}): ${r.fps.join(' / ') || 'no footprint'}` + (r.pads.length ? `, ${r.pads.join('/')} pads` : '') + (r.comments.length ? `, comment "${r.comments.join('" / "')}"` : '')).join('\n');
+      if (fpSet.size > 1 || padSet.size > 1) {
+        add('mpn-dup', 'error', `MPN ${ls[0].mpn} is on ${ls.length} BOM rows with different ${fpSet.size > 1 ? 'footprints' : 'pad counts'}`,
+          list + '\nOne part number cannot fit two different footprints, so one row probably has the wrong part number. Check each row\'s comment or ODB++ part name for the part that was meant.', { refs: ls.flatMap(l => l.des), row: ls[0].row });
+      } else {
+        const cs = new Set(rows.flatMap(r => r.comments.map(norm)));
+        add('mpn-dup', 'warn', `MPN ${ls[0].mpn} is on ${ls.length} BOM rows`,
+          list + '\n' + (cs.size > 1 ? 'The BOM split them because their comments differ. If the comments are right, one row needs another part number; if the part number is right, fix the comment and the rows merge.' : 'Assemblers ask for one line per part number; merge them.'),
+          { refs: ls.flatMap(l => l.des), row: ls[0].row });
+      }
     }
+
+    // ---- value written on the board data vs the decoded part number ----
+    // One line per designator and value: C7: 22 nF in the PnP comment "…", the ODB++ part "…".
+    const groupBad = (bad, fmt) => {
+      const g = new Map();
+      for (const b of bad) { const k = b.d + '|' + fmt(b.v); if (!g.has(k)) g.set(k, []); g.get(k).push(b); }
+      return [...g.values()].map(bs => `${bs[0].d}: ${fmt(bs[0].v)} in the ` + bs.map(b => `${b.src} "${b.text}"`).join(', ')).join('\n');
+    };
+    yield 'Values on the board data';
+    const P = Fab.parts;
+    const near = (a, b) => Math.abs(a - b) <= Math.max(Math.abs(a), Math.abs(b)) * T.valueTol;
+    let compared = 0;
+    for (const l of bom.lines) {
+      if (!l.mpn || l.dnp) continue;
+      const dec = P.decode(l.mpn);
+      if (!dec || dec.value == null) continue;
+      const fmt = v => dec.kind === 'C' ? P.fmtCap(v) : P.fmtRes(v);
+      const bad = [];
+      for (const d of l.des) {
+        const p = placed.get(d), c = comps.get(d);
+        const srcs = (p ? [['PnP comment', p.comment], ['PnP description', p.description]] : []).concat(c ? [['ODB++ part', c.part]] : []);
+        let seen = false;
+        for (const [src, text] of srcs) {
+          if (!text || P.samePn(text, l.mpn)) continue;
+          const v = P.valueOf(text, dec.kind);
+          if (v == null) continue;
+          seen = true;
+          if (!near(v, dec.value)) bad.push({ d, src, text, v });
+        }
+        if (seen) compared++;
+      }
+      if (!bad.length) continue;
+      const ds = [...new Set(bad.map(b => b.d))];
+      add('value', 'error', `BOM row ${l.row}: ${l.mpn} is ${fmt(dec.value)}, but ${ds.join(', ')} ${ds.length > 1 ? 'are' : 'is'} marked ${[...new Set(bad.map(b => fmt(b.v)))].join(' / ')}`,
+        groupBad(bad, fmt) + `\nThe assembler buys and fits the part number (${fmt(dec.value)}). If the marked value is the one intended, the BOM line needs another part number; if not, fix the comment in the schematic.`,
+        Object.assign({ refs: ds, row: l.row }, atOf({ des: ds })));
+    }
+    add('value', 'info', `Values compared on ${compared} parts`, `Pick-and-place comments and descriptions${comps.size ? ' and ODB++ part names' : ''} that state a value, against the value the part number decodes to (offline; ${DECODED}).`);
+
+    // ---- footprint names, package codes and pin counts ----
+    yield 'Footprints vs part numbers';
+    let tiChecked = 0, pinChecked = 0;
+    const pinBad = [];
+    for (const l of bom.lines) {
+      if (l.dnp) continue;
+      const ref = { refs: l.des, row: l.row };
+      const pns = [l.mpn, l.mpn2].filter(Boolean);
+      const fps = fpsOf(l);
+      if (pns.length) for (const fp of fps) {
+        const toks = P.fpPartTokens(fp);
+        const own = toks.some(t => pns.some(pn => P.namesPart(t, pn, T.fpPrefix)));
+        const other = toks.filter(t => !pns.some(pn => P.namesPart(t, pn, T.fpPrefix)));
+        if (other.length && !own) add('fp-name', 'warn', `${l.des.slice(0, 6).join(', ')}${l.des.length > 6 ? '…' : ''}: footprint ${fp} is named for ${other[0]}, not ${l.mpn}`,
+          `BOM row ${l.row}. A footprint named after another part was usually copied from it. Confirm the land pattern matches ${l.mpn}'s datasheet (pad count, pitch, body size), then rename it, or the assembler will keep asking.`, Object.assign({}, ref, atOf(l)));
+        // TI package designator vs the footprint's package family.
+        const ti = l.mpn && P.tiPackage(l.mpn, l.mfr);
+        const fam = ti && !own ? P.fpFamily(fp) : null;
+        if (fam) {
+          tiChecked++;
+          if (!P.sameFamily(fam, ti.family)) add('pkg-code', 'warn', `BOM row ${l.row}: ${l.mpn} is a ${ti.family} (${ti.code}), but its footprint ${fp} is a ${fam}`,
+            `${l.des.join(', ')}. TI part numbers end in their package designator; ${ti.code} is a ${ti.family} package. Either the part number names the wrong package option, or the footprint belongs to another part.`, Object.assign({}, ref, atOf(l)));
+        }
+      }
+      // Pin count in a description vs the pads on the board.
+      for (const d of l.des) {
+        const p = placed.get(d);
+        if (C.connectorLike(d, l.description) || C.connectorLike(d, p && p.description)) continue;
+        const n = padsOf(d);
+        if (n == null) continue;
+        const texts = [['BOM description', l.description], ['PnP description', p && p.description]].filter(([, t]) => t);
+        const stated = [];
+        for (const [src, t] of texts) for (const c of P.pinCounts(t)) stated.push({ src, c, t });
+        if (!stated.length) continue;
+        pinChecked++;
+        if (!stated.some(s => n === s.c || n === s.c + 1)) pinBad.push({ d, n, stated, l, p });
+      }
+    }
+    for (const b of pinBad.slice(0, T.shown)) {
+      const says = [...new Set(b.stated.map(s => s.c))].join(' or ');
+      add('pins', 'warn', `${b.d}: ${b.n} pads, but the description says ${says} pins`,
+        `BOM row ${b.l.row} (${b.l.mpn || b.l.name || '?'}). ` + [...new Set(b.stated.map(s => `${s.src}: "${s.t.length > 90 ? s.t.slice(0, 90) + '…' : s.t}"`))].join('\n') +
+        '\nThe footprint, the part number or the description is for another package.', Object.assign({ refs: [b.d], row: b.l.row }, b.p && b.p.gx != null ? { at: { x: b.p.gx, y: b.p.gy }, side: b.p.side } : {}));
+    }
+    if (tiChecked) add('pkg-code', 'info', `Package code compared with the footprint on ${tiChecked} TI part(s)`, 'The package designator at the end of each TI part number against the package family its footprint names.');
+    if (pinChecked) add('pins', 'info', `Pin count compared with pads on ${pinChecked} part(s)`, 'Pin counts stated in BOM and pick-and-place descriptions against the pads each part has (ODB++ or IPC-356).');
     if (!bom.hasMfr2) add('single-source', 'info', 'Every BOM line is single-source', 'There is no Manufacturer 2 / MPN 2 column, so no approved alternates are listed.');
     else {
       const single = bom.lines.filter(l => !l.dnp && l.mpn && !l.mpn2);

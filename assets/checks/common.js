@@ -20,6 +20,25 @@
   C.catalog = [];
   // Test points, fiducials and mounting holes: placed, but usually no BOM line and no paste on purpose.
   C.PAD_ONLY = /^(TP|FID|FD|MH|H|MTG)\d+$/i;
+  // Many designs name test points by their net (TP_VBUS, SWDIO_TP, DBG_TX), so the footprint and the
+  // part name count too: a TP_/TESTPOINT/FIDUCIAL/MOUNTING_HOLE footprint, or a "Test Point" comment.
+  C.PAD_ONLY_FP = /^(TP|TEST[_ -]?P(OINT|AD)|FID|FIDUCIAL|MH|MTG|MOUNT(ING)?[_ -]?HOLE)([_ -]|\d|$)/i;
+  C.PAD_ONLY_NAME = /^(test[_ -]?point|tp|fiducial|mounting[_ -]?hole)$/i;
+  // The pad-only designators of a package (from the PnP and ODB++), worked out once per package.
+  C.padOnlySet = function (pkg) {
+    if (pkg._padOnly) return pkg._padOnly;
+    const s = new Set();
+    const name = t => C.PAD_ONLY_NAME.test(String(t || '').trim());
+    for (const p of (pkg.pnp && pkg.pnp.parts) || []) if (C.PAD_ONLY.test(p.des) || C.PAD_ONLY_FP.test(p.footprint || '') || name(p.comment)) s.add(p.des);
+    for (const c of (pkg.odb && pkg.odb.comps) || []) if (C.PAD_ONLY.test(c.des) || name(c.part)) s.add(c.des);
+    return (pkg._padOnly = s);
+  };
+  C.isPadOnly = (pkg, des) => C.PAD_ONLY.test(des) || C.padOnlySet(pkg).has(des);
+  // Connectors and mechanical parts: shells, pegs and mounting tabs add pads, and their origin is often
+  // not their pad center. By designator (J1, JBATT, CN3, X2…) or a description naming a connector.
+  C.CONNECTOR_DES = /^(J|CN|CON|X|SW|BT|LS|BZ|MH|P\d)/i;
+  C.CONNECTOR_DESC = /\b(conn|connector|header|socket|receptacle|plug|terminal)s?\b/i;
+  C.connectorLike = (des, desc) => C.CONNECTOR_DES.test(des || '') || C.CONNECTOR_DESC.test(desc || '');
   C.CATALOGED = ['Package', 'Assembly', 'BOM'];
   C.define = function (category, source, defs) {
     for (const d of defs) C.catalog.push(Object.assign({ category, source, key: category + '/' + d.check }, d));
