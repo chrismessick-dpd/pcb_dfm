@@ -49,17 +49,26 @@
   // re-runs, the way stableId does in a project. A review note is a group of its own (`note`: its id),
   // so each becomes its own Signoff issue. Info findings stay in Fabcheck, except review notes: a
   // reviewer wrote those to be read, so Info notes go too (as Minor).
-  function plan(findings) {
+  // waiverOf(f), when given, returns the waiver rule of a finding the reviewer waived in Fabcheck
+  // (waivers.js), else null. A waived finding stays in its group (`waived`), so the group keeps its
+  // issue id and isn't taken for "no longer found"; a group whose findings are all waived has
+  // `allWaived` and its `list` holds the waived ones, so the issue can say what they were.
+  function plan(findings, waiverOf) {
     const groups = new Map();
     for (const f of findings) {
       if ((f.severity === 'info' && f.category !== 'Review') || f.check === 'internal') continue;
       const note = f.category === 'Review' ? f.id : null;
       const k = note ? 'note|' + note : f.check + '|' + f.severity;
       if (!groups.has(k)) groups.set(k, { key: k, check: f.check, severity: f.severity, category: f.category, note, list: [] });
-      groups.get(k).list.push(f);
+      const w = waiverOf && !note ? waiverOf(f) : null;
+      if (w) { const g = groups.get(k); (g.waived || (g.waived = [])).push({ f, rule: w }); }
+      else groups.get(k).list.push(f);
     }
+    for (const g of groups.values()) if (!g.list.length && g.waived) { g.allWaived = true; g.list = g.waived.map(x => x.f); }
     return [...groups.values()].sort((a, b) => (a.severity === 'error' ? 0 : 1) - (b.severity === 'error' ? 0 : 1) || b.list.length - a.list.length);
   }
+  // The reasons a group's waivers give, for the issue's hint and comment.
+  const waiveReasons = g => [...new Set((g.waived || []).map(x => x.rule.reason).filter(Boolean))].map(r => `"${r}"`).join('; ');
 
   // The Signoff issue's title for a group.
   function issueText(g) {
@@ -122,7 +131,9 @@
       if (n > 25) lines.push(`• … ${n - 25} more`);
       const hint = g.note
         ? `Review note${first.author ? ' by ' + first.author : ''} on ${on}, placed on the board in Fabcheck${where(first)}${first.side ? ', ' + first.side + ' side' : ''}.\n\n${first.title.endsWith('…') && first.detail ? first.detail : [first.title, first.detail].filter(Boolean).join('\n')}`
-        : `${n} ${g.severity === 'error' ? 'error' : 'warning'}${n === 1 ? '' : 's'} from Fabcheck check "${g.check}" on ${on}${source.sha ? ' (SHA-256 ' + source.sha.slice(0, 12) + '…)' : ''}${source.profileName ? ', fab profile "' + source.profileName + '"' : ''}.\n${first.detail || ''}\n\n${lines.join('\n')}`;
+        : `${n} ${g.severity === 'error' ? 'error' : 'warning'}${n === 1 ? '' : 's'} from Fabcheck check "${g.check}" on ${on}${source.sha ? ' (SHA-256 ' + source.sha.slice(0, 12) + '…)' : ''}${source.profileName ? ', fab profile "' + source.profileName + '"' : ''}` +
+          (g.allWaived ? `, all waived in Fabcheck (${waiveReasons(g)})` : g.waived ? `; ${g.waived.length} more waived in Fabcheck (${waiveReasons(g)})` : '') +
+          `.\n${first.detail || ''}\n\n${lines.join('\n')}`;
       const refs = [...new Set(g.list.flatMap(f => f.refs || []))].slice(0, 40).join(', ');
       const severity = g.severity === 'error' ? 'major' : 'minor';
       const existing = p.custom[id];
@@ -132,14 +143,18 @@
         locations: g.list.filter(f => f.at || f.bbox).slice(0, 50).map(f => { const c = f.at || Fab.bbox.center(f.bbox); return { x: +c.x.toFixed(4), y: +c.y.toFixed(4), layer: f.layer || null, label: f.title }; }),
       } }), who);
       const prev = p.items[id] || {};
+      // Every finding waived in Fabcheck: the issue goes across waived, unless a reviewer already
+      // resolved it in Signoff (their resolution stands).
+      const waivedNote = g.allWaived ? ` All waived in Fabcheck: ${waiveReasons(g)}.` : g.waived ? ` ${g.waived.length} more waived in Fabcheck: ${waiveReasons(g)}.` : '';
       if (!existing || existing.deleted) {
-        p.items[id] = stamp(Object.assign({}, prev, { status: 'issue', severity, resolution: '', ref: refs, text, checklist: 'fab' }), who);
-        comment(id, g.note ? `Review note from Fabcheck on ${on}.` : `Raised by Fabcheck from ${on}: ${n} finding${n === 1 ? '' : 's'}.`);
+        p.items[id] = stamp(Object.assign({}, prev, { status: 'issue', severity, resolution: g.allWaived ? 'waived' : '', ref: refs, text, checklist: 'fab' }), who);
+        comment(id, (g.note ? `Review note from Fabcheck on ${on}.` : `Raised by Fabcheck from ${on}: ${n} finding${n === 1 ? '' : 's'}.`) + waivedNote);
         created++;
       } else {
         // Keep the reviewer's status and resolution; refresh the wording and say what the new run saw.
-        p.items[id] = stamp(Object.assign({}, prev, { text, ref: refs || prev.ref, checklist: 'fab' }), who);
-        comment(id, g.note ? `Review note sent again from Fabcheck on ${on}.` : `Fabcheck re-run on ${on}: still ${n} finding${n === 1 ? '' : 's'}.`);
+        const res = g.allWaived && !prev.resolution ? { resolution: 'waived' } : {};
+        p.items[id] = stamp(Object.assign({}, prev, { text, ref: refs || prev.ref, checklist: 'fab' }, res), who);
+        comment(id, (g.note ? `Review note sent again from Fabcheck on ${on}.` : `Fabcheck re-run on ${on}: still ${n} finding${n === 1 ? '' : 's'}.`) + waivedNote);
         updated++;
       }
     }

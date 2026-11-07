@@ -40,6 +40,8 @@
   const state = {
     pkgs: [], active: null, view: 'overview', filter: { error: true, warn: true, info: false }, cat: null, check: null, q: '',
     closed: new Set(), tpOpen: new Set(), sel: null, showPnp: true,
+    waivedOpen: false, wvForm: null, // the Waived fold on Findings; the finding whose waive form is open
+    sim: null, // the Waive similar panel's working state
     placing: false, draft: null, // review notes: waiting for a click on the board; the note being written
     profile: 'standard', thickness: 1.6,
     repoProbe: new Map(), // per Signoff project id: write access to its repo
@@ -286,6 +288,11 @@
     const notes = entry.findings.filter(f => f.category === 'Review');
     entry.findings = [];
     if (reason) log(entry, 'step', reason);
+    // Parts the reviewer set as test points, fiducials or mounting holes (Treat as…) count as such.
+    const kinds = Fab.waivers.kinds(scopeOf(entry));
+    C.setPartKinds(pkg, kinds);
+    entry.kindsAt = kindsSig(pkg.partKinds);
+    if (kinds.length) log(entry, 'dim', `         Part types set in Fabcheck: ${kinds.map(Fab.waivers.describeKind).join('; ')}`);
     entry.stage = { module: 'package', label: null };
     const t0 = performance.now();
     const run = entry.live = { t0, frac: 0, jobs: [], pins: [], n: { error: 0, warn: 0 }, fx: 'enter', steps: [], pick: null };
@@ -399,6 +406,8 @@
         ? { profile: entry.pinned.id, profileName: entry.pinned.name, rules: Object.assign({}, entry.pinned.rules), thickness: prof.thickness, variant: null }
         : { profile: state.profile, profileName: profileName(entry), rules: Object.assign({}, prof), thickness: prof.thickness, variant: null };
       if (entry.outlinePick) settings.outline = entry.outlinePick;
+      // Part types change what the checks find, so a run keeps the ones it was made with.
+      if (entry.pkg.partKinds && entry.pkg.partKinds.length) settings.partKinds = entry.pkg.partKinds.map(k => Object.assign({}, k));
       let run = Fab.store.runRecord(entry, pkgRec, settings);
       const extra = { sentTo: entry.sentTo || null };
       const exp = entry.expect;
@@ -459,6 +468,9 @@
     const run = stored.run;
     entry.run = run; entry.sentTo = stored.sentTo || null;
     pinRun(entry, run.settings || {});
+    const kinds = Array.isArray((run.settings || {}).partKinds) ? run.settings.partKinds.filter(k => k && typeof k.pattern === 'string' && /^(tp|fid|mh)$/.test(k.kind) && /^(des|footprint)$/.test(k.by)) : [];
+    C.setPartKinds(entry.pkg, kinds);
+    entry.kindsAt = kindsSig(entry.pkg.partKinds);
     try { C.assembly(entry.pkg, profile(entry)); C.pins(entry.pkg); } catch (e) { console.error(e); }
     entry.findings = (Array.isArray(stored.findings) ? stored.findings : []).map(cleanFinding);
     const c = run.summary || {};
@@ -681,7 +693,7 @@
 
   function renderSidebar() {
     $('#pkg-list').innerHTML = state.pkgs.map(e => {
-      const n = s => e.findings.filter(f => f.severity === s).length;
+      const live = liveCounts(e), n = s => live[s];
       const busy = e.status === 'loading' || e.status === 'running';
       const sub = e.status === 'needs' ? 'Waiting for its package' : e.status === 'error' ? 'Could not read' : !e.pkg ? 'Reading…' : busy ? 'Checking…' :
         [e.pkg.layers.copper.length && e.pkg.layers.copper.length + ' layers', e.pkg.pnp && e.pkg.pnp.parts.length + ' parts', e.pkg.bom && e.pkg.bom.lines.length + ' BOM lines'].filter(Boolean).join(' · ') || 'No board data';
@@ -697,8 +709,7 @@
     const seg = $('#view-seg');
     seg.hidden = !e;
     if (!e) return;
-    const nf = e.findings.filter(f => f.severity === 'error' || f.severity === 'warn').length;
-    const hasErr = e.findings.some(f => f.severity === 'error');
+    const live = liveCounts(e), nf = live.error + live.warn, hasErr = live.error > 0;
     seg.innerHTML = VIEWS.map(([k, label]) => `<button class="${state.view === k ? 'on' : ''}" data-view="${k}" role="tab">${label}` +
       (k === 'findings' && nf ? `<span class="count">${nf}</span>${hasErr ? '<span class="dot"></span>' : ''}` : '') + '</button>').join('');
   }
@@ -777,6 +788,31 @@
 
   function counts(fs) { const c = { error: 0, warn: 0, info: 0 }; for (const f of fs) c[f.severity]++; return c; }
 
+  // ── Waivers (waivers.js) ──
+  // Rules live per Signoff project, or per package name for a run linked to none. Which findings they
+  // waive is worked out once per change (rules, findings, package) and kept on the entry.
+  const scopeOf = e => { const pid = signoffProject(e); return pid ? 'project:' + pid : 'pkg:' + e.label; };
+  function wv(e) {
+    const scope = scopeOf(e), key = Fab.waivers.version + '|' + scope + '|' + e.findings.length;
+    if (e._wv && e._wv.key === key && e._wv.findings === e.findings && e._wv.pkg === e.pkg) return e._wv;
+    const rules = Fab.waivers.rules(scope);
+    return (e._wv = Object.assign(Fab.waivers.apply(e.pkg, e.findings, rules), { key, findings: e.findings, pkg: e.pkg, rules, scope }));
+  }
+  // A finding's waiver ({ rule, state: 'waived' | 'new' }), or null; a stale one doesn't count.
+  const waiverOf = (e, f) => { const s = wv(e).by.get(f.id); return s && s.state !== 'stale' ? s : null; };
+  const staleOf = (e, f) => { const s = wv(e).by.get(f.id); return s && s.state === 'stale' ? s : null; };
+  const isWaived = (e, f) => !!waiverOf(e, f);
+  const activeOf = (e, fs) => { const by = wv(e).by; return fs.filter(f => { const s = by.get(f.id); return !s || s.state === 'stale'; }); };
+  const waivedOf = (e, fs) => { const by = wv(e).by; return fs.filter(f => { const s = by.get(f.id); return s && s.state !== 'stale'; }); };
+  // Errors, warnings and info still to deal with: what every total shows. Waived ones are counted apart.
+  const liveCounts = (e, fs) => counts(activeOf(e, fs || e.findings));
+  const sendPlan = e => Fab.signoff.plan(e.findings, f => { const w = waiverOf(e, f); return w ? w.rule : null; });
+  const fmtDate = s => { const d = new Date(s); return isNaN(d) ? '' : d.toLocaleDateString(); };
+  // A measured value in its check's unit (most are lengths).
+  const unitFor = check => ({ aspect: v => +v.toFixed(2) + ':1', isolated: v => +v.toFixed(3) + ' mm²', 'copper-balance': v => +v.toFixed(1) + ' points' }[check] || (v => Fab.fmtLen(+v.toFixed(3))));
+  // The part types set for this run's scope, as the checks take them, for comparing with a run's.
+  const kindsSig = list => JSON.stringify((list || []).map(k => [k.kind, k.by, k.pattern]));
+
   // ── Check matrix ──
   // Every check as a cell, one row per category, colored by its worst finding and counted, so a
   // problem shows at a glance however long the lists get. Clean checks show too: seeing what passed
@@ -806,23 +842,28 @@
     const busy = e.status !== 'ready' && e.status !== 'error';
     const pkg = e.pkg, mini = where === 'findings' && !mxNames();
     let h = `<div class="card mx${where === 'findings' ? ' mx-compact' : ''}${mini ? ' mx-mini' : ''}" role="group" aria-label="Checks and results">`;
-    if (where === 'findings') h += `<div class="mx-key"><span><i class="mx-sw error"></i>Errors</span><span><i class="mx-sw warn"></i>Warnings</span><span><i class="mx-sw info"></i>Info only</span><span><i class="mx-sw clean"></i>Nothing found</span>` +
+    if (where === 'findings') h += `<div class="mx-key"><span><i class="mx-sw error"></i>Errors</span><span><i class="mx-sw warn"></i>Warnings</span><span><i class="mx-sw info"></i>Info only</span><span><i class="mx-sw clean"></i>Nothing found</span>${wv(e).by.size ? '<span><i class="mx-sw waived"></i>All waived</span>' : ''}` +
       `<span class="mx-key-end">${state.check ? `<button class="link-btn" data-act="mx-clear">Show all checks</button>` : ''}<button class="link-btn" data-act="mx-names">${mini ? 'Show check names' : 'Compact'}</button></span></div>`;
     for (const [cat, title, desc] of CATS) {
-      const fs = e.findings.filter(f => f.category === cat);
-      if (cat === 'Review' && !fs.length) continue;
-      if (cat === 'Flex' && !(pkg && pkg.flex) && !fs.length) continue;
-      const cc = counts(fs), checks = matrixChecks(cat, fs);
+      const all = e.findings.filter(f => f.category === cat);
+      if (cat === 'Review' && !all.length) continue;
+      if (cat === 'Flex' && !(pkg && pkg.flex) && !all.length) continue;
+      // Waived findings don't color a cell; a check whose problems are all waived shows as waived.
+      const fs = activeOf(e, all), nw = all.length - fs.length;
+      const cc = counts(fs), checks = matrixChecks(cat, all);
       const head = `<button class="mx-head${state.cat === cat && !state.check && state.view === 'findings' ? ' on' : ''}" data-act="cat" data-cat="${cat}" title="${esc(desc)}">` +
         `<span class="mx-title"><span class="dot ${busy ? '' : cc.error ? 'error' : cc.warn ? 'warn' : 'ok'}"></span>${esc(title)}</span>` +
-        `<span class="mx-sum">${busy && !fs.length ? 'Waiting' : [cc.error && `<b class="t-error">${cc.error}</b> err`, cc.warn && `<b class="t-warn">${cc.warn}</b> warn`, `${cc.info} info`].filter(Boolean).join(' · ')}</span></button>`;
+        `<span class="mx-sum">${busy && !all.length ? 'Waiting' : [cc.error && `<b class="t-error">${cc.error}</b> err`, cc.warn && `<b class="t-warn">${cc.warn}</b> warn`, `${cc.info} info`, nw && `${nw} waived`].filter(Boolean).join(' · ')}</span></button>`;
       const cells = checks.map(([check, name]) => {
-        const c = counts(fs.filter(f => f.check === check)), w = busy && !(c.error + c.warn + c.info) ? 'wait' : worst(c);
+        const mine = all.filter(f => f.check === check), c = counts(activeOf(e, mine)), cw = mine.length - (c.error + c.warn + c.info);
+        let w = busy && !mine.length ? 'wait' : worst(c);
+        if ((w === 'clean' || w === 'info') && cw) w = 'waived';
         const key = cat + '/' + check, n = w === 'error' ? c.error : w === 'warn' ? c.warn : w === 'info' ? c.info : '';
-        const tip = `${name} (${check}): ` + (c.error + c.warn + c.info ? [c.error && plural(c.error, 'error'), c.warn && plural(c.warn, 'warning'), c.info && c.info + ' info'].filter(Boolean).join(', ') : w === 'wait' ? 'not run yet' : 'nothing found');
+        const tip = `${name} (${check}): ` + (c.error + c.warn + c.info ? [c.error && plural(c.error, 'error'), c.warn && plural(c.warn, 'warning'), c.info && c.info + ' info'].filter(Boolean).join(', ') : w === 'wait' ? 'not run yet' : w === 'waived' ? '' : 'nothing found') +
+          (cw ? `${c.error + c.warn + c.info ? ', ' : ''}${cw} waived` : '');
         return `<button class="mx-cell ${w}${state.check === key ? ' on' : ''}" data-act="mx-check" data-key="${esc(key)}" title="${esc(tip)}" aria-label="${esc(tip)}">` +
-          (mini ? `<span class="mx-n">${w === 'clean' || w === 'wait' ? '' : n}</span></button>` :
-          `<span class="mx-name">${esc(name)}</span><span class="mx-n">${w === 'clean' ? '✓' : w === 'wait' ? '' : n}${w === 'error' && c.warn ? `<small>+${c.warn}</small>` : ''}</span></button>`);
+          (mini ? `<span class="mx-n">${w === 'clean' || w === 'wait' ? '' : w === 'waived' ? '✓' : n}</span></button>` :
+          `<span class="mx-name">${esc(name)}</span><span class="mx-n">${w === 'clean' || w === 'waived' ? '✓' : w === 'wait' ? '' : n}${w === 'error' && c.warn ? `<small>+${c.warn}</small>` : ''}</span></button>`);
       }).join('');
       h += `<div class="mx-row">${head}<div class="mx-cells">${cells}</div></div>`;
     }
@@ -865,7 +906,8 @@
   }
 
   function overviewHtml(e) {
-    const pkg = e.pkg, c = counts(e.findings), busy = e.status !== 'ready' && e.status !== 'error';
+    const pkg = e.pkg, c = liveCounts(e), busy = e.status !== 'ready' && e.status !== 'error';
+    const wc = counts(waivedOf(e, e.findings)), fresh = [...wv(e).by.values()].filter(s => s.state === 'new').length;
     const chips = [];
     if (pkg) {
       const bb = pkg.boardBBox;
@@ -893,11 +935,12 @@
       (stageOn ? '' : `<button class="btn btn-primary" data-act="view" data-view="board"${!pkg ? ' disabled' : ''}>Open board</button>`);
     let h = `<div class="page wide">` + head + `<div class="chips ov-actions">${actions}</div></div>`;
     if (pkg && e.status === 'ready' && (state.outlinePicker === e.id || (pkg.layers.outline && pkg.layers.outline.board.synthetic && pkg.outlineCands.length && state.outlinePicker !== 'closed:' + e.id))) h += outlinePickerHtml(e);
-    const stat = (cls, n, label, sev) => `<button class="card stat ${cls}" style="border:none;text-align:left" data-act="sev" data-sev="${sev}"><div class="stat-num">${busy ? '–' : n}</div><div class="stat-label">${label}</div></button>`;
+    const stat = (cls, n, label, sev) => `<button class="card stat ${cls}" style="border:none;text-align:left" data-act="sev" data-sev="${sev}"><div class="stat-num">${busy ? '–' : n}</div><div class="stat-label">${label}${!busy && wc[sev] ? `<span class="stat-waived">+${wc[sev]} waived</span>` : ''}</div></button>`;
     // The inspection stage leads the page, with its log folded under it; the totals follow.
     const stageHtml = Fab.stage && pkg && (e.status === 'running' || e.status === 'ready') ? Fab.stage.html(e, profile(e)) : '';
     if (stageHtml) h += stageHtml + logHtml(e, busy);
     h += `<div class="grid grid-4${stageHtml ? ' after-stage' : ''}">${stat('issue', c.error, 'Errors', 'error')}${stat('warn', c.warn, 'Warnings', 'warn')}${stat('info', c.info, 'Info', 'info')}<div class="card stat"><div class="stat-num">${pkg ? pkg.files.length : '–'}</div><div class="stat-label">Files in package</div></div></div>`;
+    if (!busy && fresh) h += `<div class="card wv-alert"><span class="dot warn"></span><div>${plural(fresh, 'finding')} newly matched by a waiver rule. They're waived, but nobody has looked at them yet.</div><button class="btn" data-act="waived-show">Review</button></div>`;
     h += `<div class="section-title">Checks <span class="muted mx-hint">Each box is one check; a click lists its findings.</span></div>` + matrixHtml(e, 'overview');
     if (e.status === 'ready') h += signoffHtml(e);
     if (!stageHtml) h += `<div class="section-title">Run log <span class="chips"><span class="chip">${busy ? 'Running' : e.status === 'error' ? 'Failed' : 'Finished'}</span></span></div>` + consoleHtml(e);
@@ -1076,7 +1119,7 @@
   // One issue per check and severity. Details lists them, each with a checkbox; the keys left out
   // (check|severity, so they survive a re-run) are in e.signoffSkip.
   function signoffHtml(e) {
-    const groups = Fab.signoff.plan(e.findings);
+    const groups = sendPlan(e);
     const skip = e.signoffSkip || (e.signoffSkip = new Set());
     let h =`<div class="section-title">Send to Signoff EE</div><div class="card" style="padding:18px 20px">`;
     const projects = Fab.signoff.projects();
@@ -1192,9 +1235,12 @@
         const h = Fab.repoRuns.home(target.id);
         if (run.stored.repo !== h.repo || run.stored.dir !== h.dir) run.stored = null;
       }
-      const r = Fab.signoff.send(e.signoffSlug, Fab.signoff.plan(e.findings), { label: e.label, sha: run ? run.package.sha256 : null, run, profileName: run ? run.settings.profileName : profileName(e) }, e.signoffSkip);
+      const r = Fab.signoff.send(e.signoffSlug, sendPlan(e), { label: e.label, sha: run ? run.package.sha256 : null, run, profileName: run ? run.settings.profileName : profileName(e) }, e.signoffSkip);
       if (run) Fab.rules.remember(run.settings.profile, { projectId: r.projectId });
+      // Waivers made before the run was linked to this project (kept under the package name) come along.
+      const was = scopeOf(e);
       e.sentTo = { projectId: r.projectId, name: r.name };
+      if (Fab.waivers.mergeScope(was, scopeOf(e))) log(e, 'dim', `         Waivers made for ${e.label} now belong to "${r.name}" too.`);
       if (run) await Fab.store.updateRun(run.id, { sentTo: e.sentTo });
       e.signoffResult = `Sent to "${r.name}": ${r.created} new, ${r.updated} updated${r.skipped ? `, ${r.skipped} left out` : ''}${r.resolvedNotes ? `, ${r.resolvedNotes} earlier issue(s) noted as no longer found` : ''}. ${Fab.DEMO ? 'Open Signoff EE to see them.' : 'Sync in Signoff EE to push them; its Revisions tab lists the run.'}`;
       log(e, 'ok', e.signoffResult);
@@ -1279,7 +1325,8 @@
       const g = r.group, n = g.list.length, on = !skip.has(g.key);
       h += `<div class="so-row${on ? '' : ' off'}"><input type="checkbox" id="so-${i}" data-act="signoff-pick" data-key="${esc(g.key)}"${on ? ' checked' : ''}>` +
         `<div><label class="item-text" for="so-${i}">${esc(r.text)}</label>` +
-        `<div class="item-sub"><span class="sev ${r.severity}">${r.severity === 'major' ? 'Major' : 'Minor'}</span>${checkTag(g.list[0])}<span>${esc(r.section)}</span><span>${says[r.state]}${r.resolution ? ` <span class="res ${r.resolution}">${r.resolution === 'fixed' ? 'Fixed' : 'Waived'}</span>` : ''}</span></div>` +
+        `<div class="item-sub"><span class="sev ${r.severity}">${r.severity === 'major' ? 'Major' : 'Minor'}</span>${checkTag(g.list[0])}<span>${esc(r.section)}</span><span>${says[r.state]}${r.resolution ? ` <span class="res ${r.resolution}">${r.resolution === 'fixed' ? 'Fixed' : 'Waived'}</span>` : ''}</span>` +
+          (g.allWaived ? `<span class="res waived">All waived in Fabcheck</span>` : g.waived ? `<span>${g.waived.length} more waived</span>` : '') + `</div>` +
         `<details class="so-locs" data-key="${esc(g.key)}"${e.signoffShown && e.signoffShown.has(g.key) ? ' open' : ''}><summary>${g.note ? 'Review note' : plural(n, g.severity === 'error' ? 'error' : 'warning')}</summary><ul>` +
         g.list.slice(0, 25).map(f => { const w = whereText(f); return `<li>${esc(f.title)}${w || f.layer ? `<span class="muted"> · ${[w, f.layer].filter(Boolean).map(esc).join(', ')}</span>` : ''}</li>`; }).join('') +
         (n > 25 ? `<li class="muted">… ${n - 25} more</li>` : '') + `</ul></details></div></div>`;
@@ -1320,28 +1367,30 @@
   const sevButtons = c => ['error', 'warn', 'info'].map(s => `<button class="${state.filter[s] ? 'on' : ''}" data-act="sev-toggle" data-sev="${s}"><span class="dot ${s}"></span>${s === 'warn' ? '<span class="sev-long">Warnings</span><span class="sev-short">Warn</span>' : { error: 'Errors', info: 'Info' }[s]}<span class="count">${c[s]}</span></button>`).join('');
 
   function findingsHtml(e) {
-    const c = counts(e.findings);
+    const c = liveCounts(e);
     const order = { error: 0, warn: 1, info: 2 };
     const sevSeg = sevButtons(c);
     const catSeg = [[null, 'All']].concat(CATS.map(x => [x[0], x[1]])).map(([k, l]) => `<button class="${state.cat === k ? 'on' : ''}" data-act="cat-filter" data-cat="${k || ''}">${l}</button>`).join('');
-    let h = `<div class="page">` + pageHead(e, 'Findings', e.label, `${plural(c.error, 'error')}<span class="sep">·</span>${plural(c.warn, 'warning')}<span class="sep">·</span>${c.info} info`);
+    const nWaived = waivedOf(e, e.findings).length;
+    let h = `<div class="page">` + pageHead(e, 'Findings', e.label, `${plural(c.error, 'error')}<span class="sep">·</span>${plural(c.warn, 'warning')}<span class="sep">·</span>${c.info} info${nWaived ? `<span class="sep">·</span>${nWaived} waived` : ''}`);
     h += matrixHtml(e, 'findings');
     const chk = state.check && state.check.split('/'), chkName = chk && ((matrixChecks(chk[0], []).find(x => x[0] === chk[1]) || [])[1] || chk[1]);
     h += `<div class="filters"><div class="search">${ICON.search}<input id="f-search" type="search" placeholder="Filter findings" value="${esc(state.q)}"></div><div class="seg sev-seg">${sevSeg}</div><div class="seg">${catSeg}</div>` +
       (chk ? `<span class="chip chip-x">Check: ${esc(chkName)}<button class="icon-btn" data-act="mx-clear" aria-label="Show all checks">${ICON.close}</button></span>` : '') + `</div>`;
-    const fs = visibleFindings(e);
+    const shown = visibleFindings(e), fs = activeOf(e, shown), waived = waivedOf(e, shown);
     if (e.status !== 'ready') h += `<div class="card" style="padding:16px;margin-bottom:14px;color:var(--text-3)">Checks are still running; the list fills in as they finish.</div>`;
+    const row = f => {
+      const where = whereText(f), w = waiverOf(e, f), st = !w && staleOf(e, f);
+      const tags = w ? `<span class="wv-tag${w.state === 'new' ? ' new' : ''}">${w.state === 'new' ? 'New match · ' : 'Waived · '}${esc(w.rule.reason || '')}</span>` : st ? `<span class="wv-tag stale">Waiver out of date</span>` : '';
+      return `<div class="item f-row${state.sel === f.id ? ' sel' : ''}${w ? ' waived' : ''}" data-act="finding" data-id="${esc(f.id)}"><span class="dot ${esc(f.severity)}"></span>` +
+        `<div><div class="item-text">${esc(f.title)}</div>${f.detail ? `<div class="item-detail">${esc(f.detail)}</div>` : ''}<div class="item-sub">${checkTag(f)}${f.layer ? `<span>${esc(f.layer)}</span>` : ''}${tags}</div></div>` +
+        `<div class="item-right">${where ? `<span class="loc">${where}</span>` : ''}</div></div>`;
+    };
     for (const [cat, title] of CATS) {
       const list = fs.filter(f => f.category === cat).sort((a, b) => order[a.severity] - order[b.severity]);
       if (!list.length) continue;
       const cc = counts(list);
       h += `<div class="card sec${state.closed.has(cat) ? ' collapsed' : ''}" data-cat="${cat}"><div class="sec-head" data-act="toggle-sec">${ICON.chev}<div class="sec-title">${title}<small>${list.length} shown</small></div><div class="sec-meta">${cc.error ? `<span class="pill error">${cc.error}</span>` : ''}${cc.warn ? `<span class="pill warn">${cc.warn}</span>` : ''}</div></div><div class="sec-body">`;
-      const row = f => {
-        const where = whereText(f);
-        return `<div class="item f-row${state.sel === f.id ? ' sel' : ''}" data-act="finding" data-id="${esc(f.id)}"><span class="dot ${esc(f.severity)}"></span>` +
-          `<div><div class="item-text">${esc(f.title)}</div>${f.detail ? `<div class="item-detail">${esc(f.detail)}</div>` : ''}<div class="item-sub">${checkTag(f)}${f.layer ? `<span>${esc(f.layer)}</span>` : ''}</div></div>` +
-          `<div class="item-right">${where ? `<span class="loc">${where}</span>` : ''}</div></div>`;
-      };
       // Errors and warnings that are only about test points fold into one row (closed until opened),
       // after the other errors and warnings, so dozens of probe pads don't bury the rest.
       const tps = list.filter(f => f.tp), rest = list.filter(f => !f.tp);
@@ -1358,7 +1407,54 @@
       for (const f of rest.filter(f => f.severity === 'info')) h += row(f);
       h += `</div></div>`;
     }
-    if (!fs.length) h += `<div class="empty"><h2>Nothing to show</h2><p>No findings match these filters.</p></div>`;
+    if (!fs.length) h += `<div class="empty"><h2>${waived.length ? 'Nothing left to look at' : 'Nothing to show'}</h2><p>${waived.length ? 'Every finding these filters show is waived.' : 'No findings match these filters.'}</p></div>`;
+    if (waived.length) h += waivedHtml(e, waived, row);
+    return h + waiversHtml(e) + '</div>';
+  }
+
+  // The waived findings these filters show, in one fold at the end of the page (closed until opened,
+  // and opened for a selected finding inside it). New matches of a rule come first.
+  function waivedHtml(e, list, row) {
+    const order = { error: 0, warn: 1 };
+    const isNew = f => (waiverOf(e, f) || {}).state === 'new';
+    const fresh = list.filter(isNew).length, cc = counts(list);
+    const open = state.waivedOpen || list.some(f => f.id === state.sel);
+    let body = '';
+    if (open) {
+      for (const [cat, title] of CATS) {
+        const fs = list.filter(f => f.category === cat).sort((a, b) => (isNew(b) - isNew(a)) || order[a.severity] - order[b.severity]);
+        if (fs.length) body += `<div class="cat-label wv-cat">${title} · ${fs.length}</div>` + fs.map(row).join('');
+      }
+    }
+    return `<div class="card sec wv-sec${open ? '' : ' collapsed'}" id="waived-sec"><div class="sec-head" data-act="waived-toggle">${ICON.chev}<div class="sec-title">Waived<small>${plural(list.length, 'finding')}</small></div>` +
+      `<div class="sec-meta">${fresh ? `<span class="pill warn" title="Matched by a rule since it was made: waived, but not looked at yet">${fresh} new</span>` : ''}${cc.error ? `<span class="pill muted">${cc.error} err</span>` : ''}${cc.warn ? `<span class="pill muted">${cc.warn} warn</span>` : ''}</div></div>` +
+      `<div class="sec-body">${body}</div></div>`;
+  }
+
+  // The waiver rules and part types of this run's scope, with what each matches now.
+  function waiversHtml(e) {
+    const W = Fab.waivers, scope = scopeOf(e), rules = W.rules(scope), kinds = W.kinds(scope);
+    if (!rules.length && !kinds.length) return '';
+    const hits = wv(e).hits, pid = signoffProject(e);
+    const where = pid ? `the Signoff project ${esc((Fab.signoff.projects().find(p => p.id === pid) || { meta: { name: pid } }).meta.name)}` : `packages named ${esc(e.label)}`;
+    let h = `<div class="section-title">Waivers <span class="muted mx-hint">Kept in this browser for ${where}; they apply to every run of it.</span></div><div class="card wv-list">`;
+    for (const r of rules) {
+      const hit = hits.get(r.id) || { n: 0, fresh: 0, found: new Set() };
+      const lost = r.kind === 'one' && hit.found.size < r.items.length;
+      const fmt = r.check ? unitFor(r.check.split('/')[1]) : null;
+      const now = hit.n ? `${hit.n} waived now${hit.fresh ? `, <b class="t-warn">${hit.fresh} new</b>` : ''}` : lost ? 'Not found in this run' : 'Matches nothing in this run';
+      h += `<div class="wv-rule"><div><div class="item-text">${esc(r.reason || '(no reason)')}</div>` +
+        `<div class="item-sub"><span>${esc(W.describe(r, fmt))}</span><span>${esc([r.by, fmtDate(r.at)].filter(Boolean).join(' · '))}</span><span>${now}</span></div></div>` +
+        `<div class="wv-rule-acts">${hit.fresh ? `<button class="btn btn-plain" data-act="rule-ok" data-rule="${esc(r.id)}">Looks fine</button>` : ''}` +
+        `${r.kind === 'similar' ? `<button class="btn btn-plain" data-act="rule-edit" data-rule="${esc(r.id)}">Edit</button>` : ''}<button class="btn btn-plain" data-act="rule-remove" data-rule="${esc(r.id)}">Remove</button></div></div>`;
+    }
+    for (const k of kinds) {
+      const parts = e.pkg ? W.kindParts(e.pkg, k) : [];
+      h += `<div class="wv-rule"><div><div class="item-text">${esc(W.describeKind(k))}</div>` +
+        `<div class="item-sub"><span>Part type, not a waiver. ${parts.length ? 'Applies to ' + esc(parts.slice(0, 12).join(', ') + (parts.length > 12 ? ' …' : '')) : 'No part in this package matches.'}</span>${k.reason ? `<span>${esc(k.reason)}</span>` : ''}<span>${esc([k.who, fmtDate(k.at)].filter(Boolean).join(' · '))}</span></div></div>` +
+        `<div class="wv-rule-acts"><button class="btn btn-plain" data-act="kind-remove" data-kind="${esc(k.id)}">Remove</button></div></div>`;
+    }
+    if (e.status === 'ready' && e.pkg && kindsSig(kinds) !== e.kindsAt) h += `<div class="wv-rule wv-rerun"><div class="item-text">The part types changed since this run's checks ran.</div><div class="wv-rule-acts"><button class="btn" data-act="rerun">Run checks again</button></div></div>`;
     return h + '</div>';
   }
 
@@ -1368,7 +1464,7 @@
     document.querySelectorAll('[data-act="finding"]').forEach(el => el.classList.toggle('sel', el.dataset.id === f.id));
     const kv = [];
     // Most measured values are lengths; a few checks measure something else.
-    const unit = { aspect: v => +v.toFixed(2) + ':1', isolated: v => +v.toFixed(3) + ' mm²', 'copper-balance': v => +v.toFixed(1) + ' points' }[f.check] || (v => Fab.fmtLen(+v.toFixed(3)));
+    const unit = unitFor(f.check);
     if (f.value != null && isFinite(f.value)) kv.push(['Measured', typeof f.value === 'number' ? unit(f.value) : f.value]);
     if (f.limit != null) kv.push(['Limit', unit(f.limit)]);
     if (f.layer) kv.push(['Layer', f.layer]);
@@ -1382,11 +1478,436 @@
     $('#inspector').innerHTML = `<div class="insp-head"><span class="insp-crumb">${esc(f.category)} · ${C.describe(f.category, f.check) ? `<a href="#" data-act="check-doc" data-key="${esc(f.category + '/' + f.check)}">${esc(f.check)}</a>` : esc(f.check)}</span><button class="icon-btn" data-act="close-insp" aria-label="Close">${ICON.close}</button></div>
       <div class="insp-body"><span class="pill ${f.severity === 'error' ? 'error' : f.severity === 'warn' ? 'warn' : 'accent'}">${{ error: 'Error', warn: 'Warning', info: 'Info' }[f.severity]}</span>
       <div class="insp-title">${esc(f.title)}</div>${f.detail ? `<div class="insp-detail">${esc(f.detail)}</div>` : ''}
+      ${waiverStatusHtml(active(), f)}
       ${located(f) ? `<button class="insp-preview" data-act="show-on-board" data-id="${esc(f.id)}" aria-label="Open on the board"><span class="insp-prev-slot"></span><span class="insp-prev-layer"></span><span class="insp-prev-go">Open on board →</span></button>` : ''}
       ${kv.length ? `<dl class="kv">${kv.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl>` : ''}
+      ${waiverActionsHtml(active(), f)}
       ${note ? `<p style="margin-top:14px"><button class="btn" data-act="note-delete" data-id="${esc(f.id)}">Delete note</button></p>` : ''}</div>`;
     $('#inspector').classList.add('open');
     if (located(f)) showPreview(active(), f);
+    const ta = $('#wv-reason');
+    if (ta) { ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length); }
+  }
+
+  // ── Waiving from the inspector ──
+  // Under the title: whether the finding is waived (and by what), or was and has changed since.
+  function waiverStatusHtml(e, f) {
+    if (!e || !Fab.waivers.isWaivable(f)) return '';
+    const w = waiverOf(e, f), st = !w && staleOf(e, f);
+    const meta = r => esc([r.by, fmtDate(r.at)].filter(Boolean).join(' · '));
+    if (w) {
+      const r = w.rule, fmt = r.check ? unitFor(r.check.split('/')[1]) : null;
+      return `<div class="wv-box waived"><div class="wv-head">${w.state === 'new' ? 'Waived: new match' : 'Waived'}</div><div class="wv-reason">${esc(r.reason || '(no reason)')}</div>` +
+        `<div class="wv-meta">${meta(r)}${r.kind === 'similar' ? ` · rule: ${esc(Fab.waivers.describe(r, fmt))}` : ''}</div>` +
+        (w.state === 'new' ? `<div class="wv-meta wv-new">The rule didn't match this finding when it was made (or last looked at). Check it belongs with the others.</div>` : '') + `</div>`;
+    }
+    if (st) {
+      const was = st.was, sev = { error: 'an error', warn: 'a warning' }[was.sev] || was.sev;
+      return `<div class="wv-box stale"><div class="wv-head">Waived before, but the finding changed</div>` +
+        `<div class="wv-meta">Then it was ${sev}: <i>${esc(was.title)}</i>${was.detail && was.detail !== f.detail ? `<br><span class="wv-was">${esc(was.detail)}</span>` : ''}</div>` +
+        `<div class="wv-reason">${esc(st.rule.reason || '')}</div><div class="wv-meta">${meta(st.rule)}</div></div>`;
+    }
+    return '';
+  }
+  // At the bottom: Waive / Waive similar / Treat as…, or Unwaive and the rule's own buttons.
+  function waiverActionsHtml(e, f) {
+    if (!e || !Fab.waivers.isWaivable(f) || e.status !== 'ready') return '';
+    const w = waiverOf(e, f), st = !w && staleOf(e, f), id = esc(f.id);
+    if (w) {
+      const r = w.rule, n = (wv(e).hits.get(r.id) || { n: 0 }).n;
+      return `<div class="wv-acts">${w.state === 'new' ? `<button class="btn btn-primary" data-act="rule-ok" data-rule="${esc(r.id)}" data-id="${id}">Looks fine</button>` : ''}` +
+        `<button class="btn" data-act="unwaive" data-id="${id}">Unwaive</button>` +
+        (r.kind === 'similar' ? `<button class="btn btn-plain" data-act="rule-edit" data-rule="${esc(r.id)}">Edit rule…</button><button class="btn btn-plain" data-act="rule-remove" data-rule="${esc(r.id)}">Remove rule (${n})</button>` : '') + `</div>`;
+    }
+    if (state.wvForm === f.id) {
+      const prev = st ? st.rule.reason || '' : '';
+      return `<div class="wv-form"><label class="wv-label" for="wv-reason">Why is this one acceptable?</label><textarea id="wv-reason" rows="3" placeholder="Required. For example: tag-connect pads, paste removed on purpose">${esc(prev)}</textarea>` +
+        `<div class="wv-acts"><button class="btn btn-primary" data-act="waive-do" data-id="${id}"${prev.trim() ? '' : ' disabled'}>Waive</button><button class="btn btn-plain" data-act="waive-cancel">Cancel</button><span class="wv-key">Ctrl+Enter</span></div></div>`;
+    }
+    return `<div class="wv-acts"><button class="btn" data-act="waive-open" data-id="${id}" title="W">${st ? 'Waive again' : 'Waive'}</button>` +
+      `<button class="btn" data-act="waive-sim" data-id="${id}" title="Shift+W">Waive similar…</button>` +
+      (f.refs && f.refs.length ? `<button class="btn btn-plain" data-act="kind-open" data-id="${id}" title="Set these parts as test points, fiducials or mounting holes">Treat as…</button>` : '') +
+      (st ? `<button class="btn btn-plain" data-act="waive-drop" data-id="${id}">Drop old waiver</button>` : '') + `</div>`;
+  }
+  const waiveUser = () => noteUser() || '';
+  // Triage keeps moving: the finding after the selected one in the list (or before it, at the end),
+  // to select once the selected one is waived. Read from the rows shown, before the rules change.
+  function nextRowAfter(id) {
+    const rows = [...document.querySelectorAll('.f-row')].filter(r => r.offsetParent && !r.closest('#waived-sec')).map(r => r.dataset.id);
+    const i = rows.indexOf(id);
+    return i < 0 ? null : { ids: rows, i };
+  }
+  function selectNextActive(e, at) {
+    if (!at || state.view !== 'findings') return false;
+    const left = at.ids.filter(id => { const f = e.findings.find(x => x.id === id); return f && !isWaived(e, f); });
+    const id = at.ids.slice(at.i + 1).find(x => left.includes(x)) || at.ids.slice(0, at.i).reverse().find(x => left.includes(x));
+    const f = id && e.findings.find(x => x.id === id);
+    if (!f) { state.sel = null; closeInspector(); return true; }
+    openInspector(f);
+    const row = document.querySelector(`.f-row[data-id="${CSS.escape(f.id)}"]`); if (row) row.scrollIntoView({ block: 'nearest' });
+    return true;
+  }
+  // Waive one finding (or waive a changed one again): a rule of its own, matching its subject and words.
+  function waiveOne(e, f, reason) {
+    const W = Fab.waivers, scope = scopeOf(e), st = staleOf(e, f), next = nextRowAfter(f.id);
+    if (st) {
+      const r = st.rule;
+      W.putRule(scope, Object.assign({}, r, { items: r.items.map(s => s === st.was ? W.snap(f) : s), reason, by: waiveUser(), at: new Date().toISOString() }));
+    } else W.addRule(scope, { kind: 'one', check: f.category + '/' + f.check, items: [W.snap(f)], reason, by: waiveUser(), at: new Date().toISOString() });
+    state.wvForm = null;
+    afterWaiverChange(e, f, 'Waived', next);
+  }
+  // Unwaive: a one-finding waiver loses that finding; a rule keeps the others and leaves this one out.
+  function unwaive(e, f) {
+    const W = Fab.waivers, w = waiverOf(e, f);
+    if (!w) return;
+    const r = w.rule, scope = scopeOf(e);
+    if (r.kind === 'one') {
+      const items = r.items.filter(s => !W.sameSubject(s, f));
+      if (items.length) W.putRule(scope, Object.assign({}, r, { items })); else W.removeRule(scope, r.id);
+    } else W.putRule(scope, Object.assign({}, r, { except: (r.except || []).concat([W.snap(f)]), also: (r.also || []).filter(s => !W.sameSubject(s, f)) }));
+    afterWaiverChange(e, f, 'Unwaived');
+  }
+  // A rule's new matches have been looked at: they join what it has seen. With a finding, only that one.
+  function ruleLooked(e, ruleId, f) {
+    const W = Fab.waivers, scope = scopeOf(e), r = W.rules(scope).find(x => x.id === ruleId);
+    if (!r) return;
+    const by = wv(e).by;
+    const fresh = e.findings.filter(x => { const s = by.get(x.id); return s && s.rule.id === ruleId && s.state === 'new' && (!f || x === f); });
+    W.putRule(scope, Object.assign({}, r, { seen: (r.seen || []).concat(fresh.map(W.snap)) }));
+    afterWaiverChange(e, f, fresh.length === 1 ? 'Marked as looked at' : `${fresh.length} matches marked as looked at`);
+  }
+  function removeRule(e, ruleId) {
+    const W = Fab.waivers, scope = scopeOf(e), r = W.rules(scope).find(x => x.id === ruleId);
+    if (!r) return;
+    const n = (wv(e).hits.get(r.id) || { n: 0 }).n;
+    if (!confirm(`Remove the waiver "${r.reason || W.describe(r)}"?${n ? ` ${plural(n, 'finding')} it waives will show again.` : ''}`)) return;
+    W.removeRule(scope, ruleId);
+    afterWaiverChange(e, null, 'Waiver removed');
+  }
+  // ── Waive similar ──
+  // A panel that builds a rule from examples: the details they share start ticked, everything that
+  // would be waived is listed before anything is, errors are waived only when ticked, and near
+  // misses (findings that fail one detail) show what the rule leaves out. Examples come from the
+  // lists in the panel (+ Example), so the board's selection is left alone.
+  function openSimilar(e, f, ruleId) {
+    const W = Fab.waivers;
+    if (!e || !e.pkg || e.status !== 'ready') return;
+    const rule = ruleId ? W.rules(scopeOf(e)).find(r => r.id === ruleId) : null;
+    let examples = f ? [f] : [];
+    if (rule && !examples.length) {
+      const by = wv(e).by, mine = e.findings.filter(x => (by.get(x.id) || {}).rule === rule);
+      examples = mine.slice(0, 1);
+    }
+    const check = rule ? rule.check : f.category + '/' + f.check;
+    const s = state.sim = {
+      eid: e.id, examples, check: check || (examples[0] && examples[0].category + '/' + examples[0].check), anyCheck: !!rule && !rule.check,
+      facets: {}, warn: true, errorsAll: false, tick: new Map(), reason: rule ? rule.reason || '' : '', editing: rule ? rule.id : null, margin: 5,
+    };
+    if (rule) {
+      // Editing: the rule's own facets, ticked; the rest proposed from the example, unticked.
+      const prop = examples.length ? W.propose(e.pkg, examples, s.margin) : {};
+      for (const d of W.FACETS) {
+        const v = (rule.facets || {})[d.key];
+        if (v != null) s.facets[d.key] = Object.assign({}, prop[d.key] || {}, { value: v, on: true, kept: d.kind === 'near' });
+        else if (prop[d.key]) s.facets[d.key] = Object.assign({}, prop[d.key], { on: false });
+      }
+      s.warn = (rule.sevs || []).includes('warn');
+      s.errorsAll = (rule.sevs || []).includes('error');
+      for (const x of e.findings) {
+        if (!W.isWaivable(x)) continue;
+        if ((rule.except || []).some(sn => W.sameSubject(sn, x))) s.tick.set(x.id, false);
+        else if ((rule.also || []).some(sn => W.sameSubject(sn, x))) s.tick.set(x.id, true);
+      }
+    } else s.facets = W.propose(e.pkg, examples, s.margin);
+    renderSimilar(true);
+  }
+
+  const simEntry = () => state.sim && state.pkgs.find(p => p.id === state.sim.eid);
+  // The facets ticked, as a rule asks for them.
+  function simFacets(s) {
+    const out = {};
+    for (const d of Fab.waivers.FACETS) {
+      const x = s.facets[d.key];
+      if (!x || !x.on) continue;
+      if (d.kind === 'range') { if (x.value && (x.value.min != null || x.value.max != null)) out[d.key] = { min: x.value.min, max: x.value.max }; }
+      else if (d.kind === 'near') { if (x.value) out[d.key] = x.value; }
+      else if (String(x.value || '').trim()) out[d.key] = String(x.value).trim();
+    }
+    return out;
+  }
+  // Candidates, matches and near misses for the panel as it stands.
+  function simResults(e, s) {
+    const W = Fab.waivers, by = wv(e).by, facets = simFacets(s);
+    const ck = f => f.category + '/' + f.check;
+    let already = 0;
+    const cands = [];
+    for (const f of e.findings) {
+      if (!W.isWaivable(f) || (!s.anyCheck && ck(f) !== s.check)) continue;
+      const w = by.get(f.id);
+      if (w && w.state !== 'stale' && w.rule.id !== s.editing) { if (!W.fails(facets, W.facetsOf(e.pkg, f)).length) already++; continue; }
+      cands.push(f);
+    }
+    const matches = [], near = [], other = [];
+    for (const f of cands) {
+      const fl = W.fails(facets, W.facetsOf(e.pkg, f));
+      if (!fl.length) matches.push(f); else if (fl.length === 1) near.push({ f, fl }); else other.push({ f, fl });
+    }
+    const ticked = f => s.tick.has(f.id) ? s.tick.get(f.id) : f.severity === 'warn' ? s.warn : s.errorsAll || s.examples.includes(f);
+    return { facets, cands, matches, near, other, already, ticked };
+  }
+
+  function renderSimilar(full) {
+    const e = simEntry(), s = state.sim;
+    if (!e || !s) return;
+    const W = Fab.waivers;
+    let wrap = document.getElementById('sim-wrap');
+    if (!wrap) {
+      wrap = document.createElement('div');
+      wrap.className = 'sheet-wrap'; wrap.id = 'sim-wrap';
+      wrap.innerHTML = `<div class="sheet sim" role="dialog" aria-modal="true" aria-labelledby="sim-title"><div class="sheet-head"><h2 id="sim-title"></h2>` +
+        `<p>Tick what the findings must share. Everything that would be waived is listed on the right first. Errors are waived only when you tick them.</p></div>` +
+        `<div class="sim-body"><div class="sim-left" id="sim-left"></div><div class="sim-right" id="sim-right"></div></div>` +
+        `<div class="sheet-foot"><span class="sim-count" id="sim-count"></span><span class="spacer"></span><button class="btn" data-sim="cancel">Cancel</button><button class="btn btn-primary" data-sim="save"></button></div></div>`;
+      document.body.appendChild(wrap);
+      bindSimilar(wrap);
+      full = true;
+    }
+    wrap.querySelector('#sim-title').textContent = s.editing ? 'Edit waiver rule' : 'Waive similar findings';
+    const res = simResults(e, s);
+    if (full) wrap.querySelector('#sim-left').innerHTML = simLeftHtml(e, s, res);
+    wrap.querySelector('#sim-right').innerHTML = simRightHtml(e, s, res);
+    const n = res.matches.filter(res.ticked).length;
+    const checks = new Set(res.matches.filter(res.ticked).map(f => f.category + '/' + f.check)).size;
+    const save = wrap.querySelector('[data-sim="save"]');
+    save.textContent = s.editing ? `Save rule (${n})` : `Waive ${plural(n, 'finding')}`;
+    save.disabled = !n || !s.reason.trim();
+    wrap.querySelector('#sim-count').innerHTML = !s.reason.trim() ? 'A reason is required.' : checks > 1 ? `<b class="t-warn">Across ${checks} checks.</b>` : '';
+  }
+
+  function simLeftHtml(e, s, res) {
+    const W = Fab.waivers, ck = s.check ? s.check.split('/') : null;
+    let h = '';
+    if (s.examples.length) {
+      h += `<div class="sim-lab">Examples</div><div class="sim-exs">` + s.examples.map(f => `<span class="sim-ex"><span class="dot ${f.severity}"></span><span class="sim-ex-t" title="${esc(f.title)}">${esc(f.title)}</span>` +
+        (s.examples.length > 1 ? `<button class="icon-btn" data-sim="ex-remove" data-id="${esc(f.id)}" aria-label="Remove example">${ICON.close}</button>` : '') + `</span>`).join('') + `</div>` +
+        `<p class="note">Add more with <b>+ Example</b> in the lists; what they all share is ticked.</p>`;
+    }
+    h += `<div class="sim-lab">Findings must share</div>`;
+    h += `<div class="sim-f locked"><label class="check"><input type="checkbox" checked disabled> Check</label><span class="sim-val">${s.anyCheck ? '<b class="t-warn">Any check</b>' : ck ? `${esc(ck[1])} <span class="muted">(${esc(ck[0])})</span>` : ''}</span>` +
+      `<label class="check sim-any" title="Waive findings of other checks too"><input type="checkbox" data-sim="any"${s.anyCheck ? ' checked' : ''}> Any check</label></div>`;
+    const unit = s.check ? unitFor(s.check.split('/')[1]) : (v => String(v));
+    for (const d of W.FACETS) {
+      const x = s.facets[d.key];
+      if (!x) continue;
+      const on = `<label class="check"><input type="checkbox" data-sim="on" data-key="${d.key}"${x.on ? ' checked' : ''}> ${d.label}</label>`;
+      let input = '';
+      if (d.kind === 'range') {
+        const v = x.value || {};
+        input = `<span class="sim-range"><input class="sim-in num" type="number" step="any" data-sim="min" data-key="${d.key}" value="${v.min != null ? +v.min.toFixed(4) : ''}" placeholder="any" aria-label="Lowest"> to <input class="sim-in num" type="number" step="any" data-sim="max" data-key="${d.key}" value="${v.max != null ? +v.max.toFixed(4) : ''}" placeholder="any" aria-label="Highest"></span>`;
+      } else if (d.kind === 'near') {
+        input = x.kept && !s.examples.length ? '<span class="muted">as saved</span>' : `<span class="sim-range">within <input class="sim-in num" type="number" step="any" min="0" data-sim="margin" value="${s.margin}" aria-label="Margin in mm"> mm</span>`;
+      } else input = `<input class="sim-in" data-sim="val" data-key="${d.key}" value="${esc(x.value || '')}" spellcheck="false" aria-label="${d.label}">`;
+      const shown = d.kind === 'range' && x.shown ? 'Examples: ' + x.shown.split(', ').map(v => unit(+v)).join(', ') : x.shown && (x.differs || s.examples.length > 1 || d.kind === 'exact') ? 'Examples: ' + x.shown : '';
+      h += `<div class="sim-f${x.on ? ' on' : ''}">${on}${input}${shown ? `<div class="sim-shown">${esc(shown)}</div>` : ''}</div>`;
+    }
+    h += `<p class="note">In patterns, * stands for any characters and ? for one; case is ignored.</p>`;
+    h += `<div class="sim-lab">Severity</div><div class="sim-sev"><label class="check"><input type="checkbox" data-sim="warn"${s.warn ? ' checked' : ''}> Warnings</label>` +
+      `<label class="check"><input type="checkbox" data-sim="errors"${s.errorsAll ? ' checked' : ''}> All errors that match, now and later</label></div>`;
+    h += `<div class="sim-lab"><label for="sim-reason">Reason</label></div><textarea id="sim-reason" data-sim="reason" rows="3" placeholder="Required. Why are these acceptable?">${esc(s.reason)}</textarea>`;
+    return h;
+  }
+
+  function simRightHtml(e, s, res) {
+    const W = Fab.waivers, unit = s.check ? unitFor(s.check.split('/')[1]) : (v => String(+(+v).toFixed(4)));
+    const label = k => (W.FACETS.find(d => d.key === k) || { label: k }).label.toLowerCase();
+    const valOf = f => { const fc = W.facetsOf(e.pkg, f); return fc.value != null ? unit(fc.value) : ''; };
+    const exBtn = f => s.examples.includes(f) ? '<span class="sim-tag">Example</span>' : `<button class="btn btn-plain sim-add" data-sim="ex-add" data-id="${esc(f.id)}">+ Example</button>`;
+    const line = (f, right, box) => `<div class="sim-row">${box || '<span></span>'}<span class="dot ${f.severity}"></span><span class="sim-t" title="${esc(f.detail || '')}">${esc(f.title)}</span>` +
+      `<span class="sim-d">${esc([whereText(f), f.layer, valOf(f)].filter(Boolean).join(' · '))}</span><span class="sim-r">${right || ''}</span></div>`;
+    const tickBox = f => `<input type="checkbox" data-sim="tick" data-id="${esc(f.id)}"${res.ticked(f) ? ' checked' : ''} aria-label="Waive this one">`;
+    const warns = res.matches.filter(f => f.severity === 'warn'), errs = res.matches.filter(f => f.severity === 'error');
+    const n = res.matches.filter(res.ticked).length;
+    let h = `<div class="sim-sum"><b>${n}</b> of ${res.matches.length} ${res.matches.length === 1 ? 'match' : 'matches'} will be waived` +
+      (res.already ? `<span class="muted"> · ${res.already} more already waived by other rules</span>` : '') + `</div>`;
+    h += simHistogram(e, s, res, unit);
+    const CAP = 300;
+    const list = (title, items, note, extra) => items.length ? `<div class="sim-sec"><div class="sim-sec-h">${title} <span class="muted">${items.length}</span>${extra || ''}</div>${note ? `<p class="note">${note}</p>` : ''}` +
+      items.slice(0, CAP).join('') + (items.length > CAP ? `<div class="muted sim-more">… ${items.length - CAP} more</div>` : '') + `</div>` : '';
+    h += list('Warnings', warns.map(f => line(f, exBtn(f), tickBox(f))), s.warn ? '' : 'Warnings are left out (Severity).');
+    h += list('Errors', errs.map(f => line(f, exBtn(f), tickBox(f))), s.errorsAll ? 'Every error that matches is waived, including ones a later run finds.' : 'Not waived unless ticked. Tick them one by one, or tick “All errors that match”.',
+      !s.errorsAll && errs.some(f => !res.ticked(f)) ? ` <button class="link-btn" data-sim="tick-errors">Tick these ${errs.length}</button>` : '');
+    if (!res.matches.length) h += `<div class="sim-empty">Nothing matches every ticked detail.</div>`;
+    h += list('Near misses', res.near.map(({ f, fl }) => line(f, `<span class="sim-why">differs in ${esc(label(fl[0]))}</span>${exBtn(f)}`)), 'Fail one ticked detail, so they stay as they are. Make one an example to widen the rule.');
+    if (res.other.length) h += `<details class="sim-sec"><summary class="sim-sec-h">Other findings of ${s.anyCheck ? 'these checks' : 'this check'} <span class="muted">${res.other.length}</span></summary>` +
+      res.other.slice(0, CAP).map(({ f, fl }) => line(f, `<span class="sim-why">differs in ${esc(fl.map(label).join(', '))}</span>${exBtn(f)}`)).join('') + `</details>`;
+    return h;
+  }
+
+  // Where the matched values sit among this check's findings: one bar per bin, matched in color,
+  // the rest gray, and the ticked range shaded. Outliers in a batch show at a glance.
+  function simHistogram(e, s, res, unit) {
+    const W = Fab.waivers;
+    const vals = res.cands.map(f => ({ f, v: W.facetsOf(e.pkg, f).value })).filter(x => x.v != null);
+    if (vals.length < 3 || s.anyCheck) return '';
+    const lo = Math.min(...vals.map(x => x.v)), hi = Math.max(...vals.map(x => x.v));
+    if (!(hi > lo)) return '';
+    const N = 28, bins = Array.from({ length: N }, () => ({ all: 0, hit: 0 }));
+    const bi = v => Math.min(N - 1, Math.floor((v - lo) / (hi - lo) * N));
+    const hit = new Set(res.matches.filter(res.ticked));
+    for (const x of vals) { const b = bins[bi(x.v)]; b.all++; if (hit.has(x.f)) b.hit++; }
+    const top = Math.max(...bins.map(b => b.all)), W_ = 300, H = 44, bw = W_ / N;
+    const r = (s.facets.value && s.facets.value.on && s.facets.value.value) || null;
+    const xOf = v => Math.max(0, Math.min(W_, (v - lo) / (hi - lo) * W_));
+    let svg = `<svg class="sim-hist" viewBox="0 0 ${W_} ${H + 2}" preserveAspectRatio="none" aria-hidden="true">`;
+    if (r) svg += `<rect class="sim-hist-range" x="${xOf(r.min != null ? r.min : lo)}" y="0" width="${Math.max(1, xOf(r.max != null ? r.max : hi) - xOf(r.min != null ? r.min : lo))}" height="${H}"/>`;
+    bins.forEach((b, i) => {
+      if (!b.all) return;
+      const h1 = Math.max(2, b.all / top * H), h2 = b.hit / top * H;
+      svg += `<rect class="sim-hist-all" x="${i * bw + 1}" y="${H - h1}" width="${bw - 2}" height="${h1}"/>`;
+      if (b.hit) svg += `<rect class="sim-hist-hit" x="${i * bw + 1}" y="${H - h2}" width="${bw - 2}" height="${Math.max(2, h2)}"/>`;
+    });
+    return svg + `</svg><div class="sim-hist-ax"><span>${esc(unit(lo))}</span><span class="muted">measured, this check</span><span>${esc(unit(hi))}</span></div>`;
+  }
+
+  function bindSimilar(wrap) {
+    const close = () => { wrap.remove(); state.sim = null; document.removeEventListener('keydown', onKey, true); };
+    const onKey = ev => {
+      if (!document.getElementById('sim-wrap')) return;
+      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); close(); }
+      else if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); ev.stopPropagation(); saveSimilar(close); }
+    };
+    document.addEventListener('keydown', onKey, true);
+    wrap.addEventListener('click', ev => {
+      const s = state.sim, e = simEntry();
+      if (!s || !e) return;
+      if (ev.target === wrap) { close(); return; }
+      const t = ev.target.closest('[data-sim]');
+      if (!t) return;
+      const k = t.dataset.sim, f = t.dataset.id && e.findings.find(x => x.id === t.dataset.id);
+      if (k === 'cancel') close();
+      else if (k === 'save') saveSimilar(close);
+      else if (k === 'ex-add' && f) { s.examples.push(f); if (!s.anyCheck && f.category + '/' + f.check !== s.check) s.anyCheck = true; reproposeSimilar(e, s); }
+      else if (k === 'ex-remove' && f) { s.examples = s.examples.filter(x => x !== f); reproposeSimilar(e, s); }
+      else if (k === 'tick-errors') { for (const x of simResults(e, s).matches) if (x.severity === 'error') s.tick.set(x.id, true); renderSimilar(); }
+    });
+    wrap.addEventListener('change', ev => {
+      const s = state.sim, e = simEntry(), t = ev.target;
+      if (!s || !e || !t.dataset.sim) return;
+      const k = t.dataset.sim, x = t.dataset.key && s.facets[t.dataset.key];
+      if (k === 'on' && x) { x.on = t.checked; renderSimilar(true); }
+      else if (k === 'any') { s.anyCheck = t.checked; renderSimilar(true); }
+      else if (k === 'warn') { s.warn = t.checked; renderSimilar(); }
+      else if (k === 'errors') { s.errorsAll = t.checked; if (t.checked) for (const [id, v] of s.tick) if (!v) s.tick.delete(id); renderSimilar(); }
+      else if (k === 'tick') s.tick.set(t.dataset.id, t.checked), renderSimilar();
+    });
+    wrap.addEventListener('input', ev => {
+      const s = state.sim, e = simEntry(), t = ev.target;
+      if (!s || !e || !t.dataset.sim) return;
+      const k = t.dataset.sim, x = t.dataset.key && s.facets[t.dataset.key];
+      if (k === 'reason') { s.reason = t.value; renderSimilar(); return; }
+      if (k === 'val' && x) { x.value = t.value; if (!x.on && t.value.trim()) { x.on = true; t.closest('.sim-f').classList.add('on'); t.closest('.sim-f').querySelector('[data-sim="on"]').checked = true; } }
+      else if ((k === 'min' || k === 'max') && x) { x.value = Object.assign({}, x.value); x.value[k] = t.value === '' ? null : parseFloat(t.value); }
+      else if (k === 'margin') {
+        s.margin = Math.max(0, parseFloat(t.value) || 0);
+        const p = Fab.waivers.propose(e.pkg, s.examples, s.margin).near;
+        if (p && s.facets.near) s.facets.near.value = p.value;
+      } else return;
+      renderSimilar();
+    });
+  }
+  // New examples: propose again, keeping what was ticked by hand where the proposal still has the facet.
+  function reproposeSimilar(e, s) {
+    const prop = Fab.waivers.propose(e.pkg, s.examples, s.margin);
+    for (const k of Object.keys(prop)) if (s.facets[k] && s.facets[k].kept) prop[k] = s.facets[k];
+    s.facets = prop;
+    renderSimilar(true);
+  }
+  function saveSimilar(close) {
+    const e = simEntry(), s = state.sim, W = Fab.waivers;
+    if (!e || !s || !s.reason.trim()) return;
+    const res = simResults(e, s), hit = res.matches.filter(res.ticked);
+    if (!hit.length) return;
+    const sevs = [s.warn && 'warn', s.errorsAll && 'error'].filter(Boolean);
+    // Subjects the rule holds that this run doesn't have (other revisions) are kept as they were.
+    const old = s.editing ? W.rules(scopeOf(e)).find(r => r.id === s.editing) : null;
+    const keep = list => ((old && old[list]) || []).filter(sn => !res.cands.some(f => W.sameSubject(sn, f)));
+    const rule = {
+      kind: 'similar', check: s.anyCheck ? null : s.check, facets: res.facets, sevs,
+      also: keep('also').concat(hit.filter(f => !sevs.includes(f.severity)).map(W.snap)),
+      except: keep('except').concat(res.matches.filter(f => !res.ticked(f) && sevs.includes(f.severity)).map(W.snap)),
+      seen: keep('seen').concat(hit.map(W.snap)),
+      reason: s.reason.trim(), by: waiveUser(), at: new Date().toISOString(),
+    };
+    const f = e.findings.find(x => x.id === state.sel), next = f && nextRowAfter(f.id);
+    if (old) W.putRule(scopeOf(e), Object.assign({ id: old.id }, rule)); else W.addRule(scopeOf(e), rule);
+    close();
+    afterWaiverChange(e, f, old ? 'Waiver rule saved' : `Waived ${plural(hit.length, 'finding')}`, next);
+  }
+
+  // ── Treat as a test point, fiducial or mounting hole ──
+  // Not a waiver: the reviewer says what the parts are, and the checks run again knowing it.
+  function openKind(e, f) {
+    const W = Fab.waivers;
+    if (!e || !e.pkg || !f.refs || !f.refs.length) return;
+    const fc = W.facetsOf(e.pkg, f);
+    const k = { kind: 'tp', by: 'des', pattern: f.refs.length === 1 ? f.refs[0] : W.cover(f.refs) || f.refs[0], fp: fc.footprint.length === 1 ? fc.footprint[0] : '', reason: '' };
+    const wrap = document.createElement('div');
+    wrap.className = 'sheet-wrap'; wrap.id = 'kind-wrap';
+    const names = { tp: 'Test point', fid: 'Fiducial', mh: 'Mounting hole' };
+    wrap.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="kind-title"><div class="sheet-head"><h2 id="kind-title">Treat as…</h2>` +
+      `<p>Says what these parts are, rather than waiving findings: the checks run again expecting no BOM line or paste on them, and test point findings fold into one row. It applies to every run of this board.</p></div>` +
+      `<div class="sheet-body"><div class="seg kind-seg" role="radiogroup">${Object.keys(names).map(x => `<button data-k="kind" data-v="${x}" role="radio">${names[x]}</button>`).join('')}</div>` +
+      `<div class="kind-by"><label class="check"><input type="radio" name="kind-by" value="des" checked> Designators</label><input class="sim-in" id="kind-des" value="${esc(k.pattern)}" spellcheck="false"></div>` +
+      (k.fp ? `<div class="kind-by"><label class="check"><input type="radio" name="kind-by" value="footprint"> Footprint</label><input class="sim-in" id="kind-fp" value="${esc(k.fp)}" spellcheck="false"></div>` : '') +
+      `<p class="note">* stands for any characters, ? for one.</p><div class="kind-parts" id="kind-parts"></div>` +
+      `<label class="wv-label" for="kind-reason">Note (optional)</label><input class="sim-in wide" id="kind-reason" placeholder="For example: tag-connect footprint pads"></div>` +
+      `<div class="sheet-foot"><button class="btn" data-k="cancel">Cancel</button><button class="btn btn-primary" data-k="ok"></button></div></div>`;
+    document.body.appendChild(wrap);
+    const close = () => { wrap.remove(); document.removeEventListener('keydown', onKey, true); };
+    const onKey = ev => { if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); close(); } };
+    document.addEventListener('keydown', onKey, true);
+    const read = () => { const by = (wrap.querySelector('input[name="kind-by"]:checked') || {}).value || 'des'; return { kind: k.kind, by, pattern: (by === 'footprint' ? wrap.querySelector('#kind-fp') : wrap.querySelector('#kind-des')).value.trim() }; };
+    const paint = () => {
+      const cur = read(), parts = cur.pattern ? W.kindParts(e.pkg, cur) : [];
+      for (const b of wrap.querySelectorAll('[data-k="kind"]')) { const on = b.dataset.v === k.kind; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); }
+      wrap.querySelector('#kind-parts').innerHTML = parts.length ? `<b>${plural(parts.length, 'part')}</b>: ${esc(parts.slice(0, 40).join(', ') + (parts.length > 40 ? ' …' : ''))}` : '<span class="t-warn">No part in this package matches.</span>';
+      const ok = wrap.querySelector('[data-k="ok"]');
+      ok.textContent = parts.length === 1 ? `Treat ${parts[0]} as a ${W.KIND_NAMES[k.kind]}` : `Treat ${parts.length} parts as ${W.KIND_NAMES[k.kind]}s`;
+      ok.disabled = !parts.length;
+    };
+    wrap.addEventListener('input', paint);
+    wrap.addEventListener('change', paint);
+    wrap.addEventListener('click', ev => {
+      if (ev.target === wrap) { close(); return; }
+      const t = ev.target.closest('[data-k]');
+      if (!t) return;
+      if (t.dataset.k === 'kind') { k.kind = t.dataset.v; paint(); }
+      else if (t.dataset.k === 'cancel') close();
+      else if (t.dataset.k === 'ok') {
+        const cur = read();
+        W.addKind(scopeOf(e), Object.assign(cur, { reason: wrap.querySelector('#kind-reason').value.trim(), who: waiveUser(), at: new Date().toISOString() }));
+        close();
+        closeInspector(); state.sel = null;
+        runChecks(e, `Re-running checks: ${W.describeKind(cur)}`);
+        toast(`${W.describeKind(cur)}: checks running again`);
+      }
+    });
+    paint();
+    wrap.querySelector('#kind-des').focus();
+  }
+
+  // Re-render after a rule changed, keeping the inspector on the finding it was about, and keep the
+  // run's record in step (its findings don't change; the browser's waivers did).
+  // `next` (nextRowAfter, read before the change): when the selected finding is now waived, select
+  // the next one still to look at instead, so the Waived fold stays closed.
+  function afterWaiverChange(e, f, msg, next) {
+    e._wv = null;
+    if (next && f && state.sel === f.id && isWaived(e, f)) state.sel = null;
+    renderAll();
+    if (next && f && !state.sel && selectNextActive(e, next)) { if (msg) toast(msg); return; }
+    if (f && $('#inspector').classList.contains('open') && state.sel === f.id) openInspector(f);
+    if (msg) toast(msg);
   }
   function closeInspector() { $('#inspector').classList.remove('open'); }
   const located = f => !!(f && (f.at || f.bbox));
@@ -1542,14 +2063,16 @@
   function syncLayersAll() { const b = $('#layers-all'); if (b) b.textContent = layersAllLabel(); }
 
   function renderRail(e) {
-    const c = counts(e.findings);
+    const c = liveCounts(e);
     const chips = sevButtons(c);
     const fc = state.focusCheck;
     let h = `<div class="rail-head">${signoffProject(e) ? '<button class="btn btn-plain" style="align-self:flex-start;padding:2px 6px" data-act="back-signoff">← Back to Signoff EE</button>' : ''}` +
       (fc ? `<div class="chips"><span class="chip accent">Linked check: ${esc(fc)}</span><button class="btn btn-plain" style="padding:2px 6px;font-size:12px" data-act="clear-focus">Show all</button></div>` : '') +
       `<div class="seg sev-seg full">${chips}</div><div class="search" style="max-width:none">${ICON.search}<input id="rail-search" type="search" placeholder="Filter" value="${esc(state.q)}"></div></div><div class="rail-list">`;
     const order = { error: 0, warn: 1, info: 2 };
-    const fs = visibleFindings(e).filter(f => (f.at || f.bbox) && (!fc || f.check === fc));
+    // Waived findings stay off the board's list and marks (Findings lists them in their own fold).
+    const fs = activeOf(e, visibleFindings(e)).filter(f => (f.at || f.bbox) && (!fc || f.check === fc));
+    const nw = waivedOf(e, visibleFindings(e)).filter(located).length;
     for (const [cat, title] of CATS) {
       const list = fs.filter(f => f.category === cat).sort((a, b) => order[a.severity] - order[b.severity]);
       if (!list.length) continue;
@@ -1557,6 +2080,7 @@
       for (const f of list) h += `<div class="rf${state.sel === f.id ? ' sel' : ''}" data-act="board-finding" data-id="${esc(f.id)}"><span class="dot ${esc(f.severity)}"></span><div class="rf-t">${esc(f.title)}</div><div class="rf-d">${esc(whereText(f))}${f.layer ? ' · ' + esc(f.layer) : ''}</div></div>`;
     }
     if (!fs.length) h += `<div class="side-empty">No located findings match the filter.</div>`;
+    if (nw) h += `<div class="side-empty wv-rail">${plural(nw, 'waived finding')} not shown. <button class="link-btn" data-act="waived-show">List them</button></div>`;
     const rail = $('#rail');
     redraw(rail, e.id, () => { rail.innerHTML = h + '</div>'; });
     revealRow(rail.querySelector('.rf.sel'));
@@ -1675,8 +2199,10 @@
     if (!e) return out;
     const shown = new Set(v.layers.filter(l => l.visible && l.layer).map(l => l.layer.file.name));
     const side = v.view.flip ? 'bottom' : 'top';
+    const by = wv(e).by;
     for (const f of visibleFindings(e)) {
       if (!(f.at || f.bbox)) continue;
+      { const s = by.get(f.id); if (s && s.state !== 'stale' && f.id !== state.sel) continue; }
       if (f.layer ? !shown.has(f.layer) : (f.side && f.side !== side)) continue;
       const c = f.at || Fab.bbox.center(f.bbox);
       const [x, y] = v.toScreen(c.x, c.y);
@@ -2217,7 +2743,47 @@
         break;
       }
       case 'toggle-sec': { const s = t.closest('.sec'); s.classList.toggle('collapsed'); state.closed[s.classList.contains('collapsed') ? 'add' : 'delete'](s.dataset.cat); break; }
-      case 'finding': openInspector(e.findings.find(f => f.id === t.dataset.id)); break;
+      case 'finding': if (state.wvForm !== t.dataset.id) state.wvForm = null; openInspector(e.findings.find(f => f.id === t.dataset.id)); break;
+      // Waivers (waivers.js): the inspector's buttons, the Waived fold and the Waivers list.
+      case 'waive-open': { const f = e.findings.find(x => x.id === t.dataset.id); if (f) { state.wvForm = f.id; openInspector(f); } break; }
+      case 'waive-cancel': { state.wvForm = null; const f = e.findings.find(x => x.id === state.sel); if (f) openInspector(f); break; }
+      case 'waive-do': { const f = e.findings.find(x => x.id === t.dataset.id), r = $('#wv-reason'); if (f && r && r.value.trim()) waiveOne(e, f, r.value.trim()); break; }
+      case 'waive-sim': { const f = e.findings.find(x => x.id === t.dataset.id); if (f) openSimilar(e, f); break; }
+      case 'waive-drop': {
+        const f = e.findings.find(x => x.id === t.dataset.id), st = f && staleOf(e, f);
+        if (!st) break;
+        const items = st.rule.items.filter(s => s !== st.was);
+        if (items.length) Fab.waivers.putRule(scopeOf(e), Object.assign({}, st.rule, { items })); else Fab.waivers.removeRule(scopeOf(e), st.rule.id);
+        afterWaiverChange(e, f, 'Old waiver dropped');
+        break;
+      }
+      case 'unwaive': { const f = e.findings.find(x => x.id === t.dataset.id); if (f) unwaive(e, f); break; }
+      case 'rule-ok': ruleLooked(e, t.dataset.rule, t.dataset.id ? e.findings.find(x => x.id === t.dataset.id) : null); break;
+      case 'rule-edit': openSimilar(e, null, t.dataset.rule); break;
+      case 'rule-remove': removeRule(e, t.dataset.rule); break;
+      case 'kind-open': { const f = e.findings.find(x => x.id === t.dataset.id); if (f) openKind(e, f); break; }
+      case 'kind-remove': {
+        const k = Fab.waivers.kinds(scopeOf(e)).find(x => x.id === t.dataset.kind);
+        if (!k || !confirm(`Stop treating ${Fab.waivers.describeKind(k).replace(/^\w/, c => c.toLowerCase())}? The checks run again.`)) break;
+        Fab.waivers.removeKind(scopeOf(e), k.id);
+        if (e.status === 'ready' && e.pkg) { closeInspector(); state.sel = null; runChecks(e, `Re-running checks: no longer ${Fab.waivers.describeKind(k).replace(/^\w/, c => c.toLowerCase())}`); } else renderAll();
+        break;
+      }
+      case 'waived-toggle': {
+        const sel = e.findings.find(x => x.id === state.sel);
+        const open = state.waivedOpen || !!(sel && isWaived(e, sel) && visibleFindings(e).includes(sel));
+        if (open && sel && isWaived(e, sel)) { state.sel = null; closeInspector(); if (viewer) { viewer.highlight = null; viewer.focusLayer = null; } }
+        state.waivedOpen = !open;
+        renderAll();
+        break;
+      }
+      case 'waived-show': {
+        // Every waived error and warning, the fold open, scrolled to.
+        state.waivedOpen = true; state.cat = null; state.check = null; state.q = ''; state.filter.error = true; state.filter.warn = true;
+        go('findings');
+        const sec = $('#waived-sec'); if (sec) sec.scrollIntoView({ block: 'start' });
+        break;
+      }
       case 'close-insp': closeInspector(); break;
       case 'show-on-board': openFromPreview(e.findings.find(f => f.id === t.dataset.id)); break;
       case 'board-finding': focusFinding(e.findings.find(f => f.id === t.dataset.id)); break;
@@ -2397,10 +2963,10 @@
       }
       if (ev.target.matches('[data-act="signoff-project"]')) { e.signoffSlug = ev.target.value; e.signoffResult = null; renderAll(); }
       if (ev.target.matches('[data-act="signoff-pick"], [data-act="signoff-all"], [data-act="signoff-sev"]')) {
-        if (ev.target.dataset.act === 'signoff-all') e.signoffSkip = new Set(ev.target.checked ? [] : Fab.signoff.plan(e.findings).map(g => g.key));
+        if (ev.target.dataset.act === 'signoff-all') e.signoffSkip = new Set(ev.target.checked ? [] : sendPlan(e).map(g => g.key));
         else if (ev.target.dataset.act === 'signoff-sev') {
           // Every issue of one kind (Errors, Warnings, Review notes) in or out; the others stay as they are.
-          for (const g of Fab.signoff.plan(e.findings)) if (sendKind(g) === ev.target.dataset.sev) e.signoffSkip[ev.target.checked ? 'delete' : 'add'](g.key);
+          for (const g of sendPlan(e)) if (sendKind(g) === ev.target.dataset.sev) e.signoffSkip[ev.target.checked ? 'delete' : 'add'](g.key);
         } else e.signoffSkip[ev.target.checked ? 'delete' : 'add'](ev.target.dataset.key);
         // Keep focus on the box, so the next one is a Tab away.
         const id = ev.target.id;
@@ -2419,6 +2985,7 @@
     });
     document.addEventListener('input', ev => {
       if (ev.target.id === 'note-text') { if (state.draft) state.draft.text = ev.target.value; $('#note-pop [data-act="note-post"]').disabled = !ev.target.value.trim(); return; }
+      if (ev.target.id === 'wv-reason') { const b = $('#inspector [data-act="waive-do"]'); if (b) b.disabled = !ev.target.value.trim(); return; }
       // Send's part number and revision keep what is typed, so a re-render (a log line) doesn't lose it.
       if (ev.target.matches('[data-rel]')) { const e = active(); if (e) verForm(e)[ev.target.dataset.rel] = ev.target.value; return; }
       if (ev.target.id === 'f-search' || ev.target.id === 'rail-search') {
@@ -2459,9 +3026,25 @@
       else if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); postNote(); }
     });
     document.addEventListener('keydown', ev => {
+      // The inspector's waive form: Ctrl+Enter (Cmd+Enter) waives, Esc closes the form.
+      if (ev.target.id === 'wv-reason') {
+        if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); const b = $('#inspector [data-act="waive-do"]'); if (b && !b.disabled) b.click(); }
+        else if (ev.key === 'Escape') { ev.preventDefault(); const b = $('#inspector [data-act="waive-cancel"]'); if (b) b.click(); }
+        return;
+      }
       if (ev.target.matches('input, select, textarea')) return;
+      if (document.querySelector('.sheet-wrap')) return; // a panel is open: its own keys
       if (ev.key === 'Escape' && (state.placing || state.draft)) { setPlacing(false); cancelNote(); return; }
       if (ev.key === 'Escape') closeInspector();
+      // W waives the finding in the inspector (asks why); Shift+W opens Waive similar.
+      if ((ev.key === 'w' || ev.key === 'W') && !ev.ctrlKey && !ev.metaKey && !ev.altKey && $('#inspector').classList.contains('open')) {
+        const e = active(), f = e && e.findings.find(x => x.id === state.sel);
+        if (f && e.status === 'ready' && Fab.waivers.isWaivable(f) && !isWaived(e, f)) {
+          ev.preventDefault();
+          if (ev.shiftKey) openSimilar(e, f); else { state.wvForm = f.id; openInspector(f); }
+        }
+        return;
+      }
       // Board: up and down step through the findings list, in its order, each shown as if selected.
       if ((ev.key === 'ArrowDown' || ev.key === 'ArrowUp') && state.view === 'board' && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {
         const rows = [...$('#rail').querySelectorAll('.rf')], e = active();

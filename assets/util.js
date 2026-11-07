@@ -169,6 +169,12 @@ window.Fab = window.Fab || {};
     return f;
   };
 
+  // A wildcard pattern as people type it: * is any run of characters, ? one character, case ignored,
+  // and the whole text must match ("TC*" matches TCSDA, not ATC1). Waivers and part types use it.
+  Fab.globRe = function (glob) {
+    return new RegExp('^' + String(glob).trim().replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$', 'i');
+  };
+
   // Natural sort for designators (R2 < R10).
   Fab.natCmp = function (a, b) {
     return String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });

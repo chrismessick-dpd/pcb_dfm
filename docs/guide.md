@@ -43,6 +43,20 @@ is uploaded.
    checks' findings, show on the board as bubbles on the side they were placed, are kept with the run
    (also through **Run checks again**), and go to Signoff EE as one issue each when you send, Info
    notes included (as Minor). Open a note's detail to delete it.
+   **Waiving.** When an error or warning is acceptable, select it and press **Waive** (or W). Say
+   why, and press **Waive** again (or Ctrl+Enter). It moves to the **Waived** fold at the end of
+   Findings, which stays closed until you open it, and drops out of every total; the next finding is
+   selected so you can keep going. **Waive similar…** (Shift+W) waives a batch. It ticks what your
+   examples share (footprint, designator prefix such as TC*, part number, and a measured value no
+   worse than theirs) and lists every finding that matches before anything is waived. **Near
+   misses** are findings that fail one detail; make one an example to take it in. Errors are waived
+   only when you tick them. A rule keeps working on later runs: a finding it hasn't matched before
+   is waived but marked **new** until you press **Looks fine**, and a waived finding whose wording
+   changes comes back as "Waiver out of date". **Treat as…** says some parts are test points,
+   fiducials or mounting holes, and the checks run again knowing it. The **Waivers** list at the end
+   of Findings has every rule, with **Edit** and **Remove**. Waivers are kept in this browser for the
+   board's Signoff project (or the package name), and Send to Signoff EE marks issues whose findings
+   are all waived as Waived.
 3. Pick a **fab profile**: *Prototype*, *Standard* or *Advanced (HDI-lite)*. Each is a set of
    typical industry limits, with their sources documented. Or make your own for a specific fab
    house on the **Fab rules** page: copy a profile, adjust the limits, and note the fab's

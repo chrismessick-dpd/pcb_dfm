@@ -24,14 +24,30 @@
   // part name count too: a TP_/TESTPOINT/FIDUCIAL/MOUNTING_HOLE footprint, or a "Test Point" comment.
   C.PAD_ONLY_FP = /^(TP|TEST[_ -]?P(OINT|AD)|FID|FIDUCIAL|MH|MTG|MOUNT(ING)?[_ -]?HOLE)([_ -]|\d|$)/i;
   C.PAD_ONLY_NAME = /^(test[_ -]?point|tp|fiducial|mounting[_ -]?hole)$/i;
+  // Part types a reviewer set in Fabcheck ("Treat as test point", waivers.js): pkg.partKinds, set by the
+  // app before the checks run, each { kind: 'tp' | 'fid' | 'mh', by: 'des' | 'footprint', pattern }.
+  // The designators they name, of the kinds asked for (all kinds when `kinds` is left out).
+  C.overrideSet = function (pkg, kinds) {
+    const s = new Set(), list = (pkg.partKinds || []).filter(k => !kinds || kinds.includes(k.kind));
+    if (!list.length) return s;
+    const tests = list.map(k => ({ by: k.by, re: Fab.globRe(k.pattern) }));
+    for (const p of (pkg.pnp && pkg.pnp.parts) || []) if (tests.some(t => t.re.test(t.by === 'footprint' ? p.footprint || '' : p.des))) s.add(p.des);
+    for (const c of (pkg.odb && pkg.odb.comps) || []) if (tests.some(t => t.by === 'des' && t.re.test(c.des))) s.add(c.des);
+    return s;
+  };
   // The pad-only designators of a package (from the PnP and ODB++), worked out once per package.
   C.padOnlySet = function (pkg) {
     if (pkg._padOnly) return pkg._padOnly;
-    const s = new Set();
+    const s = C.overrideSet(pkg);
     const name = t => C.PAD_ONLY_NAME.test(String(t || '').trim());
     for (const p of (pkg.pnp && pkg.pnp.parts) || []) if (C.PAD_ONLY.test(p.des) || C.PAD_ONLY_FP.test(p.footprint || '') || name(p.comment)) s.add(p.des);
     for (const c of (pkg.odb && pkg.odb.comps) || []) if (C.PAD_ONLY.test(c.des) || name(c.part)) s.add(c.des);
     return (pkg._padOnly = s);
+  };
+  // Set the reviewer's part types on a package and forget what was worked out without them.
+  C.setPartKinds = function (pkg, kinds) {
+    pkg.partKinds = kinds && kinds.length ? kinds.map(k => ({ kind: k.kind, by: k.by, pattern: k.pattern })) : [];
+    delete pkg._padOnly; delete pkg._testPoints;
   };
   C.isPadOnly = (pkg, des) => C.PAD_ONLY.test(des) || C.padOnlySet(pkg).has(des);
   // Test points alone (not fiducials or mounting holes), by designator, footprint, comment or ODB++ part
@@ -42,7 +58,7 @@
   C.TP_NAME = /^(test[_ -]?(point|pad)|tp)$/i;
   C.testPointSet = function (pkg) {
     if (pkg._testPoints) return pkg._testPoints;
-    const s = new Set();
+    const s = C.overrideSet(pkg, ['tp']);
     const name = t => C.TP_NAME.test(String(t || '').trim());
     for (const p of (pkg.pnp && pkg.pnp.parts) || []) if (C.TP_DES.test(p.des) || C.TP_FP.test(p.footprint || '') || name(p.comment)) s.add(p.des);
     for (const c of (pkg.odb && pkg.odb.comps) || []) if (C.TP_DES.test(c.des) || name(c.part)) s.add(c.des);

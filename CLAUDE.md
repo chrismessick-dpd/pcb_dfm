@@ -205,6 +205,14 @@ Also fixed: the initial state's `profile: 'standard', thickness: 1.6` had been s
 since 2026-11-03, so a browser with no remembered profile ran with no board thickness (aspect ratio)
 and the profile picker showed Prototype.
 
+Waivers (2026-11-07, branch `waivers`, cut from `bom-checks`; committed locally, not pushed): Waive, Waive similar… and
+Treat as… in the inspector; a closed Waived fold and a Waivers list on Findings; totals count active
+findings only; Send marks fully waived issues Waived. Logic in `assets/waivers.js`, part-type overrides
+in `checks/common.js` (`C.setPartKinds`, `C.overrideSet`), Send in `signoff.js` (`plan(findings,
+waiverOf)`). Read *Waivers* in `docs/design.md` first. With no rules, the demo boards' findings, summaries
+and Send groups are identical to `bom-checks`. Merge `bom-checks` first (it carries the test point
+code this builds on).
+
 Demo boards (2026-11-02): `tools/make_demo_boards.py` writes two made-up Smart Thermostat packages,
 `demo/thermostat-main-pcba.zip` (DT-1042 rev B, Signoff EE `pdemo7`) and
 `demo/thermostat-display-board.zip` (DT-1043 rev A, `pdemo11`), plus `demo/boards.js` (their fixed

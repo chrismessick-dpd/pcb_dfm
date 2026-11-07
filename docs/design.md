@@ -531,6 +531,66 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
 
 Routing is `#/<view>`, so links and the back button work.
 
+### Waivers (`assets/waivers.js`, 2026-11-07)
+
+A reviewer accepts an error or warning by waiving it. Waivers are rules kept apart from the
+findings, matched against them every time they're shown, so they carry over to re-runs and to new
+revisions of the board. Info findings, review notes and `internal` findings can't be waived.
+
+- **Subjects, not ids.** `Fab.finding` ids are a per-session counter, so a waiver names what a
+  finding is about (`subject`): the check plus its sorted designators (and layer); else the check
+  plus layer (or side) and its place, matched within 0.25 mm, as Revisions' findings delta does;
+  else the check plus title. Several findings can share a subject.
+- **Waive** (inspector, or W) asks for a reason (required) and makes a one-finding rule
+  (`kind: 'one'`) holding the finding's snapshot: subject, severity, title and detail. If the same
+  subject later comes back with other words or another severity, the waiver is **stale**. The
+  finding counts as active again, tagged "Waiver out of date", and the inspector shows what it said
+  then, with **Waive again** (same reason, editable) and **Drop old waiver**.
+- **Waive similar…** (Shift+W) builds a rule from examples (`kind: 'similar'`). `propose` ticks
+  what every example shares: the same footprint, part number, comment, description, net, side or
+  layer; a designator prefix of two or more letters (TC*, TP*, but never R* alone); and, for a
+  measured value, "no worse than the examples": at least their lowest when the limit is a minimum,
+  at most their highest when it's a maximum. A single example ticks only its footprint, part number
+  and measured value. Part details come from the designators (PnP, BOM line, IPC-356 nets;
+  `partInfo`). Patterns are `Fab.globRe` wildcards.
+  - The panel lists every match before anything is waived, with a histogram of the check's measured
+    values (matches in color) and **near misses**, findings that fail exactly one ticked detail. Any
+    listed finding can become an example (**+ Example**), and the proposal is worked out again.
+    Examples are picked in the panel, not by multi-selecting the list, so `state.sel` stays single.
+  - The check is fixed unless **Any check** is ticked, and the count turns amber across checks.
+    Warnings are on by default. Errors are waived only when ticked: one by one (`also`), or all
+    that match, now and later (`sevs` includes `error`). Matches unticked by hand go in `except`.
+  - `seen` holds the subjects the rule matched when it was saved. A later match not among them is
+    waived but **new**: the Overview says how many need a look, the Waived fold counts them, and
+    **Looks fine** adds them to `seen`. **Unwaive** on a rule's finding adds it to `except`.
+    **Edit** reopens the panel with the rule's facets, and keeps the `also`, `except` and `seen`
+    entries this run doesn't have (other revisions).
+- **Treat as…** sets a part type instead of waiving: designators or a footprint (wildcards) as test
+  points, fiducials or mounting holes. `C.setPartKinds` puts them on the package
+  (`pkg.partKinds`) and clears the `_padOnly` and `_testPoints` caches, and `C.overrideSet` feeds
+  them into `padOnlySet` and `testPointSet`. The checks run again at once, and a run records the
+  part types it was made with in `settings.partKinds`, only when there are any, so older runs and
+  the demo's run records are unchanged. A restored run whose part types differ from the current
+  ones gets "Run checks again" in the Waivers list.
+- **Where they're shown.** Every total counts active findings only: the sidebar, the Findings tab
+  badge, the Overview stats (with "+N waived"), the matrix (a check whose problems are all waived is
+  a dashed ✓ cell) and the severity buttons. Findings lists waived ones in a closed **Waived** fold
+  at the end of the page (filtered like the rest, so a category's page has its own and All has all
+  of them), opened by a click or for a selected finding inside it. The board's list and marks leave
+  them out, and say how many are hidden. After a waive, the selection moves to the next finding
+  still to look at. The **Waivers** list at the end of Findings has every rule and part type in the
+  scope, with what each matches now, **Looks fine**, **Edit** and **Remove**.
+- **Storage.** `localStorage` `fabcheck.v1.waivers` (`fabcheck.demo.waivers` in the demo, so Reset
+  demo clears it): `{ v: 1, scopes: { <scope>: { rules, kinds } } }`. The scope is `project:<id>`
+  for a run linked to a Signoff project, else `pkg:<package name>`. When Send links a run to a
+  project, the package's rules are copied into the project's (`mergeScope`). Nothing is stored on
+  the findings, so `compactFindings`, the run's `summary` and the re-run comparison are unchanged.
+  With no rules and no part types, both demo boards' findings, summaries and Send groups are
+  identical to `bom-checks` (checked 2026-11-07).
+- **Open:** waivers live in one browser. They aren't stored with a run in the project's repo, so
+  another FTE doesn't see them. There's no area drawn on the board yet; **Nearby** uses a box
+  around the examples plus a margin.
+
 ### Send to Signoff EE (`assets/signoff.js`)
 
 Fabcheck writes errors and warnings into a board's Signoff EE review. It writes into Signoff's working
@@ -558,6 +618,11 @@ when both are served from the tools folder.
   survive a re-run) in `entry.signoffSkip` and passed to `send(slug, groups, source, skip)`. Send
   doesn't write a skipped group but still counts it as found, so it never gets the "no longer
   found" note.
+- **Waived findings** (`plan(findings, waiverOf)`) stay in their group, so its key and issue id
+  don't change and it is never taken for "no longer found". A group whose findings are all waived
+  (`allWaived`) is written as resolved **Waived**, unless a reviewer already resolved it in Signoff,
+  with the waivers' reasons in the hint and comment. A partly waived group stays open and says how
+  many more were waived and why. Send's list tags both. Without `waiverOf`, `plan` is as before.
 - **Records are stamped** (`updatedAt`/`updatedBy` = Signoff's user name) and the project is marked
   dirty. Signoff is set to open the project's Findings page next.
 - **Open Signoff tabs:** Signoff EE merges `signoff.v1.projects` and `dirty` written by another tab
