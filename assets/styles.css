@@ -113,6 +113,19 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 /* Findings list (Signoff's .sec/.item rhythm) */
 .item.f-row { grid-template-columns: auto 1fr auto; }
 .item.f-row .dot { margin-top: 7px; }
+/* Test point findings folded into one row, closed by default */
+.tp-group { border-bottom: 1px solid var(--hair); }
+.tp-group:last-child { border-bottom: none; }
+.item.tp-head { grid-template-columns: auto 1fr auto; cursor: pointer; user-select: none; border-bottom: none; }
+.tp-head .sec-chev { margin-top: 5px; transform: rotate(-90deg); }
+.tp-group.open .tp-head .sec-chev { transform: none; }
+.tp-head .item-text { font-weight: 600; }
+.tp-head .item-text small { font: 400 12px var(--sans); color: var(--text-3); margin-left: 8px; }
+.tp-head .item-detail { -webkit-line-clamp: 1; }
+.tp-body { background: var(--bg-sunk); }
+.tp-body:empty { display: none; }
+.tp-body .item.f-row { padding-left: 34px; }
+.tp-group.open .tp-body { border-top: 1px solid var(--hair); }
 .item .loc { font-size: 11.5px; color: var(--accent); white-space: nowrap; }
 .item-detail { font-size: 12.5px; color: var(--text-3); margin-top: 3px; white-space: pre-wrap; word-break: break-word; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .sev-seg button .dot { margin-right: 2px; }

@@ -195,6 +195,13 @@ Test points, fiducials and mounting holes (pad-only parts) are recognized by des
 (`TP_…`, `TESTPOINT`, `FIDUCIAL`, `MOUNTING_HOLE`) and by a "Test Point" or "Fiducial" comment or ODB++
 part name (`C.isPadOnly`), since many designs name test points by their net. Without that, a board with
 40 net-named test points drowned its real findings under 90 warnings and paste errors (2026-11-07).
+Test points on their own (`C.isTestPoint`: designator `TP#`, a `TP`/`TEST_POINT`/`TESTPAD` footprint, or a
+"Test Point" comment or ODB++ part name; not fiducials or holes) are still checked for paste, as warnings:
+an unfitted one with paste (a solder bump under the probe, or a Tag-Connect pad that must stay flat), or
+one the BOM fits with none. A part not recognized as a test point keeps the error. Errors and warnings
+whose designators are all test points get `tp: true` (`C.markTestPoints`, after each module runs), and
+Findings folds them into one *Test points* row per area, after the other errors and warnings and closed
+until opened (`state.tpOpen`). On that board: 51 test points, one folded row of 51 paste warnings.
 
 ### D. Fabrication DFM
 

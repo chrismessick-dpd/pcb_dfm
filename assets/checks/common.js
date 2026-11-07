@@ -34,6 +34,25 @@
     return (pkg._padOnly = s);
   };
   C.isPadOnly = (pkg, des) => C.PAD_ONLY.test(des) || C.padOnlySet(pkg).has(des);
+  // Test points alone (not fiducials or mounting holes), by designator, footprint, comment or ODB++ part
+  // name. Paste on a test point is a warning, not an error, and the Findings list folds test point
+  // findings into one row. Anything not recognized here stays a part like any other.
+  C.TP_DES = /^TP\d+$/i;
+  C.TP_FP = /^(TP|TEST[_ -]?P(OINT|AD))([_ -]|\d|$)/i;
+  C.TP_NAME = /^(test[_ -]?(point|pad)|tp)$/i;
+  C.testPointSet = function (pkg) {
+    if (pkg._testPoints) return pkg._testPoints;
+    const s = new Set();
+    const name = t => C.TP_NAME.test(String(t || '').trim());
+    for (const p of (pkg.pnp && pkg.pnp.parts) || []) if (C.TP_DES.test(p.des) || C.TP_FP.test(p.footprint || '') || name(p.comment)) s.add(p.des);
+    for (const c of (pkg.odb && pkg.odb.comps) || []) if (C.TP_DES.test(c.des) || name(c.part)) s.add(c.des);
+    return (pkg._testPoints = s);
+  };
+  C.isTestPoint = (pkg, des) => C.TP_DES.test(des) || C.testPointSet(pkg).has(des);
+  // Marks errors and warnings that are only about test points (every designator they name is one).
+  C.markTestPoints = function (pkg, findings) {
+    for (const f of findings) if (f.severity !== 'info' && f.refs && f.refs.length && f.refs.every(d => C.isTestPoint(pkg, d))) f.tp = true;
+  };
   // Connectors and mechanical parts: shells, pegs and mounting tabs add pads, and their origin is often
   // not their pad center. By designator (J1, JBATT, CN3, X2…) or a description naming a connector.
   C.CONNECTOR_DES = /^(J|CN|CON|X|SW|BT|LS|BZ|MH|P\d)/i;

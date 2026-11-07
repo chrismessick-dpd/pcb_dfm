@@ -198,6 +198,9 @@ its demo `VERSION` is 9 (synced into ME and FW); PL's snapshot did not change ap
 was left alone (PL tests pass). Same branch name, `bom-checks`, in `ee_design_review`,
 `me_design_review` and `fw_design_review`; merge all four together, since EE's demo names this
 branch's zip hash.
+Test points (same branch, later): paste on a recognized test point (`C.isTestPoint`) is a warning, not an
+error, and Findings folds errors and warnings about test points only (`tp: true`, `C.markTestPoints`) into
+one closed *Test points* row per area. The demo boards' findings did not change.
 Also fixed: the initial state's `profile: 'standard', thickness: 1.6` had been swallowed by a comment
 since 2026-11-03, so a browser with no remembered profile ran with no board thickness (aspect ratio)
 and the profile picker showed Prototype.

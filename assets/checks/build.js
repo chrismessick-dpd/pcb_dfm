@@ -23,8 +23,9 @@
         'Letters and digits only are compared, so punctuation does not count; a name that is the part number without its packaging suffix (BSS138 for BSS138LT1G), or with a library prefix (IC_…), matches.'],
       example: 'BOM row 11: MPN TLV70033DDCR ≠ board part TLV70033DDCT' },
     { check: 'paste', name: 'Paste per pin', looks: 'Stencil apertures on every SMD pin of fitted parts, and none on unfitted parts.',
-      sev: { error: 'an unfitted part gets paste, or a fitted part gets none on any pad', warn: 'a fitted part has some SMD pads without paste', info: 'how many parts were checked' }, uses: ['ODB++ component pins', 'Paste layers', 'BOM DNP', 'Copper pads'],
-      rules: () => [`Pins within ${Fab.fmtLen(T.thtPin)} of a drill hit are through-hole and need no paste.`, 'Windowed paste inside an exposed/thermal pad counts for that pad.', `Pad-only designators (test points, fiducials, mounting holes, by designator, footprint or a "Test Point" comment) are skipped; the first ${T.shown} parts with some pads missing paste are listed.`],
+      sev: { error: 'an unfitted part gets paste, or a fitted part gets none on any pad', warn: 'a fitted part has some SMD pads without paste, or a test point gets paste (or none, when the BOM fits it)', info: 'how many parts were checked' }, uses: ['ODB++ component pins', 'Paste layers', 'BOM DNP', 'Copper pads'],
+      rules: () => [`Pins within ${Fab.fmtLen(T.thtPin)} of a drill hit are through-hole and need no paste.`, 'Windowed paste inside an exposed/thermal pad counts for that pad.', 'Test points (by designator TP#, a TP/TEST_POINT/TESTPAD footprint, or a "Test Point" comment or ODB++ part name) are warnings, not errors: unfitted with paste, or fitted by the BOM with none. The Findings list folds them into one row.',
+        `Fiducials and mounting holes are skipped; the first ${T.shown} parts with some pads missing paste are listed.`],
       example: 'J4 is not fitted but the stencil prints paste on 6 pad(s)' },
     { check: 'paste-center', name: 'Placement vs pasted pads', looks: 'Parts with paste on only some of their pads (alternate-position footprints): whether the pick-and-place point is the center of the pasted pads, where the part actually goes.',
       sev: { warn: 'the placement is off the pasted pads', info: 'every such part is placed on its pasted pads' }, uses: ['ODB++ component pins', 'Paste layers', 'Pick-and-place X/Y'],
@@ -136,17 +137,24 @@
         });
         hits.forEach(h => h.forEach(p => used.add(p)));
         const withPaste = hits.filter(h => h.length).length;
+        // Test points are pad-only, but paste on one is still worth a warning (a solder bump under the
+        // probe, a Tag-Connect pad that must stay flat), and so is none on one the BOM fits.
+        const tp = C.isTestPoint(pkg, c.des);
         if (isFitted) {
           checked++;
-          if (smdPins.length && withPaste < smdPins.length && !padOnly(c.des)) fittedNoPaste.push({ c, missing: smdPins.length - withPaste, of: smdPins.length });
+          if (smdPins.length && withPaste < smdPins.length && (!padOnly(c.des) || (tp && bom && !withPaste))) fittedNoPaste.push({ c, missing: smdPins.length - withPaste, of: smdPins.length, tp });
           // Some pads pasted and some not (an alternate-position footprint): the part sits on the pasted ones.
           if (withPaste >= 2 && withPaste < smdPins.length && !padOnly(c.des)) partial.push({ c, pins: smdPins.filter((p, i) => hits[i].length), of: smdPins.length });
-        } else if (withPaste && !padOnly(c.des)) unfittedPaste.push({ c, n: withPaste });
+        } else if (withPaste && (!padOnly(c.des) || tp)) unfittedPaste.push({ c, n: withPaste, tp });
       }
-      for (const u of unfittedPaste) add('paste', 'error', `${u.c.des} is not fitted but the stencil prints paste on ${u.n} pad(s)`, `${u.c.part} (${u.c.side}). Solder on unfitted pads (e.g. Tag-Connect or debug headers) causes bridges and poor probe contact. Generate the paste layers from the build variant.`, { at: { x: u.c.x, y: u.c.y }, refs: [u.c.des], side: u.c.side });
+      for (const u of unfittedPaste) {
+        if (u.tp) add('paste', 'warn', `${u.c.des} is not fitted but the stencil prints paste on ${u.n} pad(s)`, `Test point, ${u.c.part} (${u.c.side}). Paste leaves a solder bump on the pad: fine if the fixture's probes want one, but a Tag-Connect or pogo-pin pad must stay flat. Remove it from the paste layer if it isn't wanted.`, { at: { x: u.c.x, y: u.c.y }, refs: [u.c.des], side: u.c.side });
+        else add('paste', 'error', `${u.c.des} is not fitted but the stencil prints paste on ${u.n} pad(s)`, `${u.c.part} (${u.c.side}). Solder on unfitted pads (e.g. Tag-Connect or debug headers) causes bridges and poor probe contact. Generate the paste layers from the build variant.`, { at: { x: u.c.x, y: u.c.y }, refs: [u.c.des], side: u.c.side });
+      }
+      for (const f of fittedNoPaste.filter(f => f.tp)) add('paste', 'warn', `${f.c.des}: the BOM fits this test point but it gets no paste`, `${f.c.part} (${f.c.side}). A soldered test point (a loop or SMD pin) needs paste; a bare pad doesn't, and then it needs no BOM line.`, { at: { x: f.c.x, y: f.c.y }, refs: [f.c.des], side: f.c.side });
       // A fitted part with no paste on any pad cannot be reflowed: the stencil is missing its apertures.
-      for (const f of fittedNoPaste.filter(f => f.missing === f.of)) add('paste', 'error', `${f.c.des}: none of its ${f.of} SMD pads get paste`, `${f.c.part} (${f.c.side}). The stencil has no apertures for this part, so it can't be soldered in reflow. Check the paste layer of its footprint (paste mask expansion, or pads set to no paste).`, { at: { x: f.c.x, y: f.c.y }, refs: [f.c.des], side: f.c.side });
-      for (const f of fittedNoPaste.filter(f => f.missing < f.of).slice(0, T.shown)) add('paste', 'warn', `${f.c.des}: ${f.missing} of ${f.of} SMD pads have no paste`, `${f.c.part} (${f.c.side}). Confirm it is intended (e.g. a battery contact pad, or the unused position of an alternate-position footprint); windowed paste on thermal pads is already recognized.`, { at: { x: f.c.x, y: f.c.y }, refs: [f.c.des], side: f.c.side });
+      for (const f of fittedNoPaste.filter(f => !f.tp && f.missing === f.of)) add('paste', 'error', `${f.c.des}: none of its ${f.of} SMD pads get paste`, `${f.c.part} (${f.c.side}). The stencil has no apertures for this part, so it can't be soldered in reflow. Check the paste layer of its footprint (paste mask expansion, or pads set to no paste).`, { at: { x: f.c.x, y: f.c.y }, refs: [f.c.des], side: f.c.side });
+      for (const f of fittedNoPaste.filter(f => !f.tp && f.missing < f.of).slice(0, T.shown)) add('paste', 'warn', `${f.c.des}: ${f.missing} of ${f.of} SMD pads have no paste`, `${f.c.part} (${f.c.side}). Confirm it is intended (e.g. a battery contact pad, or the unused position of an alternate-position footprint); windowed paste on thermal pads is already recognized.`, { at: { x: f.c.x, y: f.c.y }, refs: [f.c.des], side: f.c.side });
       let orphan = 0;
       for (const side of ['top', 'bottom']) if (paste[side]) for (const p of paste[side].prims) if (p.dark && !used.has(p)) orphan++;
       add('paste', 'info', `Paste checked on ${checked} fitted SMD parts`, `${fittedNoPaste.length} with missing paste, ${unfittedPaste.length} unfitted with paste. ${orphan} paste feature(s) not on any component pin center (windowed thermal pads produce some).`);

@@ -39,7 +39,7 @@
 
   const state = {
     pkgs: [], active: null, view: 'overview', filter: { error: true, warn: true, info: false }, cat: null, check: null, q: '',
-    closed: new Set(), sel: null, showPnp: true,
+    closed: new Set(), tpOpen: new Set(), sel: null, showPnp: true,
     placing: false, draft: null, // review notes: waiting for a click on the board; the note being written
     profile: 'standard', thickness: 1.6,
     repoProbe: new Map(), // per Signoff project id: write access to its repo
@@ -371,6 +371,7 @@
       }
       advance(start + most[key]);
       C.audit(out);
+      C.markTestPoints(entry.pkg, out);
       entry.findings.push(...out);
     }
     clearInterval(clock);
@@ -449,6 +450,7 @@
     if (f.refs != null) f.refs = Array.isArray(f.refs) ? f.refs.map(String) : [];
     if (f.value != null && !finite(f.value) && !(typeof f.value === 'string' && isFinite(f.value))) delete f.value;
     if (f.row != null && !finite(f.row)) delete f.row;
+    if (f.tp != null) f.tp = f.tp === true;
     return f;
   }
 
@@ -1334,12 +1336,26 @@
       if (!list.length) continue;
       const cc = counts(list);
       h += `<div class="card sec${state.closed.has(cat) ? ' collapsed' : ''}" data-cat="${cat}"><div class="sec-head" data-act="toggle-sec">${ICON.chev}<div class="sec-title">${title}<small>${list.length} shown</small></div><div class="sec-meta">${cc.error ? `<span class="pill error">${cc.error}</span>` : ''}${cc.warn ? `<span class="pill warn">${cc.warn}</span>` : ''}</div></div><div class="sec-body">`;
-      for (const f of list) {
+      const row = f => {
         const where = whereText(f);
-        h += `<div class="item f-row${state.sel === f.id ? ' sel' : ''}" data-act="finding" data-id="${esc(f.id)}"><span class="dot ${esc(f.severity)}"></span>` +
+        return `<div class="item f-row${state.sel === f.id ? ' sel' : ''}" data-act="finding" data-id="${esc(f.id)}"><span class="dot ${esc(f.severity)}"></span>` +
           `<div><div class="item-text">${esc(f.title)}</div>${f.detail ? `<div class="item-detail">${esc(f.detail)}</div>` : ''}<div class="item-sub">${checkTag(f)}${f.layer ? `<span>${esc(f.layer)}</span>` : ''}</div></div>` +
           `<div class="item-right">${where ? `<span class="loc">${where}</span>` : ''}</div></div>`;
+      };
+      // Errors and warnings that are only about test points fold into one row (closed until opened),
+      // after the other errors and warnings, so dozens of probe pads don't bury the rest.
+      const tps = list.filter(f => f.tp), rest = list.filter(f => !f.tp);
+      for (const f of rest.filter(f => f.severity !== 'info')) h += row(f);
+      if (tps.length) {
+        const open = state.tpOpen.has(cat) || tps.some(f => f.id === state.sel), tc = counts(tps);
+        const des = [...new Set(tps.flatMap(f => f.refs || []))].sort(Fab.natCmp);
+        h += `<div class="tp-group${open ? ' open' : ''}" data-cat="${cat}"><div class="item tp-head" data-act="tp-toggle">${ICON.chev}` +
+          `<div><div class="item-text">Test points<small>${plural(tps.length, 'finding')} on ${plural(des.length, 'test point')}</small></div>` +
+          `<div class="item-detail">${esc(des.slice(0, 24).join(', ') + (des.length > 24 ? ' …' : ''))}</div></div>` +
+          `<div class="item-right">${tc.error ? `<span class="pill error">${tc.error}</span>` : ''}${tc.warn ? `<span class="pill warn">${tc.warn}</span>` : ''}</div></div>` +
+          `<div class="tp-body">${open ? tps.map(row).join('') : ''}</div></div>`;
       }
+      for (const f of rest.filter(f => f.severity === 'info')) h += row(f);
       h += `</div></div>`;
     }
     if (!fs.length) h += `<div class="empty"><h2>Nothing to show</h2><p>No findings match these filters.</p></div>`;
@@ -2192,6 +2208,14 @@
       case 'mx-names': try { localStorage.setItem(MX_KEY, mxNames() ? '0' : '1'); } catch (err) { /* storage blocked */ } renderAll(); break;
       case 'sev-toggle': state.filter[t.dataset.sev] = !state.filter[t.dataset.sev]; dropHiddenSel(e); if (state.view === 'board') { renderRail(e); viewer.draw(); } else renderAll(); break;
       case 'cat-filter': state.cat = t.dataset.cat || null; state.check = null; dropHiddenSel(e); renderAll(); break;
+      case 'tp-toggle': {
+        const cat = t.closest('.tp-group').dataset.cat, open = !t.closest('.tp-group').classList.contains('open');
+        state.tpOpen[open ? 'add' : 'delete'](cat);
+        // Closing the group hides its selected finding, so drop the selection with it.
+        if (!open && e && e.findings.some(f => f.id === state.sel && f.tp && f.category === cat)) { state.sel = null; closeInspector(); if (viewer) { viewer.highlight = null; viewer.focusLayer = null; } }
+        renderAll();
+        break;
+      }
       case 'toggle-sec': { const s = t.closest('.sec'); s.classList.toggle('collapsed'); state.closed[s.classList.contains('collapsed') ? 'add' : 'delete'](s.dataset.cat); break; }
       case 'finding': openInspector(e.findings.find(f => f.id === t.dataset.id)); break;
       case 'close-insp': closeInspector(); break;
