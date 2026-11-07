@@ -176,7 +176,7 @@ Open:
   Gerber diff beyond what `revisions.js` does, ODB++ archive vs folder equality.
 - The bottom-side pin-1 rule is unverified (no sample with 3+ bottom parts sharing a footprint).
 
-BOM audit round and check matrix (2026-11-07, branch `bom-checks`, not merged): from a fab house's
+BOM audit round and check matrix (2026-11-07, merged to `main` and pushed with the waivers work): from a fab house's
 assembly DRC on a client board, where Fabcheck had caught about half the items, buried under ~200
 findings. New checks: `value` (values in PnP comment/description and ODB++ part name vs the decoded
 MPN), `fp-name` (footprint named for another part number), `pkg-code` (TI package designator vs the
@@ -205,15 +205,14 @@ Also fixed: the initial state's `profile: 'standard', thickness: 1.6` had been s
 since 2026-11-03, so a browser with no remembered profile ran with no board thickness (aspect ratio)
 and the profile picker showed Prototype.
 
-Waivers (2026-11-07, branch `waivers`, cut from `bom-checks`; committed locally, not pushed): Waive, Waive similar… and
+Waivers (2026-11-07, merged to `main` and pushed, `a0307b5`): Waive, Waive similar… and
 Treat as… in the inspector; a closed Waived fold and a Waivers list on Findings; totals count active
 findings only. Send leaves waived findings out unless Details' *Waived, for reference* box is ticked;
 then each check's waived findings go as one reference row (`reference: true`), which the Signoff engine
-counts nowhere (branch `waivers` in EE, ME, FW and PL too; committed locally, not pushed). Logic in `assets/waivers.js`, part-type overrides
+counts nowhere (merged and pushed in EE, ME, FW and PL too). Logic in `assets/waivers.js`, part-type overrides
 in `checks/common.js` (`C.setPartKinds`, `C.overrideSet`), Send in `signoff.js` (`plan(findings,
 waiverOf)`). Read *Waivers* in `docs/design.md` first. With no rules, the demo boards' findings, summaries
-and Send groups are identical to `bom-checks`. Merge `bom-checks` first (it carries the test point
-code this builds on).
+and Send groups were identical to `bom-checks` before it.
 
 Demo boards (2026-11-02): `tools/make_demo_boards.py` writes two made-up Smart Thermostat packages,
 `demo/thermostat-main-pcba.zip` (DT-1042 rev B, Signoff EE `pdemo7`) and
