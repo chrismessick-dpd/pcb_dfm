@@ -618,11 +618,15 @@ when both are served from the tools folder.
   survive a re-run) in `entry.signoffSkip` and passed to `send(slug, groups, source, skip)`. Send
   doesn't write a skipped group but still counts it as found, so it never gets the "no longer
   found" note.
-- **Waived findings** (`plan(findings, waiverOf)`) stay in their group, so its key and issue id
-  don't change and it is never taken for "no longer found". A group whose findings are all waived
-  (`allWaived`) is written as resolved **Waived**, unless a reviewer already resolved it in Signoff,
-  with the waivers' reasons in the hint and comment. A partly waived group stays open and says how
-  many more were waived and why. Send's list tags both. Without `waiverOf`, `plan` is as before.
+- **Waived findings** (`plan(findings, waiverOf)`) make groups of their own (`waived: true`, key
+  `waived|check|severity`, issue id from `waived:<check>`), listed after the others under their own
+  **Waived, for reference** box in Details, which starts unticked (`sendSkip`: a waived key goes
+  into `signoffSkip` the first time it shows, `signoffSeen`); **All issues** leaves them alone.
+  Sent, each is a reference row in Signoff (`reference: true`, item waived), counted nowhere; see
+  `ee_design_review/docs/fabcheck-link.md`, *Waived findings*. An open issue whose check's findings
+  are all waived now gets a "no longer open there; N waived" comment instead of "no longer found",
+  and reference rows whose findings aren't waived any more are tombstoned. Without `waiverOf`,
+  `plan` is as before.
 - **Records are stamped** (`updatedAt`/`updatedBy` = Signoff's user name) and the project is marked
   dirty. Signoff is set to open the project's Findings page next.
 - **Open Signoff tabs:** Signoff EE merges `signoff.v1.projects` and `dirty` written by another tab

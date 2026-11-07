@@ -55,8 +55,9 @@ is uploaded.
    changes comes back as "Waiver out of date". **Treat as…** says some parts are test points,
    fiducials or mounting holes, and the checks run again knowing it. The **Waivers** list at the end
    of Findings has every rule, with **Edit** and **Remove**. Waivers are kept in this browser for the
-   board's Signoff project (or the package name), and Send to Signoff EE marks issues whose findings
-   are all waived as Waived.
+   board's Signoff project (or the package name). Send to Signoff EE leaves waived findings out
+   unless you tick **Waived, for reference** under Details; then Signoff keeps them as reference
+   rows, marked waived and counted nowhere.
 3. Pick a **fab profile**: *Prototype*, *Standard* or *Advanced (HDI-lite)*. Each is a set of
    typical industry limits, with their sources documented. Or make your own for a specific fab
    house on the **Fab rules** page: copy a profile, adjust the limits, and note the fab's

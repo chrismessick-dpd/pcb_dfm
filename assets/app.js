@@ -1117,10 +1117,17 @@
 
   // ── Send to Signoff ──
   // One issue per check and severity. Details lists them, each with a checkbox; the keys left out
-  // (check|severity, so they survive a re-run) are in e.signoffSkip.
+  // (check|severity, so they survive a re-run) are in e.signoffSkip. Waived findings, sent as
+  // reference rows, start unticked: a waived group's key goes into the skip set the first time it
+  // shows (e.signoffSeen), and from then on follows its box.
+  function sendSkip(e, groups) {
+    const skip = e.signoffSkip || (e.signoffSkip = new Set()), seen = e.signoffSeen || (e.signoffSeen = new Set());
+    for (const g of groups) if (g.waived && !seen.has(g.key)) { seen.add(g.key); skip.add(g.key); }
+    return skip;
+  }
   function signoffHtml(e) {
     const groups = sendPlan(e);
-    const skip = e.signoffSkip || (e.signoffSkip = new Set());
+    const skip = sendSkip(e, groups);
     let h =`<div class="section-title">Send to Signoff EE</div><div class="card" style="padding:18px 20px">`;
     const projects = Fab.signoff.projects();
     const signedIn = !Fab.repoRuns || Fab.repoRuns.signedIn();
@@ -1140,13 +1147,15 @@
     }
     const target = projects.find(p => p.slug === e.signoffSlug);
     const pv = Fab.signoff.preview(e.signoffSlug, groups);
-    const picked = pv.rows.filter(r => !skip.has(r.group.key));
+    const pickedAll = pv.rows.filter(r => !skip.has(r.group.key)), nRef = pickedAll.filter(r => r.group.waived).length;
+    const picked = pickedAll.filter(r => !r.group.waived), nIssues = pv.rows.filter(r => !r.group.waived).length;
     const major = picked.filter(r => r.severity === 'major').length, fresh = picked.filter(r => r.state !== 'update').length;
     const infoNotes = picked.some(r => r.group.severity === 'info');
     const sevs = [major && `${major} Major from errors`, picked.length - major && `${picked.length - major} Minor from warnings${infoNotes ? ' and Info notes' : ''}`].filter(Boolean).join(', ');
     const news = [fresh && `${fresh} new`, picked.length - fresh && `${picked.length - fresh} updating ${picked.length - fresh === 1 ? 'an issue' : 'issues'} sent before`].filter(Boolean).join(', ');
-    const issues = !groups.length ? 'No errors, warnings or review notes to send; earlier Fabcheck issues get a "no longer found" note.' : picked.length ? `Sends ${picked.length < groups.length ? picked.length + ' of ' : ''}${plural(groups.length, 'issue')} to the Fabrication &amp; Release checklist (${sevs}; ${news}).` : `No issues picked, so none are sent (${plural(groups.length, 'issue')} available)${Fab.repoRuns ? '; sending still stores the run and its fab package' : ''}, and earlier issues for these checks stay as they are.`;
-    h += `<p style="margin:0 0 12px;color:var(--text-2)">${issues} Sending again updates the same issues and keeps the reviewer's status. ${Fab.DEMO ? 'In this demo they go to the Signoff EE demo in this browser.' : "Signoff's Sync then pushes the issues, and its Revisions tab lists the stored run, where it can be tagged and downloaded."}</p>
+    const issues = !nIssues ? 'No errors, warnings or review notes to send; earlier Fabcheck issues get a "no longer found" note.' : picked.length ? `Sends ${picked.length < nIssues ? picked.length + ' of ' : ''}${plural(nIssues, 'issue')} to the Fabrication &amp; Release checklist (${sevs}; ${news}).` : `No issues picked, so none are sent (${plural(nIssues, 'issue')} available)${Fab.repoRuns ? '; sending still stores the run and its fab package' : ''}, and earlier issues for these checks stay as they are.`;
+    const refNote = nRef ? ` Also sends ${plural(nRef, 'group')} of waived findings, kept in Signoff for reference and counted nowhere.` : pv.rows.some(r => r.group.waived) ? ' Waived findings stay in Fabcheck (tick Waived under Details to send them for reference).' : '';
+    h += `<p style="margin:0 0 12px;color:var(--text-2)">${issues}${refNote} Sending again updates the same issues and keeps the reviewer's status. ${Fab.DEMO ? 'In this demo they go to the Signoff EE demo in this browser.' : "Signoff's Sync then pushes the issues, and its Revisions tab lists the stored run, where it can be tagged and downloaded."}</p>
       <div class="filters" style="margin:0"><label class="tb-field" style="font-size:13px">Project <select data-act="signoff-project">${projects.map(p => `<option value="${esc(p.slug)}"${p.slug === e.signoffSlug ? ' selected' : ''}>${esc(p.meta.name)}${p.meta.board ? ' · ' + esc(p.meta.board) : ''}${(p.meta.checklists || []).includes('fab') ? '' : ' (no Fab checklist)'}</option>`).join('')}</select></label>
       <button class="btn btn-primary" data-act="signoff-send"${e.signoffBusy ? ' disabled' : ''}>${e.signoffBusy ? 'Storing…' : 'Send to Signoff EE'}</button><button class="btn so-toggle${e.signoffOpen ? ' open' : ''}" data-act="signoff-details" aria-expanded="${!!e.signoffOpen}">Details${ICON.chev}</button>${e.signoffResult ? `<a class="btn btn-plain" href="${Fab.demoHref('../ee_design_review/index.html')}">Open Signoff EE</a>` : ''}</div>`;
     if (e.signoffOpen) h += (groups.length ? signoffListHtml(e, pv, skip) : '') + (Fab.repoRuns ? filesPickHtml(e) : '');
@@ -1235,14 +1244,16 @@
         const h = Fab.repoRuns.home(target.id);
         if (run.stored.repo !== h.repo || run.stored.dir !== h.dir) run.stored = null;
       }
-      const r = Fab.signoff.send(e.signoffSlug, sendPlan(e), { label: e.label, sha: run ? run.package.sha256 : null, run, profileName: run ? run.settings.profileName : profileName(e) }, e.signoffSkip);
+      const plan = sendPlan(e);
+      sendSkip(e, plan);
+      const r = Fab.signoff.send(e.signoffSlug, plan, { label: e.label, sha: run ? run.package.sha256 : null, run, profileName: run ? run.settings.profileName : profileName(e) }, e.signoffSkip);
       if (run) Fab.rules.remember(run.settings.profile, { projectId: r.projectId });
       // Waivers made before the run was linked to this project (kept under the package name) come along.
       const was = scopeOf(e);
       e.sentTo = { projectId: r.projectId, name: r.name };
       if (Fab.waivers.mergeScope(was, scopeOf(e))) log(e, 'dim', `         Waivers made for ${e.label} now belong to "${r.name}" too.`);
       if (run) await Fab.store.updateRun(run.id, { sentTo: e.sentTo });
-      e.signoffResult = `Sent to "${r.name}": ${r.created} new, ${r.updated} updated${r.skipped ? `, ${r.skipped} left out` : ''}${r.resolvedNotes ? `, ${r.resolvedNotes} earlier issue(s) noted as no longer found` : ''}. ${Fab.DEMO ? 'Open Signoff EE to see them.' : 'Sync in Signoff EE to push them; its Revisions tab lists the run.'}`;
+      e.signoffResult = `Sent to "${r.name}": ${r.created} new, ${r.updated} updated${r.skipped ? `, ${r.skipped} left out` : ''}${r.resolvedNotes ? `, ${r.resolvedNotes} earlier issue(s) noted as no longer found` : ''}${r.dropped ? `, ${r.dropped} reference row(s) removed` : ''}. ${Fab.DEMO ? 'Open Signoff EE to see them.' : 'Sync in Signoff EE to push them; its Revisions tab lists the run.'}`;
       log(e, 'ok', e.signoffResult);
       if (anyway) log(e, 'warn', 'Sent without storing: Signoff can\'t list this run or download its package until it is sent again and stored.');
       card.stop(e.signoffResult, [['Stay in Fabcheck', null], ['Open in Signoff EE', () => Fab.signoff.openFindings(r.projectId), true]], 'Sent to Signoff EE');
@@ -1309,10 +1320,12 @@
   // The issues Send would write, one row each: what Signoff will show, where it goes, whether it's
   // new, and its findings (the first 25, as in the issue's hint) under a fold.
   // Which "all of this kind" box on Send's list an issue belongs to.
-  const sendKind = g => g.note ? 'notes' : g.severity;
+  // Waived groups have their own box (unticked by default); All issues leaves them as they are.
+  const sendKind = g => g.waived ? 'waived' : g.note ? 'notes' : g.severity;
   function signoffListHtml(e, pv, skip) {
     const says = { new: 'New issue', deleted: 'Re-raises a deleted issue', update: 'Updates the issue sent before' };
-    const all = pv.rows.every(r => !skip.has(r.group.key));
+    const saysRef = { new: 'New reference row', deleted: 'Brings back a removed reference row', update: 'Updates the reference row sent before' };
+    const all = pv.rows.filter(r => !r.group.waived).every(r => !skip.has(r.group.key));
     // All issues, or all errors / all warnings: ticked when every issue of that kind is picked.
     // Errors and Warnings are the checks' issues; Review notes are the reviewers' notes, of any severity.
     const sevBox = (sev, label) => {
@@ -1320,18 +1333,18 @@
       if (!rows.length) return '';
       return `<label class="so-all"><input type="checkbox" id="so-${sev}" data-act="signoff-sev" data-sev="${sev}"${rows.every(r => !skip.has(r.group.key)) ? ' checked' : ''}> ${label} (${rows.length})</label>`;
     };
-    let h = `<div class="so-list"><div class="so-alls"><label class="so-all"><input type="checkbox" id="so-all" data-act="signoff-all"${all ? ' checked' : ''}> All issues</label>${sevBox('error', 'Errors')}${sevBox('warn', 'Warnings')}${sevBox('notes', 'Review notes')}</div>`;
+    let h = `<div class="so-list"><div class="so-alls"><label class="so-all"><input type="checkbox" id="so-all" data-act="signoff-all"${all ? ' checked' : ''}> All issues</label>${sevBox('error', 'Errors')}${sevBox('warn', 'Warnings')}${sevBox('notes', 'Review notes')}${sevBox('waived', 'Waived, for reference')}</div>`;
     pv.rows.forEach((r, i) => {
       const g = r.group, n = g.list.length, on = !skip.has(g.key);
       h += `<div class="so-row${on ? '' : ' off'}"><input type="checkbox" id="so-${i}" data-act="signoff-pick" data-key="${esc(g.key)}"${on ? ' checked' : ''}>` +
         `<div><label class="item-text" for="so-${i}">${esc(r.text)}</label>` +
-        `<div class="item-sub"><span class="sev ${r.severity}">${r.severity === 'major' ? 'Major' : 'Minor'}</span>${checkTag(g.list[0])}<span>${esc(r.section)}</span><span>${says[r.state]}${r.resolution ? ` <span class="res ${r.resolution}">${r.resolution === 'fixed' ? 'Fixed' : 'Waived'}</span>` : ''}</span>` +
-          (g.allWaived ? `<span class="res waived">All waived in Fabcheck</span>` : g.waived ? `<span>${g.waived.length} more waived</span>` : '') + `</div>` +
-        `<details class="so-locs" data-key="${esc(g.key)}"${e.signoffShown && e.signoffShown.has(g.key) ? ' open' : ''}><summary>${g.note ? 'Review note' : plural(n, g.severity === 'error' ? 'error' : 'warning')}</summary><ul>` +
+        `<div class="item-sub">${g.waived ? '<span class="res waived">Waived · reference</span>' : `<span class="sev ${r.severity}">${r.severity === 'major' ? 'Major' : 'Minor'}</span>`}${checkTag(g.list[0])}<span>${esc(r.section)}</span><span>${(g.waived ? saysRef : says)[r.state]}${r.resolution ? ` <span class="res ${r.resolution}">${r.resolution === 'fixed' ? 'Fixed' : 'Waived'}</span>` : ''}</span></div>` +
+        `<details class="so-locs" data-key="${esc(g.key)}"${e.signoffShown && e.signoffShown.has(g.key) ? ' open' : ''}><summary>${g.note ? 'Review note' : plural(n, (g.waived ? 'waived ' : '') + (g.severity === 'error' ? 'error' : 'warning'))}</summary><ul>` +
         g.list.slice(0, 25).map(f => { const w = whereText(f); return `<li>${esc(f.title)}${w || f.layer ? `<span class="muted"> · ${[w, f.layer].filter(Boolean).map(esc).join(', ')}</span>` : ''}</li>`; }).join('') +
         (n > 25 ? `<li class="muted">… ${n - 25} more</li>` : '') + `</ul></details></div></div>`;
     });
     if (pv.gone.length) h += `<div class="so-gone">Sent before and not found by this run, so each gets a "no longer found" note: ${pv.gone.map(t => `<b>${esc(t)}</b>`).join(', ')}.</div>`;
+    if (pv.dropped && pv.dropped.length) h += `<div class="so-gone">Reference rows sent before whose findings aren't waived any more, so they are removed: ${pv.dropped.map(t => `<b>${esc(t)}</b>`).join(', ')}.</div>`;
     return h + '</div>';
   }
 
@@ -2963,7 +2976,8 @@
       }
       if (ev.target.matches('[data-act="signoff-project"]')) { e.signoffSlug = ev.target.value; e.signoffResult = null; renderAll(); }
       if (ev.target.matches('[data-act="signoff-pick"], [data-act="signoff-all"], [data-act="signoff-sev"]')) {
-        if (ev.target.dataset.act === 'signoff-all') e.signoffSkip = new Set(ev.target.checked ? [] : sendPlan(e).map(g => g.key));
+        // All issues: every group but the waived ones, which keep their own box.
+        if (ev.target.dataset.act === 'signoff-all') { const plan = sendPlan(e); sendSkip(e, plan); for (const g of plan) if (!g.waived) e.signoffSkip[ev.target.checked ? 'delete' : 'add'](g.key); }
         else if (ev.target.dataset.act === 'signoff-sev') {
           // Every issue of one kind (Errors, Warnings, Review notes) in or out; the others stay as they are.
           for (const g of sendPlan(e)) if (sendKind(g) === ev.target.dataset.sev) e.signoffSkip[ev.target.checked ? 'delete' : 'add'](g.key);
