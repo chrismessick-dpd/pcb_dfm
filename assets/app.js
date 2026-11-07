@@ -38,7 +38,7 @@
   };
 
   const state = {
-    pkgs: [], active: null, view: 'overview', filter: { error: true, warn: true, info: false }, cat: null, q: '',
+    pkgs: [], active: null, view: 'overview', filter: { error: true, warn: true, info: false }, cat: null, check: null, q: '',
     closed: new Set(), sel: null, showPnp: true,
     placing: false, draft: null, // review notes: waiting for a click on the board; the note being written profile: 'standard', thickness: 1.6,
     repoProbe: new Map(), // per Signoff project id: write access to its repo
@@ -773,6 +773,58 @@
 
   function counts(fs) { const c = { error: 0, warn: 0, info: 0 }; for (const f of fs) c[f.severity]++; return c; }
 
+  // ── Check matrix ──
+  // Every check as a cell, one row per category, colored by its worst finding and counted, so a
+  // problem shows at a glance however long the lists get. Clean checks show too: seeing what passed
+  // is half the point. A click filters Findings to that check.
+  const DFM_CHECKS = [
+    ['trace', 'Trace width'], ['sliver', 'Slivers and necks'], ['spacing', 'Copper spacing'], ['thermal', 'Thermal reliefs'], ['edge', 'Copper to edge'],
+    ['isolated', 'Isolated copper'], ['bga-pad', 'BGA pads'], ['drill', 'Drill size'], ['microvia', 'Laser microvias'], ['aspect', 'Aspect ratio'],
+    ['ring', 'Annular ring'], ['slot', 'Slots'], ['hole-gap', 'Hole spacing'], ['hole-edge', 'Hole to edge'], ['castellation', 'Castellations'],
+    ['via-in-pad', 'Via in pad'], ['npth', 'NPTH to copper'], ['mask', 'Mask openings'], ['mask-dam', 'Mask dams'], ['silk', 'Silkscreen lines'],
+    ['silk-pad', 'Silkscreen on pads'], ['outline-corner', 'Outline corners'], ['copper-balance', 'Copper balance'],
+  ];
+  const FLEX_CHECKS = [['flex', 'Flex detected'], ['flex-area', 'Flexible area'], ['coverlay', 'Coverlay openings'], ['coverlay-web', 'Coverlay webs'], ['stiffener', 'Stiffeners'], ['flex-edge', 'Stiffener and bend keep-away']];
+  const CHECK_NAMES = { note: 'Review notes', internal: 'Internal' };
+  // The cells of one category: declared checks in their order, then any other check that found something.
+  function matrixChecks(cat, fs) {
+    const base = C.CATALOGED.includes(cat) ? C.catalog.filter(d => d.category === cat).map(d => [d.check, d.name])
+      : cat === 'DFM' ? DFM_CHECKS : cat === 'Flex' ? FLEX_CHECKS : [];
+    const seen = new Set(base.map(b => b[0]));
+    const extra = [...new Set(fs.map(f => f.check))].filter(k => !seen.has(k)).map(k => [k, CHECK_NAMES[k] || k]);
+    return base.concat(extra);
+  }
+  const worst = c => c.error ? 'error' : c.warn ? 'warn' : c.info ? 'info' : 'clean';
+  // Findings shows it small (numbered squares, names on hover) unless the viewer asked for names.
+  const MX_KEY = Fab.fabcheckNs + 'matrixNames';
+  const mxNames = () => { try { return localStorage.getItem(MX_KEY) === '1'; } catch (err) { return false; } };
+  function matrixHtml(e, where) {
+    const busy = e.status !== 'ready' && e.status !== 'error';
+    const pkg = e.pkg, mini = where === 'findings' && !mxNames();
+    let h = `<div class="card mx${where === 'findings' ? ' mx-compact' : ''}${mini ? ' mx-mini' : ''}" role="group" aria-label="Checks and results">`;
+    if (where === 'findings') h += `<div class="mx-key"><span><i class="mx-sw error"></i>Errors</span><span><i class="mx-sw warn"></i>Warnings</span><span><i class="mx-sw info"></i>Info only</span><span><i class="mx-sw clean"></i>Nothing found</span>` +
+      `<span class="mx-key-end">${state.check ? `<button class="link-btn" data-act="mx-clear">Show all checks</button>` : ''}<button class="link-btn" data-act="mx-names">${mini ? 'Show check names' : 'Compact'}</button></span></div>`;
+    for (const [cat, title, desc] of CATS) {
+      const fs = e.findings.filter(f => f.category === cat);
+      if (cat === 'Review' && !fs.length) continue;
+      if (cat === 'Flex' && !(pkg && pkg.flex) && !fs.length) continue;
+      const cc = counts(fs), checks = matrixChecks(cat, fs);
+      const head = `<button class="mx-head${state.cat === cat && !state.check && state.view === 'findings' ? ' on' : ''}" data-act="cat" data-cat="${cat}" title="${esc(desc)}">` +
+        `<span class="mx-title"><span class="dot ${busy ? '' : cc.error ? 'error' : cc.warn ? 'warn' : 'ok'}"></span>${esc(title)}</span>` +
+        `<span class="mx-sum">${busy && !fs.length ? 'Waiting' : [cc.error && `<b class="t-error">${cc.error}</b> err`, cc.warn && `<b class="t-warn">${cc.warn}</b> warn`, `${cc.info} info`].filter(Boolean).join(' · ')}</span></button>`;
+      const cells = checks.map(([check, name]) => {
+        const c = counts(fs.filter(f => f.check === check)), w = busy && !(c.error + c.warn + c.info) ? 'wait' : worst(c);
+        const key = cat + '/' + check, n = w === 'error' ? c.error : w === 'warn' ? c.warn : w === 'info' ? c.info : '';
+        const tip = `${name} (${check}): ` + (c.error + c.warn + c.info ? [c.error && plural(c.error, 'error'), c.warn && plural(c.warn, 'warning'), c.info && c.info + ' info'].filter(Boolean).join(', ') : w === 'wait' ? 'not run yet' : 'nothing found');
+        return `<button class="mx-cell ${w}${state.check === key ? ' on' : ''}" data-act="mx-check" data-key="${esc(key)}" title="${esc(tip)}" aria-label="${esc(tip)}">` +
+          (mini ? `<span class="mx-n">${w === 'clean' || w === 'wait' ? '' : n}</span></button>` :
+          `<span class="mx-name">${esc(name)}</span><span class="mx-n">${w === 'clean' ? '✓' : w === 'wait' ? '' : n}${w === 'error' && c.warn ? `<small>+${c.warn}</small>` : ''}</span></button>`);
+      }).join('');
+      h += `<div class="mx-row">${head}<div class="mx-cells">${cells}</div></div>`;
+    }
+    return h + '</div>';
+  }
+
   function pageHead(e, eyebrow, title, sub, actions) {
     return `<div class="page-head"><div class="page-head-text"><div class="eyebrow">${eyebrow}</div><h1 class="page-title">${esc(title)}</h1>` +
       (sub ? `<div class="page-sub">${sub}</div>` : '') + `</div>${actions ? `<div class="chips" style="flex:none">${actions}</div>` : ''}</div>`;
@@ -842,19 +894,7 @@
     const stageHtml = Fab.stage && pkg && (e.status === 'running' || e.status === 'ready') ? Fab.stage.html(e, profile(e)) : '';
     if (stageHtml) h += stageHtml + logHtml(e, busy);
     h += `<div class="grid grid-4${stageHtml ? ' after-stage' : ''}">${stat('issue', c.error, 'Errors', 'error')}${stat('warn', c.warn, 'Warnings', 'warn')}${stat('info', c.info, 'Info', 'info')}<div class="card stat"><div class="stat-num">${pkg ? pkg.files.length : '–'}</div><div class="stat-label">Files in package</div></div></div>`;
-    h += `<div class="section-title">Checks</div><div class="grid grid-3">`;
-    for (const [cat, title, desc] of CATS) {
-      if (cat === 'Review' && !e.findings.some(f => f.category === cat)) continue;
-      if (cat === 'Flex' && !(pkg && pkg.flex) && !e.findings.some(f => f.category === cat)) continue;
-      const fs = e.findings.filter(f => f.category === cat), cc = counts(fs), tot = fs.length || 1;
-      h += `<button class="card cl-card cat-card" data-act="cat" data-cat="${cat}"><div class="cl-card-top"><div><div class="cl-card-title">${title}</div><div class="cl-card-desc">${desc}</div></div>` +
-        `<span class="dot ${busy ? '' : cc.error ? 'error' : cc.warn ? 'warn' : 'ok'}" style="margin-top:6px"></span></div>` +
-        // A finished check with no errors or warnings shows as a full "done" bar, like the run progress.
-        (!busy && e.status === 'ready' && !cc.error && !cc.warn ? `<div class="bar"><i class="b-done" style="width:100%"></i></div>` :
-          `<div class="bar"><i class="b-issue" style="width:${cc.error / tot * 100}%"></i><i class="b-warn" style="width:${cc.warn / tot * 100}%"></i><i class="b-info" style="width:${cc.info / tot * 100}%"></i></div>`) +
-        `<div class="cl-card-foot"><span><b>${cc.error}</b> errors</span><span><b>${cc.warn}</b> warnings</span><span><b>${cc.info}</b> info</span></div></button>`;
-    }
-    h += `</div>`;
+    h += `<div class="section-title">Checks <span class="muted mx-hint">Each box is one check; a click lists its findings.</span></div>` + matrixHtml(e, 'overview');
     if (e.status === 'ready') h += signoffHtml(e);
     if (!stageHtml) h += `<div class="section-title">Run log <span class="chips"><span class="chip">${busy ? 'Running' : e.status === 'error' ? 'Failed' : 'Finished'}</span></span></div>` + consoleHtml(e);
     return h + '</div>';
@@ -1259,7 +1299,7 @@
 
   function visibleFindings(e) {
     const q = state.q.trim().toLowerCase();
-    return e.findings.filter(f => state.filter[f.severity] && (!state.cat || f.category === state.cat) &&
+    return e.findings.filter(f => state.filter[f.severity] && (!state.cat || f.category === state.cat) && (!state.check || f.category + '/' + f.check === state.check) &&
       (!q || (f.check + ' ' + f.title + ' ' + (f.detail || '') + ' ' + (f.refs || []).join(' ') + ' ' + (f.layer || '')).toLowerCase().includes(q)));
   }
   function whereText(f) {
@@ -1277,7 +1317,10 @@
     const sevSeg = sevButtons(c);
     const catSeg = [[null, 'All']].concat(CATS.map(x => [x[0], x[1]])).map(([k, l]) => `<button class="${state.cat === k ? 'on' : ''}" data-act="cat-filter" data-cat="${k || ''}">${l}</button>`).join('');
     let h = `<div class="page">` + pageHead(e, 'Findings', e.label, `${plural(c.error, 'error')}<span class="sep">·</span>${plural(c.warn, 'warning')}<span class="sep">·</span>${c.info} info`);
-    h += `<div class="filters"><div class="search">${ICON.search}<input id="f-search" type="search" placeholder="Filter findings" value="${esc(state.q)}"></div><div class="seg sev-seg">${sevSeg}</div><div class="seg">${catSeg}</div></div>`;
+    h += matrixHtml(e, 'findings');
+    const chk = state.check && state.check.split('/'), chkName = chk && ((matrixChecks(chk[0], []).find(x => x[0] === chk[1]) || [])[1] || chk[1]);
+    h += `<div class="filters"><div class="search">${ICON.search}<input id="f-search" type="search" placeholder="Filter findings" value="${esc(state.q)}"></div><div class="seg sev-seg">${sevSeg}</div><div class="seg">${catSeg}</div>` +
+      (chk ? `<span class="chip chip-x">Check: ${esc(chkName)}<button class="icon-btn" data-act="mx-clear" aria-label="Show all checks">${ICON.close}</button></span>` : '') + `</div>`;
     const fs = visibleFindings(e);
     if (e.status !== 'ready') h += `<div class="card" style="padding:16px;margin-bottom:14px;color:var(--text-3)">Checks are still running; the list fills in as they finish.</div>`;
     for (const [cat, title] of CATS) {
@@ -2128,10 +2171,21 @@
       case 'outline-pick': state.outlinePicker = e ? e.id : null; renderAll(); break;
       case 'outline-close': state.outlinePicker = e ? 'closed:' + e.id : null; renderAll(); break;
       case 'outline-use': useOutline(e, t.dataset.path); break;
-      case 'sev': state.filter = { error: false, warn: false, info: false }; state.filter[t.dataset.sev] = true; state.cat = null; go('findings'); break;
-      case 'cat': state.cat = t.dataset.cat; state.filter = { error: true, warn: true, info: true }; go('findings'); break;
+      case 'sev': state.filter = { error: false, warn: false, info: false }; state.filter[t.dataset.sev] = true; state.cat = null; state.check = null; go('findings'); break;
+      case 'cat': state.cat = t.dataset.cat; state.check = null; state.filter = { error: true, warn: true, info: true }; state.closed.delete(t.dataset.cat); go('findings'); break;
+      case 'mx-check': {
+        // A matrix cell: Findings for that check only; the same cell again shows everything.
+        const key = t.dataset.key, cat = key.split('/')[0];
+        if (state.check === key && state.view === 'findings') { state.check = null; state.cat = null; }
+        else { state.check = key; state.cat = cat; state.q = ''; state.filter = { error: true, warn: true, info: true }; state.closed.delete(cat); }
+        dropHiddenSel(e);
+        if (state.view === 'findings') renderAll(); else go('findings');
+        break;
+      }
+      case 'mx-clear': state.check = null; state.cat = null; dropHiddenSel(e); renderAll(); break;
+      case 'mx-names': try { localStorage.setItem(MX_KEY, mxNames() ? '0' : '1'); } catch (err) { /* storage blocked */ } renderAll(); break;
       case 'sev-toggle': state.filter[t.dataset.sev] = !state.filter[t.dataset.sev]; dropHiddenSel(e); if (state.view === 'board') { renderRail(e); viewer.draw(); } else renderAll(); break;
-      case 'cat-filter': state.cat = t.dataset.cat || null; dropHiddenSel(e); renderAll(); break;
+      case 'cat-filter': state.cat = t.dataset.cat || null; state.check = null; dropHiddenSel(e); renderAll(); break;
       case 'toggle-sec': { const s = t.closest('.sec'); s.classList.toggle('collapsed'); state.closed[s.classList.contains('collapsed') ? 'add' : 'delete'](s.dataset.cat); break; }
       case 'finding': openInspector(e.findings.find(f => f.id === t.dataset.id)); break;
       case 'close-insp': closeInspector(); break;
@@ -2205,7 +2259,7 @@
       case 'check-doc': ev.preventDefault(); showCheckDoc(t.dataset.key); break;
       case 'check-findings': {
         const [cat, check] = t.dataset.key.split('/');
-        state.q = check; state.cat = cat; state.filter = { error: true, warn: true, info: true };
+        state.q = ''; state.check = cat + '/' + check; state.cat = cat; state.filter = { error: true, warn: true, info: true };
         state.closed.delete(cat);
         go('findings');
         break;
