@@ -52,7 +52,9 @@
   const active = () => state.pkgs.find(p => p.id === state.active) || null;
 
   // ── Theme: shared with Signoff (same key), so both tools switch together ──
-  const SETTINGS_KEY = Fab.signoffNs + 'settings';
+  // The light/dark theme is the suite's, under one fixed key in the demo too (Chris, 2026-11-08: the
+  // demo tour flipped between light and dark as it moved between tools that kept it apart).
+  const SETTINGS_KEY = 'signoff.v1.settings';
   const darkQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
   function readTheme() { try { return (JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') || {}).theme || 'auto'; } catch (e) { return 'auto'; } }
   function writeTheme(t) {
@@ -2883,7 +2885,13 @@
       case 'delete-run':
         if (confirm('Delete this run and, if no other run uses it, its stored package from this browser?')) Fab.store.deleteRun(t.dataset.id).then(() => { state.keptRuns = null; renderAll(); });
         break;
-      case 'sample': openPackage(() => Fab.loader.fromUrl(t.dataset.file || SAMPLE), t.dataset.name || 'fabcheck-sample-board.zip'); break;
+      case 'sample': {
+        // A demo board opens by its fixed run, as Signoff EE's demo links do, so it runs on Overview as that
+        // run, tied to its Signoff EE board (Send picks it); the demo tour starts a run here (Chris, 2026-11-08).
+        const db = Fab.DEMO && demoBoards().find(x => x.run && x.file === t.dataset.file);
+        if (db) { location.hash = '#/overview?run=' + encodeURIComponent(db.run) + '&project=' + encodeURIComponent(db.project); break; }
+        openPackage(() => Fab.loader.fromUrl(t.dataset.file || SAMPLE), t.dataset.name || 'fabcheck-sample-board.zip'); break;
+      }
       case 'rules-sel': state.rulesSel = t.dataset.id; renderAll(); break;
       case 'rules-tab': state.rulesTab = t.dataset.tab; state.checkSel = null; renderAll(); break;
       case 'check-doc': ev.preventDefault(); showCheckDoc(t.dataset.key); break;
