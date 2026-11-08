@@ -516,7 +516,7 @@
     closeInspector();
     renderAll();
     const q = hashParams();
-    if (q.run) openRunLink(q);
+    if (q.run) openRunLink(Object.assign(q, { view: state.view }));
   }
 
   // Deep link (contract: ee_design_review/docs/fabcheck-link.md):
@@ -604,6 +604,9 @@
     state.check = null;
     state.filter = { error: true, warn: true, info: true };
     state.q = '';
+    // A link to another view with no place or check (the suite's demo tour: #/overview?run=…, so the
+    // run's animation plays on the stage) stays on that view; the rest go to the board.
+    if (q.view && q.view !== 'board' && !q.check && q.x == null) { go(q.view); return; }
     go('board');
     const layer = q.layer && viewer && matchLayer(q.layer);
     if (q.x != null && q.y != null && isFinite(+q.x) && isFinite(+q.y)) {
