@@ -2938,10 +2938,6 @@
         location.reload();
       });
     }
-    // People & access lives in Signoff EE, whose list decides who's an FTE; the link is for FTEs.
-    const showPeople = () => { $('#people-link').hidden = !(Fab.repoRuns && Fab.repoRuns.isFte()); };
-    showPeople();
-    window.addEventListener('storage', showPeople);
     // A token or project home set in Signoff EE meanwhile: check where runs can be stored again.
     window.addEventListener('storage', ev => {
       if (ev.key === 'signoff.token' || ev.key === Fab.signoffNs + 'settings' || ev.key === Fab.signoffNs + 'homes' || ev.key === Fab.signoffNs + 'roster') { state.repoProbe.clear(); renderAll(); }
