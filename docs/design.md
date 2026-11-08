@@ -404,6 +404,8 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
   cell filters Findings to that check (`state.check`, cleared by the chip in the filter bar); the
   row heading filters to the category. Findings carries the same matrix at its top as numbered
   squares with names on hover ("Show check names" switches, kept in `fabcheck.v1.matrixNames`).
+  **Hidden since 2026-11-07** (`SHOW_MATRIX` in `app.js`, Chris: not ready to host); the Overview
+  shows the earlier card per category instead, and Findings has no matrix. Flip the flag to bring it back.
   Severities are told apart without color (Chris is colorblind): errors are red with diagonal
   stripes, warnings a lighter yellow with dots, in cells and legend swatches alike (the suite's
   `--issue-hatch` and `--warn-hatch` tokens, used by every tool's pills and bars too).

@@ -836,6 +836,9 @@
   }
   const worst = c => c.error ? 'error' : c.warn ? 'warn' : c.info ? 'info' : 'clean';
   // Findings shows it small (numbered squares, names on hover) unless the viewer asked for names.
+  // Hidden for now (Chris, 2026-11-07): not ready to host. With it off, the Overview shows the older
+  // card per category and Findings has no matrix; the check filter still comes from Fab rules.
+  const SHOW_MATRIX = false;
   const MX_KEY = Fab.fabcheckNs + 'matrixNames';
   const mxNames = () => { try { return localStorage.getItem(MX_KEY) === '1'; } catch (err) { return false; } };
   function matrixHtml(e, where) {
@@ -941,7 +944,22 @@
     if (stageHtml) h += stageHtml + logHtml(e, busy);
     h += `<div class="grid grid-4${stageHtml ? ' after-stage' : ''}">${stat('issue', c.error, 'Errors', 'error')}${stat('warn', c.warn, 'Warnings', 'warn')}${stat('info', c.info, 'Info', 'info')}<div class="card stat"><div class="stat-num">${pkg ? pkg.files.length : '–'}</div><div class="stat-label">Files in package</div></div></div>`;
     if (!busy && fresh) h += `<div class="card wv-alert"><span class="dot warn"></span><div>${plural(fresh, 'finding')} newly matched by a waiver rule. They're waived, but nobody has looked at them yet.</div><button class="btn" data-act="waived-show">Review</button></div>`;
-    h += `<div class="section-title">Checks <span class="muted mx-hint">Each box is one check; a click lists its findings.</span></div>` + matrixHtml(e, 'overview');
+    if (SHOW_MATRIX) h += `<div class="section-title">Checks <span class="muted mx-hint">Each box is one check; a click lists its findings.</span></div>` + matrixHtml(e, 'overview');
+    else {
+      h += `<div class="section-title">Checks</div><div class="grid grid-3">`;
+      for (const [cat, title, desc] of CATS) {
+        if (cat === 'Review' && !e.findings.some(f => f.category === cat)) continue;
+        if (cat === 'Flex' && !(pkg && pkg.flex) && !e.findings.some(f => f.category === cat)) continue;
+        const fs = e.findings.filter(f => f.category === cat), cc = liveCounts(e, fs), nw = fs.length - (cc.error + cc.warn + cc.info), tot = cc.error + cc.warn + cc.info || 1;
+        h += `<button class="card cl-card cat-card" data-act="cat" data-cat="${cat}"><div class="cl-card-top"><div><div class="cl-card-title">${title}</div><div class="cl-card-desc">${desc}</div></div>` +
+          `<span class="dot ${busy ? '' : cc.error ? 'error' : cc.warn ? 'warn' : 'ok'}" style="margin-top:6px"></span></div>` +
+          // A finished check with no errors or warnings shows as a full "done" bar, like the run progress.
+          (!busy && e.status === 'ready' && !cc.error && !cc.warn ? `<div class="bar"><i class="b-done" style="width:100%"></i></div>` :
+            `<div class="bar"><i class="b-issue" style="width:${cc.error / tot * 100}%"></i><i class="b-warn" style="width:${cc.warn / tot * 100}%"></i><i class="b-info" style="width:${cc.info / tot * 100}%"></i></div>`) +
+          `<div class="cl-card-foot"><span><b>${cc.error}</b> errors</span><span><b>${cc.warn}</b> warnings</span><span><b>${cc.info}</b> info</span>${nw ? `<span>${nw} waived</span>` : ''}</div></button>`;
+      }
+      h += `</div>`;
+    }
     if (e.status === 'ready') h += signoffHtml(e);
     if (!stageHtml) h += `<div class="section-title">Run log <span class="chips"><span class="chip">${busy ? 'Running' : e.status === 'error' ? 'Failed' : 'Finished'}</span></span></div>` + consoleHtml(e);
     return h + '</div>';
@@ -1386,7 +1404,7 @@
     const catSeg = [[null, 'All']].concat(CATS.map(x => [x[0], x[1]])).map(([k, l]) => `<button class="${state.cat === k ? 'on' : ''}" data-act="cat-filter" data-cat="${k || ''}">${l}</button>`).join('');
     const nWaived = waivedOf(e, e.findings).length;
     let h = `<div class="page">` + pageHead(e, 'Findings', e.label, `${plural(c.error, 'error')}<span class="sep">·</span>${plural(c.warn, 'warning')}<span class="sep">·</span>${c.info} info${nWaived ? `<span class="sep">·</span>${nWaived} waived` : ''}`);
-    h += matrixHtml(e, 'findings');
+    if (SHOW_MATRIX) h += matrixHtml(e, 'findings');
     const chk = state.check && state.check.split('/'), chkName = chk && ((matrixChecks(chk[0], []).find(x => x[0] === chk[1]) || [])[1] || chk[1]);
     h += `<div class="filters"><div class="search">${ICON.search}<input id="f-search" type="search" placeholder="Filter findings" value="${esc(state.q)}"></div><div class="seg sev-seg">${sevSeg}</div><div class="seg">${catSeg}</div>` +
       (chk ? `<span class="chip chip-x">Check: ${esc(chkName)}<button class="icon-btn" data-act="mx-clear" aria-label="Show all checks">${ICON.close}</button></span>` : '') + `</div>`;

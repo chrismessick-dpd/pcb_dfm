@@ -185,7 +185,8 @@ footprints placed off their pasted pads); `mpn-dup` is an error when the rows di
 count; a part with no paste on any pad and a part number of another size than its footprint are errors.
 Test points are recognized by footprint and comment (`C.isPadOnly`), and `odb-pn`/`comment` compare part
 numbers by letters and digits (`Fab.parts.samePn`). The offline helpers are in `parts.js`. Overview and
-Findings carry the check matrix (`matrixHtml` in `app.js`; see *Overview* in `docs/design.md`).
+Findings carry the check matrix (`matrixHtml` in `app.js`; see *Overview* in `docs/design.md`), hidden
+since 2026-11-07 behind `SHOW_MATRIX = false` (Chris: not ready to host; the category cards are back).
 On that board: Assembly and BOM non-info findings went from ~185 to 51, with every fab item caught
 except the two that need datasheet facts (a regulator's current rating, a crystal's body length).
 Demo effect: the flex demo now plants R1 marked 4.7k on a 10 kΩ part number and U1's footprint named
