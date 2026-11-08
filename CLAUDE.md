@@ -224,6 +224,10 @@ Standard profile finds exactly those (main: 4 errors, 13 warnings; display: 2 er
 R7's size mismatch became an error on 2026-11-07).
 In demo mode the start page offers both boards, and a deep link naming a demo run id opens and
 re-runs its board (`demoRun` in `app.js`), so Signoff EE's demo issues and pictures land here.
+The start page's demo-board buttons always load the package and run its checks live, even when this
+browser keeps that run (`state.liveRun`, read by `openRunLink`; other links still restore a kept run).
+Run checks again on a demo run keeps its fixed id (it sets `entry.expect`), so the suite tour's
+Fabcheck steps, which ring that button on step 6, still know the run (Chris, 2026-11-08).
 If you change the script: rerun it, regenerate EE's demo issues and pictures (`config.js`
 `demo.projects[0].fabcheck`, `assets/demo-previews/*.webp`, also copied to PL), bump EE's demo
 `VERSION` and regenerate PL's snapshot.

@@ -534,8 +534,11 @@
     if (have) { state.active = have.id; applyLink(have, q); return; }
     if (state.resolving === q.run) return;
     state.resolving = q.run;
+    // A demo board's button on the start page: run it again, even if this browser keeps that run.
+    const live = state.liveRun === q.run;
+    state.liveRun = null;
     try {
-      const stored = await Fab.store.getRun(q.run);
+      const stored = live ? null : await Fab.store.getRun(q.run);
       const pkgRec = stored && await Fab.store.getPackage(stored.run.package.key);
       if (stored && pkgRec) {
         await openPackage(async () => Fab.store.restoreFiles(pkgRec), stored.run.package.name, { stored, pkgRec, link: q });
@@ -2751,7 +2754,14 @@
       case 'view': go(t.dataset.view); break;
       case 'theme': { const th = isDark(readTheme()) ? 'light' : 'dark'; writeTheme(th); applyTheme(th); break; }
       case 'nav': toggleSidebar(); break;
-      case 'rerun': if (e && e.pkg && e.status === 'ready') runChecks(e, 'Re-running checks'); break;
+      case 'rerun':
+        if (!e || !e.pkg || e.status !== 'ready') break;
+        // A demo board's run keeps its fixed id when run again (saveRun's expect: same package), so the
+        // demo links, Send's project and the suite tour's steps still know it (Chris, 2026-11-08: the
+        // tour asks for a re-run on the Main PCBA).
+        if (e.run && e.run.demo && !e.expect) e.expect = { run: e.run, project: null };
+        runChecks(e, 'Re-running checks');
+        break;
       case 'outline-pick': state.outlinePicker = e ? e.id : null; renderAll(); break;
       case 'outline-close': state.outlinePicker = e ? 'closed:' + e.id : null; renderAll(); break;
       case 'outline-use': useOutline(e, t.dataset.path); break;
@@ -2889,7 +2899,9 @@
         // A demo board opens by its fixed run, as Signoff EE's demo links do, so it runs on Overview as that
         // run, tied to its Signoff EE board (Send picks it); the demo tour starts a run here (Chris, 2026-11-08).
         const db = Fab.DEMO && demoBoards().find(x => x.run && x.file === t.dataset.file);
-        if (db) { location.hash = '#/overview?run=' + encodeURIComponent(db.run) + '&project=' + encodeURIComponent(db.project); break; }
+        // Clicked, it always runs live, never a stored copy of that run (Chris, 2026-11-08: the tour should
+        // show the package loading and its checks running): openRunLink skips the stored run for it.
+        if (db) { state.liveRun = db.run; location.hash = '#/overview?run=' + encodeURIComponent(db.run) + '&project=' + encodeURIComponent(db.project); break; }
         openPackage(() => Fab.loader.fromUrl(t.dataset.file || SAMPLE), t.dataset.name || 'fabcheck-sample-board.zip'); break;
       }
       case 'rules-sel': state.rulesSel = t.dataset.id; renderAll(); break;
