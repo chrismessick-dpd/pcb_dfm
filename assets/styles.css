@@ -21,8 +21,8 @@
 /* Packages in the sidebar (same rhythm as Signoff's projects) */
 .pkg-sev { display: flex; gap: 4px; flex: none; font-size: 11px; font-variant-numeric: tabular-nums; }
 .pkg-sev span { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; display: inline-grid; place-items: center; font-weight: 600; }
-.pkg-sev .e { background: var(--issue-soft); color: var(--issue); }
-.pkg-sev .w { background: var(--warn-soft); color: var(--warn); }
+.pkg-sev .e { background: var(--issue-hatch), var(--issue-soft); color: var(--issue); }
+.pkg-sev .w { background: var(--warn-hatch), var(--warn-soft); color: var(--warn); }
 .proj.active .pkg-sev span { background: rgba(255, 255, 255, 0.22); color: #fff; }
 .pkg-spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--hair-2); border-top-color: var(--accent); animation: spin 0.8s linear infinite; flex: none; }
 .proj.active .pkg-spin { border-color: rgba(255, 255, 255, 0.35); border-top-color: #fff; }
@@ -70,7 +70,7 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .stat.info .stat-num { color: var(--text-2); }
 .cat-card { cursor: pointer; }
 .cat-card .cl-card-foot span { display: inline-flex; align-items: center; gap: 5px; }
-.bar .b-warn { background: var(--warn); }
+.bar .b-warn { background: var(--warn-fill-hatch), var(--warn); }
 .bar .b-info { background: var(--na); opacity: 0.45; }
 .bar .b-done { background: #3fc1cf; }
 .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; flex: none; background: var(--na); }
@@ -178,8 +178,8 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .table td.num, .table th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .table td.mono { font: 12px var(--mono); }
 .pill { display: inline-block; font-size: 11.5px; font-weight: 500; padding: 1px 8px; border-radius: 980px; margin: 0 4px 2px 0; white-space: nowrap; background: var(--bg-sunk); color: var(--text-2); }
-.pill.error { background: var(--issue-soft); color: var(--issue); }
-.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.error { background: var(--issue-hatch), var(--issue-soft); color: var(--issue); }
+.pill.warn { background: var(--warn-hatch), var(--warn-soft); color: var(--warn); }
 .pill.ok { background: var(--pass-soft); color: var(--pass); }
 .pill.accent { background: var(--accent-soft); color: var(--accent-ink); }
 .hash { font: 12px var(--mono); word-break: break-all; }
@@ -404,8 +404,8 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .stg-prog:not(.done) .stg-steps span { position: absolute; top: 0; bottom: 0; width: 1px; margin-left: -0.5px; background: var(--bg-elev); opacity: 0.75; }
 .stg-prog:not(.done) .stg-steps span.m0 { top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--text-3); opacity: 0.5; }
 .stg-steps b { position: absolute; top: 0; bottom: 0; border-radius: 1px; opacity: 0.85; }
-.stg-steps b.w { background: var(--warn); }
-.stg-steps b.e { background: var(--issue); }
+.stg-steps b.w { background: var(--warn-fill-hatch), var(--warn); }
+.stg-steps b.e { background: var(--issue-fill-hatch), var(--issue); }
 /* Done: the same thin bar, full, with a fine line per step run (spread evenly so each is easy to
    land on; colored where the step found something) and a glowing marker on the one shown. The bar's
    padding makes a finger-sized target around it. Sliding sideways picks; a vertical swipe scrolls. */
@@ -495,7 +495,7 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .mx-title { font-weight: 600; font-size: 13.5px; display: flex; align-items: center; gap: 7px; }
 .mx-sum { font-size: 12px; color: var(--text-3); padding-left: 15px; }
 .mx-sum .t-error { color: var(--issue); }
-.mx-sum .t-warn { color: var(--mx-warn); }
+.mx-sum .t-warn { color: var(--warn); }
 .mx-cells { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 5px; }
 .mx-cell { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 34px; padding: 4px 8px 4px 9px; border-radius: var(--radius-sm);
   border: 1px solid var(--hair); background: var(--bg-elev); color: var(--text-2); font: inherit; font-size: 12px; line-height: 1.2; text-align: left; cursor: pointer;
@@ -504,21 +504,14 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .mx-cell:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .mx-name { overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .mx-n { flex: none; font-weight: 700; font-size: 13px; font-variant-numeric: tabular-nums; display: flex; align-items: baseline; gap: 3px; }
-.mx-n small { font-weight: 600; font-size: 10.5px; color: var(--mx-warn); }
-/* Colorblind-safe severities (Chris can't tell red from orange): warnings are a lighter yellow, not the
-   suite's orange, and each severity also has its own hatch (errors diagonal stripes, warnings dots), so
-   cells and legend swatches tell apart without color. The hatches are faint so the counts stay readable. */
-.mx { --mx-warn: #a37b00; --mx-warn-soft: rgba(255, 214, 10, 0.2); --mx-err-hatch: rgba(215, 0, 21, 0.22); --mx-warn-hatch: rgba(163, 123, 0, 0.42); }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .mx { --mx-warn: #ffd60a; --mx-warn-soft: rgba(255, 214, 10, 0.14); --mx-err-hatch: rgba(255, 69, 58, 0.26); --mx-warn-hatch: rgba(255, 214, 10, 0.4); }
-}
-:root[data-theme="dark"] .mx { --mx-warn: #ffd60a; --mx-warn-soft: rgba(255, 214, 10, 0.14); --mx-err-hatch: rgba(255, 69, 58, 0.26); --mx-warn-hatch: rgba(255, 214, 10, 0.4); }
-.mx-cell.error, .mx-sw.error { background: repeating-linear-gradient(-45deg, var(--mx-err-hatch) 0 1.5px, transparent 1.5px 6px) var(--issue-soft); }
-.mx-cell.warn, .mx-sw.warn { background: radial-gradient(circle, var(--mx-warn-hatch) 0 0.8px, transparent 1.3px) 0 0 / 5px 5px var(--mx-warn-soft); }
+.mx-n small { font-weight: 600; font-size: 10.5px; color: var(--warn); }
+/* Errors striped, warnings dotted (the suite's colorblind-safe severities), in cells and legend swatches alike. */
+.mx-cell.error, .mx-sw.error { background: var(--issue-hatch), var(--issue-soft); }
+.mx-cell.warn, .mx-sw.warn { background: var(--warn-hatch), var(--warn-soft); }
 .mx-cell.error { border-color: color-mix(in srgb, var(--issue) 45%, transparent); color: var(--text); }
 .mx-cell.error .mx-n { color: var(--issue); }
-.mx-cell.warn { border-color: color-mix(in srgb, var(--mx-warn) 55%, transparent); color: var(--text); }
-.mx-cell.warn .mx-n { color: var(--mx-warn); }
+.mx-cell.warn { border-color: color-mix(in srgb, var(--warn) 55%, transparent); color: var(--text); }
+.mx-cell.warn .mx-n { color: var(--warn); }
 .mx-cell.info { background: var(--accent-soft); border-color: transparent; }
 .mx-cell.info .mx-n { color: var(--accent-ink); font-weight: 600; }
 .mx-cell.clean { background: transparent; color: var(--text-3); }
@@ -529,7 +522,7 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .mx-key span { display: inline-flex; align-items: center; gap: 5px; }
 .mx-sw { width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--hair); display: inline-block; }
 .mx-sw.error { border-color: var(--issue); }
-.mx-sw.warn { border-color: var(--mx-warn); }
+.mx-sw.warn { border-color: var(--warn); }
 .mx-sw.info { background: var(--accent-soft); border-color: transparent; }
 .mx-sw.clean { background: transparent; }
 .mx-key .link-btn { margin-left: auto; }
@@ -569,8 +562,7 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .wv-alert { display: flex; align-items: center; gap: 12px; padding: 12px 16px; margin: 14px 0 0; font-size: 13.5px; color: var(--text-2); }
 .wv-alert > div { flex: 1; }
 .wv-tag { padding: 0 7px; border-radius: 5px; background: var(--na-soft, var(--bg-sunk)); color: var(--text-2); max-width: 40ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wv-tag.new { background: var(--warn-soft); color: var(--warn); }
-.wv-tag.stale { background: var(--warn-soft); color: var(--warn); }
+.wv-tag.new, .wv-tag.stale { background: var(--warn-hatch), var(--warn-soft); color: var(--warn); }
 .item.f-row.waived .item-text { color: var(--text-2); }
 .item.f-row.waived .dot { opacity: 0.45; }
 .wv-sec .sec-chev { transition: transform 0.2s var(--ease); }
@@ -578,7 +570,7 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .pill.muted { background: var(--bg-sunk); color: var(--text-3); }
 .wv-rail { font-size: 12.5px; }
 .wv-box { border-radius: 10px; padding: 10px 12px; margin: -4px 0 14px; background: var(--bg-sunk); font-size: 13px; }
-.wv-box.stale { background: var(--warn-soft); }
+.wv-box.stale { background: var(--warn-hatch), var(--warn-soft); }
 .wv-head { font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-3); margin-bottom: 4px; }
 .wv-box.stale .wv-head { color: var(--warn); }
 .wv-reason { color: var(--text); white-space: pre-wrap; word-break: break-word; }
@@ -597,7 +589,7 @@ body.dragging::after { content: ""; position: fixed; inset: 0; background: var(-
 .wv-rule .item-text { word-break: break-word; }
 .wv-rule .item-sub { flex-wrap: wrap; }
 .wv-rule-acts { display: flex; gap: 4px; }
-.wv-rerun { background: var(--warn-soft); }
+.wv-rerun { background: var(--warn-hatch), var(--warn-soft); }
 /* Waive similar */
 .sheet.sim { max-width: 1080px; display: flex; flex-direction: column; overflow: hidden; }
 .sim-body { display: grid; grid-template-columns: minmax(280px, 380px) minmax(0, 1fr); gap: 0; min-height: 0; flex: 1; border-top: 1px solid var(--hair); border-bottom: 1px solid var(--hair); }
