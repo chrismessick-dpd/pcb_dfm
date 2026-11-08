@@ -18,7 +18,7 @@ Audit date: **2026-10-24**. All sources below were read on that date.
 | JLC | JLCPCB, PCB capabilities, jlcpcb.com/capabilities/pcb-capabilities | Most rows: trace/space, drills, rings, hole spacing, slots, mask, silk, BGA, castellations |
 | PCBWay-S | PCBWay, standard PCB capabilities (pcbway.com) | Standard trace/space, drill, ring, half-hole, silk |
 | PCBWay-A | PCBWay, advanced PCB capabilities (pcbway.com) | Aspect ratio by process, hole spacing, rings by copper weight, edge, slots, castellations, BGA, mask |
-| OSH | OSH Park, services, docs.oshpark.com/services | 2-, 4- and 6-layer trace/space, drill, ring |
+| OSH | OSH Park, services, docs.oshpark.com/services | 2-, 4-, and 6-layer trace/space, drill, ring |
 | AC | Advanced Circuits, standard capabilities (4pcb.com) | Trace/space, hole, silk line, scoring clearance |
 | Sierra | Sierra Circuits, PCB capabilities (protoexpress.com) | Standard and advanced trace/space, drill, aspect ratio, ring, V-score edge, mask dam, slot |
 | MacroFab | MacroFab, PCB design guidelines (macrofab.com) | Router bit size for inside corners |
@@ -100,9 +100,9 @@ the page.
 | Minimum coverlay web (new) | 0.50 | 0.50 (19.7 mil) | JLC-F removes bridges under 0.5; Epec-HD ≈ 0.51. Others allow less: PCBWay-F 0.20, Sierra-CL 0.25, Rush 0.30 / 0.25 |
 | Pads and vias from a stiffener edge or bend line (new) | 1.0 | 1.0 (39 mil) | **Rule of thumb**, from JLC-blog2 (stiffener ≥ 1.0 past the pad). Sierra-2223 says vias near a stiffener edge crack, no number. IPC-2223C via to rigid–flex transition 1.27 mm (Epec, citing it) |
 | Default board thickness | 1.6 (63 mil) | 0.20 (7.9 mil) | Flex: JLC-F 2-layer 0.11–0.20 without stiffener |
-| Everything else | as Advanced | as Standard | Flex sources give no number for slots, hole spacing, thermals, castellations or BGA pads, so Flex HDI keeps Standard's (BGA pad: Advanced's 0.28) |
+| Everything else | as Advanced | as Standard | Flex sources give no number for slots, hole spacing, thermals, castellations, or BGA pads, so Flex HDI keeps Standard's (BGA pad: Advanced's 0.28) |
 
-The new rules in Prototype, Standard and Advanced: laser microvia 0 (none), ring 0.064, and the three
+The new rules in Prototype, Standard, and Advanced: laser microvia 0 (none), ring 0.064, and the three
 flex rules as in Flex HDI (they apply only to flex packages).
 
 **Where sources disagree:** coverlay web runs from 0.20 mm (PCBWay-F) to 0.51 mm (Epec-HD); JLC's

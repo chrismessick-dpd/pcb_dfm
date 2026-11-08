@@ -1,4 +1,4 @@
-// Flex checks: coverlay openings, stiffeners and the flexible area. They run at the end of the DFM
+// Flex checks: coverlay openings, stiffeners, and the flexible area. They run at the end of the DFM
 // module, only for a flex package (X2 mechanical layers typed as coverlay or stiffener; see
 // classify.js otherRole and docs/flex.md). Findings are in their own category, 'Flex'.
 (function (Fab) {

@@ -1,7 +1,7 @@
 # Fab releases: tagged, stored, downloadable packages (plan)
 
 > **Superseded (2026-11-03):** revisions move to Signoff. See `docs/signoff-revisions.md`. The
-> fab package layout, file picks, structure checks and compare below stay in Fabcheck. The
+> fab package layout, file picks, structure checks, and compare below stay in Fabcheck. The
 > versions UI and `releases/` records go.
 
 Status (2026-11-03, branch `release-tags`):
@@ -31,10 +31,10 @@ two kinds of stored file that could diverge. So "release" and "Send" are now one
   - **Store version only** does the same without the issues, which is how an older package is
     back-filled.
 - **Details** under Send covers both the issues to send and, for a new version, the part
-  number, revision and files to keep (`filesPickHtml`).
+  number, revision, and files to keep (`filesPickHtml`).
 - **A new version starts as Checked.** It can be marked later, from the same menu, as **Sent
   to fab** (today's date unless one is given), **Used for builds** or **Withdrawn**. **Edit**
-  changes the name, title, fab house, date sent, reference and notes. "Superseded by" shows
+  changes the name, title, fab house, date sent, reference, and notes. "Superseded by" shows
   beside the status instead of replacing it.
 - **One list, "Versions of \<project>".** It replaces both "Runs stored with this project" and
   the separate Fab release section and tag form. Each row:
@@ -54,10 +54,10 @@ two kinds of stored file that could diverge. So "release" and "Send" are now one
 - **Anyone can export** the open package as the fab package from the Files tab, made in the
   browser and not stored.
 - **Wording:** issue comments name the version ("Raised by Fabcheck from version 3.1"), and the
-  home page, Revisions and Archive say "version".
+  home page, Revisions, and Archive say "version".
 - **Verified** with `tests/fake-github.js` (which now answers `/user`) on the real pair:
   - sign-in refuses a bad token, then continues into the send;
-  - 3.1 is stored in one commit with its run, 22 files and the pictures;
+  - 3.1 is stored in one commit with its run, 22 files, and the pictures;
   - 3.2 is suggested next, supersedes 3.1 and carries the change summary;
   - the sliver issue gets "no longer found";
   - marking 3.1 Sent to fab and editing 3.2 are written to the repo;
@@ -171,7 +171,7 @@ Proposed defaults, by classifier type (`classify.js`):
 
 - **Per-file override.** The tag dialog lists the release set with sizes and checkboxes, ticked as
   in the table above. Unticking a file is remembered per package. The defaults table lives in one
-  object next to `keep()`, so the dialog, the docs and storage can't drift.
+  object next to `keep()`, so the dialog, the docs, and storage can't drift.
 - **Size limits.** GitHub's blob API refuses files over 100 MB, and a browser base64-encodes every
   blob in memory.
   - A file over 25 MB gets a warning in the dialog.
@@ -242,7 +242,7 @@ Field notes:
 - `changes`: a summary of the compare with `supersedes`, made at tag time, so the history reads
   without re-parsing anything.
 - `files` and `download` are fixed at tag time. A different file set is a new release.
-- `label`, `title`, `status`, `fab` and `notes` can be edited. A release is never deleted, only
+- `label`, `title`, `status`, `fab`, and `notes` can be edited. A release is never deleted, only
   withdrawn, so review data is never lost.
 
 Storage:
@@ -263,9 +263,9 @@ Storage:
     from the repo only when it's downloaded (`fetchReleaseFiles`), and each is checked against its
     SHA-256.
   - **Records read from a repo** go through `cleanRelease`, because contractors can write there:
-    - ids, hashes and dates must have the expected shape;
+    - ids, hashes, and dates must have the expected shape;
     - `changes`, `summary` and the package name are rebuilt from typed fields;
-    - file paths must be relative, with forward slashes, no `..` and no drive letter, because they
+    - file paths must be relative, with forward slashes, no `..`, and no drive letter, because they
       become entry names in a zip that goes to a fab house.
   - **Sharing a project keeps its releases.** Signoff EE's `moveFabcheck` (`workspace.js`) copies
     everything under `fabcheck/<projectId>/` as bytes, so `releases/` and the release files move
@@ -274,7 +274,7 @@ Storage:
   - Release files are kept by SHA-256 in `blobs`, so releases that share a file keep it once.
   - `syncedAt` is local only; it's never written to the repo.
   - A release with no project yet stays local until it's stored, like an unsent run.
-- **Demo mode:** local only (`Fab.repoRuns` is null). Tag, compare and download all work, so the
+- **Demo mode:** local only (`Fab.repoRuns` is null). Tag, compare, and download all work, so the
   demo can show the whole flow.
 
 ## Workflow
@@ -289,7 +289,7 @@ Storage:
   - the release-set file list.
 - **Saving the tag:**
   - it shows the `changes` summary against the superseded release;
-  - the store confirm names the repo, the files and their size, as Send's does today.
+  - the store confirm names the repo, the files, and their size, as Send's does today.
 - **Store without sending.** Tagging stores the release (and its run) with the project, but doesn't
   write any Signoff issues.
   - That's needed for back-filling an older package.
@@ -314,7 +314,7 @@ in the L3 plane. Today's main board is rev B-2, the fixed one (see R3 under *Pha
 2. **The fab house reports a sliver plane.** Fix it and open the new package. Revisions compares it
    with rev B-1:
    - only L3 changed (+12 / −3 primitives) and the ODB++ archive;
-   - BOM, placements and drill are identical;
+   - BOM, placements, and drill are identical;
    - findings: the `sliver` error on L3 is fixed, and nothing is new.
 3. **Tag the fix.** Tag it "rev B-2", *DFM updates*, superseding rev B-1, and send to Signoff. The
    sliver issue gets "no longer found".
@@ -329,19 +329,19 @@ The tab becomes the board's **release history**, with the compare below it.
 1. **The project.** It comes from the run's `sentTo` or the deep link, or from a picker like the
    Send panel's.
 2. **History.** One row per release, newest first:
-   - label, title and status chip;
+   - label, title, and status chip;
    - date, by, and the fab house;
    - findings pills;
    - the `changes` one-liner, for example "L3 changed; BOM, drill, placements same; 1 error fixed";
-   - actions: **Open**, **Compare**, **Download** and **Edit**.
+   - actions: **Open**, **Compare**, **Download**, and **Edit**.
 
    Untagged runs stored with the project fold under a "Runs not tagged" row, with **Tag** on each.
-3. **Compare.** The baseline picker lists open packages, the project's releases and its stored runs.
+3. **Compare.** The baseline picker lists open packages, the project's releases, and its stored runs.
    - A stored baseline loads from IndexedDB, or from the repo through `fetchRun`'s path, and is
      parsed with `classify.build` only, without a re-run.
    - The default baseline is the latest release that isn't this package.
 4. **Change scope**, a new block above today's tables. On the real pair it reads:
-   - one part's footprint swapped (copper, paste, mask and silk at that part, plus 5 cutouts on the
+   - one part's footprint swapped (copper, paste, mask, and silk at that part, plus 5 cutouts on the
      bottom copper);
    - 4 clearance lines on one inner plane, which is the DFM fix;
    - everything else identical.
@@ -351,11 +351,11 @@ The tab becomes the board's **release history**, with the compare below it.
    apertures by shape fixed it (`revisions.js` `apKey`, 2026-11-03).
 
    The block itself: In one line it says which of the BOM,
-   placements, each Gerber layer, drill and ODB++ changed. Green means "only what you meant", for a
-   reviewer to confirm before re-sending. Today's BOM, placements, Gerber and drill tables stay as
+   placements, each Gerber layer, drill, and ODB++ changed. Green means "only what you meant", for a
+   reviewer to confirm before re-sending. Today's BOM, placements, Gerber, and drill tables stay as
    they are.
-5. **Findings delta**, new: findings marked fixed, new or unchanged against the baseline's run.
-   - Two findings are the same if they share the check, severity and layer and lie within 0.25 mm of
+5. **Findings delta**, new: findings marked fixed, new, or unchanged against the baseline's run.
+   - Two findings are the same if they share the check, severity, and layer and lie within 0.25 mm of
      each other. A finding without a location matches on check and title.
    - Each fixed or new finding jumps to the board, like today's `rev-at` rows.
 
@@ -372,7 +372,7 @@ download is laid out the way `docs/fab-package.md` recommends, whatever folder A
   - `Outline.gbr` and `Mech<n>.gbr`;
   - `PTH.drl`, `NPTH.drl`, or `Drill.drl` when a file mixes plating;
   - `Drill_PTH.gbr` and `Drill_NPTH.gbr` for Gerber drill;
-  - `Drill_Report`, `IPC356.ipc`, `FAB.pdf`, `ASSY.pdf`, `BOM` and `PNP`;
+  - `Drill_Report`, `IPC356.ipc`, `FAB.pdf`, `ASSY.pdf`, `BOM`, and `PNP`;
   - `Notes_<name>` for the package's own text files.
 - **Every name gets the `<PN>-<REV>_` prefix.** Part number and revision are suggested from the
   package name (`suggestPnRev`) and can be edited on the tag form.
@@ -405,7 +405,7 @@ download is laid out the way `docs/fab-package.md` recommends, whatever folder A
   - Each archive holds one image format.
 - **A generated `README.txt` in each archive:**
   - the file list with each file's SHA-256;
-  - board size, layer count, thickness and the fab profile used;
+  - board size, layer count, thickness, and the fab profile used;
   - the pick-and-place origin and units;
   - for the assembly archive, the BOM's DNP list.
 
@@ -436,7 +436,7 @@ Fabcheck's sessions don't edit these repos. Each change goes to that repo's own 
   ```
 
   - **The record:**
-    - `id` (`l…`), `label`, `title`, `status` (`candidate`, `sent`, `built` or `withdrawn`);
+    - `id` (`l…`), `label`, `title`, `status` (`candidate`, `sent`, `built`, or `withdrawn`);
     - `package {key, sha256, name, size}`, `run`, `supersedes`;
     - `fab {house, sentAt, ref}`, `notes`;
     - `files [{path, size, sha256}]`;
@@ -456,16 +456,16 @@ Fabcheck's sessions don't edit these repos. Each change goes to that repo's own 
   `info: 36`. Fabcheck now finds 37, because the new `structure` check notes the demo's mixed
   plating. Errors and warnings are unchanged. Updating it is optional; it's display only.
 - **Signoff PL:** read `fabcheck/<projectId>/releases/*.json` to show, per board Part, the release
-  that was built for each EVT, DVT or PVT build, with a Download link for FTEs. This is the natural
+  that was built for each EVT, DVT, or PVT build, with a Download link for FTEs. This is the natural
   home for "what did we actually build". It's a later phase, after Phase 3 gates.
 
 ## Phases
 
 | Phase | Scope | Proof |
 | --- | --- | --- |
-| **R1: Local releases** | The release set (defaults and per-file overrides); the `releases` IndexedDB store (VER 2); the tag dialog; deterministic download from this browser; Recent runs shows tags; the findings delta in the summary. **Done.** | Demo: tag, download twice, same sha256. Real pair: the defaults drop the duplicate ODB++ copies, the empty files and the reports. "Since rev 1": 6 layers changed, all at the swapped part except the plane fix; the sliver error fixed; one new spacing warning. Runs and their slimmed packages are unchanged |
-| **R2: Stored releases** | `releases/<id>.json` and release files in the repo; edit with the `updatedAt` check; store without send (**Store with** on a release row); the project's releases on the Overview and the home page (**Get its releases**); download from the repo with per-file sha256 checks; a warning on sending a superseded release. **Done.** | `tests/fake-github.js`, run through the UI: storing writes one commit with the release, its run and 19 files, and no board pictures. A status edit is written. An edit after someone else's newer one keeps theirs and says so. A browser with nothing local reads the record, then 17 files on download, and the zip's sha256 matches. A record with `..` in a path or a bad id is ignored. Sending the superseded rev B-1 asks first, and Cancel sends nothing |
-| **R3: Revisions history** | The history list, stored and tagged baselines, the change scope and the findings delta. **Done.** Baselines are open packages, releases and runs kept in this browser (`p:`, `l:` and `r:` keys). A release's baseline is parsed from its kept package, or from the release's own files when it was tagged elsewhere, read from the repo if needed. The default baseline is what this package's release supersedes | The real pair: rev 2's default baseline is rev 1. The scope reads "6 layers changed (GBL, GP3, GTL, GTO, GTP, GTS); 1 BOM line changed; 1 placement changed; drill same; 1 finding fixed, 1 new finding", the same with the baseline built from the release's files alone. A fixed or new finding jumps to the board. **Not done:** the demo's rev B-1 candidate zip with a planted sliver (`make_demo_boards.py`), so the demo can tell this story |
+| **R1: Local releases** | The release set (defaults and per-file overrides); the `releases` IndexedDB store (VER 2); the tag dialog; deterministic download from this browser; Recent runs shows tags; the findings delta in the summary. **Done.** | Demo: tag, download twice, same sha256. Real pair: the defaults drop the duplicate ODB++ copies, the empty files, and the reports. "Since rev 1": 6 layers changed, all at the swapped part except the plane fix; the sliver error fixed; one new spacing warning. Runs and their slimmed packages are unchanged |
+| **R2: Stored releases** | `releases/<id>.json` and release files in the repo; edit with the `updatedAt` check; store without send (**Store with** on a release row); the project's releases on the Overview and the home page (**Get its releases**); download from the repo with per-file sha256 checks; a warning on sending a superseded release. **Done.** | `tests/fake-github.js`, run through the UI: storing writes one commit with the release, its run, and 19 files, and no board pictures. A status edit is written. An edit after someone else's newer one keeps theirs and says so. A browser with nothing local reads the record, then 17 files on download, and the zip's sha256 matches. A record with `..` in a path or a bad id is ignored. Sending the superseded rev B-1 asks first, and Cancel sends nothing |
+| **R3: Revisions history** | The history list, stored and tagged baselines, the change scope, and the findings delta. **Done.** Baselines are open packages, releases, and runs kept in this browser (`p:`, `l:`, and `r:` keys). A release's baseline is parsed from its kept package, or from the release's own files when it was tagged elsewhere, read from the repo if needed. The default baseline is what this package's release supersedes | The real pair: rev 2's default baseline is rev 1. The scope reads "6 layers changed (GBL, GP3, GTL, GTO, GTP, GTS); 1 BOM line changed; 1 placement changed; drill same; 1 finding fixed, 1 new finding", the same with the baseline built from the release's files alone. A fixed or new finding jumps to the board. **Not done:** the demo's rev B-1 candidate zip with a planted sliver (`make_demo_boards.py`), so the demo can tell this story |
 | **R5: Ideal package** | Flat fab and assembly archives with function-based names and a generated readme; part number and revision on the release; the new package checks. **Done.** | Real pair: `<PN>-<REV>_FAB.zip` holds 18 files (6 copper layers by order, masks, silk, outline, Mech5, PTH and mixed drill, drill report, IPC-356, FAB.pdf, README; the Gerber drill files are left out). `_ASSY.zip` holds 13 (ASSY.pdf, BOM, PNP, outer copper, masks, silk, paste, outline, README). The structure check finds all four problems there. Both download twice to the same SHA-256. A tampered layout is dropped. **Not checked:** opening the archives in an outside Gerber viewer |
 | **R4: Signoff link** | `source.release` and the release name in comments; the "Which release is this?" lookup on the Archive tab; the contract proposals handed to EE's and PL's sessions. **Done.** | Sent the demo main board, tagged rev B-1 (release candidate), to a made-up Signoff project. Its 8 issues carry `source.release`, and the hint and comment read "…from release rev B-1 (release candidate)". The "still found" and "no longer found" comments use the same name. The release's own Fab zip, dropped back in, is recognized as "rev B-1 (release candidate): its Fab zip", on the Overview and the Archive tab. Fabcheck reads that Fab zip with the same DFM and package findings as the original; only pick-and-place and BOM are missing, because they're in the Assembly zip |
 
@@ -482,7 +482,7 @@ The order matters. Back-filling with Send would put the candidate's findings bac
 
 ## Open questions for Chris
 
-1. **The release set defaults.** Are the drawings, one ODB++ archive, IPC-356, `.DRR` and text
+1. **The release set defaults.** Are the drawings, one ODB++ archive, IPC-356, `.DRR`, and text
    files right? Should other PDFs (often schematics) be in by default, and should Altium reports be
    out?
 2. **274X and X2.** When a package has both sets, keep both, or only the set that was actually sent?
@@ -494,7 +494,7 @@ The order matters. Back-filling with Send would put the candidate's findings bac
    (CORS on `uploads.github.com`), so it would need a probe first.
 5. **Labels.** Free text ("rev B-2"), or a scheme Fabcheck can sort and suggest? One scheme:
    board rev plus a sequence number, with the next number filled in.
-6. **Immutability.** Files and the download are fixed per release, and label, title and status can
+6. **Immutability.** Files and the download are fixed per release, and label, title, and status can
    be edited. Should a *built* release lock its label too?
 7. **A note inside the zip.** R1 downloads only the fab files. R5 proposes a generated
    `README.txt`, which fab houses ask for anyway. Is that OK?

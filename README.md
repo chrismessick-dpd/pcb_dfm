@@ -7,8 +7,8 @@
 A browser tool that opens an Altium fabrication/assembly package (`.zip` or folder) and checks it the
 way a fab and an assembler would. All processing happens in the browser tab, so no files are uploaded.
 
-- Design, check catalog and phasing: [docs/design.md](docs/design.md)
-- Fab rule defaults, their sources and the 2026-10 audit: [docs/fab-rules.md](docs/fab-rules.md)
+- Design, check catalog, and phasing: [docs/design.md](docs/design.md)
+- Fab rule defaults, their sources, and the 2026-10 audit: [docs/fab-rules.md](docs/fab-rules.md)
 - To use it, open `index.html` (or host the folder) and drop a package onto the page.
 - For development, run the local server below. It serves the tool, plus a read-only sample folder, so
   `?pkg=` can load a package without drag and drop:
@@ -37,4 +37,4 @@ to store runs in a project's repo. After Signoff changes them, run `python tools
 Libraries are pinned to exact versions and checked by Subresource Integrity hashes: JSZip 3.10.1
 and pako 2.1.0 from cdnjs, SheetJS 0.20.3 from cdn.sheetjs.com. The page's Content-Security-Policy
 allows scripts only from these and the site itself. The Gerber,
-Excellon, PnP and BOM parsing is written for this tool (`assets/`).
+Excellon, PnP, and BOM parsing is written for this tool (`assets/`).

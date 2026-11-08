@@ -25,7 +25,7 @@
 
   C.define('Package', 'checks/package.js', [
     { check: 'missing', name: 'Missing files', looks: 'Whether the package has each file a fab and assembler need, and the ones that are recommended.',
-      sev: { error: 'a required fab file is missing', warn: 'top silkscreen, pick-and-place or BOM is missing', info: 'a recommended file is not included' },
+      sev: { error: 'a required fab file is missing', warn: 'top silkscreen, pick-and-place, or BOM is missing', info: 'a recommended file is not included' },
       uses: ['File classification (names, Gerber X2 file functions)'],
       rules: () => ['Required: ' + REQUIRED.map(r => `${r[0]} (${r[1]})`).join(', ') + '.', 'Recommended: ' + RECOMMENDED.map(r => r[0]).join(', ') + '.'],
       example: 'Missing: Bottom solder mask' },
@@ -216,7 +216,7 @@
       const pct = plated.length ? onPad / plated.length : 1;
       add('align', pct < T.alignError ? 'error' : pct < T.alignWarn ? 'warn' : 'info',
         pct < T.alignError ? 'Drill file does not line up with copper' : `${Math.round(pct * 100)}% of plated holes land on top copper`,
-        `${onPad} of ${plated.length} plated hits are covered by top copper.` + (pct < T.alignError ? ' Check the drill origin, units and zero suppression.' : ''));
+        `${onPad} of ${plated.length} plated hits are covered by top copper.` + (pct < T.alignError ? ' Check the drill origin, units, and zero suppression.' : ''));
     }
     return;
   }

@@ -486,7 +486,7 @@
     return Math.max(want, Math.sqrt(Math.max(1, (bb[2] - bb[0]) * (bb[3] - bb[1])) / 60e6));
   }
 
-  // Tiles, raster resolution and netlist seeds for one copper layer's spacing and sliver pass.
+  // Tiles, raster resolution, and netlist seeds for one copper layer's spacing and sliver pass.
   function copperPlan(pkg, layer, prof) {
     const bb = Fab.bbox.grow(pkg.boardBBox, 0.5);
     const res = pickRes(prof, bb);
@@ -701,7 +701,7 @@ onmessage = e => {
       const rest = gapsAll.slice(MAX), same = rest.filter(g => kind(g) >= 2).length;
       add('spacing', 'warn', `…${rest.length} more spacing findings on ${name}`, same ? `${same} of them between copper on the same net.` : '');
     }
-    // Narrow drawn traces are already reported by the vector trace check; keep pours, pads and planes.
+    // Narrow drawn traces are already reported by the vector trace check; keep pours, pads, and planes.
     if (!neg) thin = thin.filter(s => !onTrace(s));
     // A wedge (copper tapering to a point, e.g. where a round clearance meets a straight one) dead-ends
     // and narrows to about one pixel. A neck carries copper through (it meets wide copper on two sides),
@@ -793,7 +793,7 @@ onmessage = e => {
     return { areas: [...box.entries()].map(([l, b]) => ({ l, b, a: area[l] })), cu };
   }
 
-  // Copper areas not connected to any pad, via or plated hole on this layer. done: the worker's
+  // Copper areas not connected to any pad, via, or plated hole on this layer. done: the worker's
   // islandKernel result for this layer, if any.
   function islands(pkg, layer, prof, add, MAX, done) {
     const { bb, res, W, H, seeds } = islandPlan(pkg, layer);
@@ -804,7 +804,7 @@ onmessage = e => {
     for (const f of found.slice(0, MAX)) {
       const c = Fab.bbox.center(f.b);
       add('isolated', 'warn', `Isolated copper, ${f.a.toFixed(2)} mm²`,
-        `${name}: copper not connected to any pad, via or plated hole (${Math.round(res * 1000)} µm raster). Remove it, tie it to a net, or confirm it is intentional (text, logo, shield).`,
+        `${name}: copper not connected to any pad, via, or plated hole (${Math.round(res * 1000)} µm raster). Remove it, tie it to a net, or confirm it is intentional (text, logo, shield).`,
         { at: { x: c.x, y: c.y }, bbox: Fab.bbox.grow(f.b, 0.2), layer: name, value: f.a });
     }
     if (found.length > MAX) add('isolated', 'warn', `…${found.length - MAX} more isolated copper areas on ${name}`, '');

@@ -1,6 +1,6 @@
 # What a fab package should hold (research, 2026-11-03)
 
-This survey covers what fab houses, assembly houses and the Gerber format's owner recommend for a
+This survey covers what fab houses, assembly houses, and the Gerber format's owner recommend for a
 PCB fabrication and assembly package. It informs Fabcheck's release set (`docs/releases.md`) and
 the package Fabcheck will write as its output.
 
@@ -19,7 +19,7 @@ cited below as "Ucamco" with page numbers:
 1. **Gerber X2 is the baseline.**
    - X2 readers read plain RS-274X, so X2 costs nothing. Ucamco says to always send X2 when the CAD
      tool can (<https://www.ucamco.com/en/gerber/demo-1>).
-   - Advanced Circuits, OSH Park, MacroFab and PCBWay all accept or require RS-274X.
+   - Advanced Circuits, OSH Park, MacroFab, and PCBWay all accept or require RS-274X.
    - OSH Park works out layer order from X2 attributes or file extensions.
 2. **Plated and non-plated holes go in separate drill files**, one file per drill span, each with
    a full tool table.
@@ -39,10 +39,10 @@ cited below as "Ucamco" with page numbers:
    - Eurocircuits asks for a Gerber job file (`.gbrjob`) with every Gerber set
      (<https://www.eurocircuits.com/Preferred-data-formats>).
    - Screaming Circuits wants a readme covering assembly preferences and approved alternates.
-5. **Assembly data from the same revision:** BOM, centroid, assembly drawing and the Gerbers.
+5. **Assembly data from the same revision:** BOM, centroid, assembly drawing, and the Gerbers.
    - **BOM:** one MPN per cell, alternates in their own columns, and DNP parts marked with
      quantity 0.
-   - **Centroid file:** refdes, X, Y, rotation and side, in mm, from the Gerbers' origin.
+   - **Centroid file:** refdes, X, Y, rotation, and side, in mm, from the Gerbers' origin.
    - **No designator ranges** like "R1-R8".
    - Sources: Screaming Circuits
      (<https://www.screamingcircuits.com/faq>), JLCPCB (<https://jlcpcb.com/blog/files-needed-for-pcb-assembly>),
@@ -127,7 +127,7 @@ Never sent:
 - **NC drill:** split plated and non-plated, not round and slot holes. Excellon, metric, the same
   origin as the Gerbers.
 - **Gerber job file:** turn it on, if this Altium version offers it.
-- **Pick-and-place:** CSV, metric, with the center point chosen deliberately (Center, Ref or Pad X/Y
+- **Pick-and-place:** CSV, metric, with the center point chosen deliberately (Center, Ref, or Pad X/Y
   differ on asymmetric parts:
   <https://www.altium.com/documentation/knowledge-base/altium-designer/calculate-component-pick-and-place-center-of-a-footprint>).
 - **File names:** prefix them with the part number and revision, using the Project Releaser's
@@ -144,7 +144,7 @@ Never sent:
 | No native CAD files, OutJobs, aperture lists, binary `.DRL`, drill guide/drawing, Office notes in the fab set | Ucamco, OSH Park |
 | Plated and non-plated drill split, rather than round/slot | Ucamco, Sierra, Advanced Circuits |
 | `.gbrjob` and fab drawing present | Eurocircuits, Sierra |
-| Part number and revision agree across file names, readme, drawing and silkscreen | Ucamco, NCAB |
+| Part number and revision agree across file names, readme, drawing, and silkscreen | Ucamco, NCAB |
 | BOM: one MPN per cell, no designator ranges, DNP quantity 0 | Screaming Circuits, JLCPCB |
 | Pick-and-place in mm, every placement inside the outline | JLCPCB |
 | No local paths or user names in file headers or comments | Fedevel forum |

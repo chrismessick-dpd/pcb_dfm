@@ -8,7 +8,7 @@
 
 Fabcheck checks a PCB fabrication and assembly package the way a board house and an assembler
 would, before you send it. Drop in an Altium package (`.zip` or folder), and it reads the
-Gerbers, drill files, pick-and-place, BOM, IPC-356 netlist and ODB++. It then reports what's
+Gerbers, drill files, pick-and-place, BOM, IPC-356 netlist, and ODB++. It then reports what's
 wrong, and where.
 
 **Your files never leave your computer.** Everything is processed inside the browser tab; nothing
@@ -32,7 +32,7 @@ is uploaded.
    progress and time. When the run is done, the pins stay, each layer shows its count, and selecting
    a layer shows its worst finding on the board. Warnings are triangles and errors are dots, here and
    everywhere else. The full log is folded away under it.
-2. **Overview** shows the totals for each area, then a card per area with its error, warning and info counts; click one to list that area's findings. While the checks run, the layer stack beside them lights what each step looks at; the bar under it marks each step to come. Once they finish, that bar is the steps it ran: press or slide along it, or use the left and right arrow keys, to read one that went by too fast (**← Summary** comes back); with a step shown, **Open board** goes straight to its first error or warning. **Findings** lists every issue with its severity (findings only about test points fold into one **Test points** row, closed until you open it);
+2. **Overview** shows the totals for each area, then a card per area with its error, warning, and info counts; click one to list that area's findings. While the checks run, the layer stack beside them lights what each step looks at; the bar under it marks each step to come. Once they finish, that bar is the steps it ran: press or slide along it, or use the left and right arrow keys, to read one that went by too fast (**← Summary** comes back); with a step shown, **Open board** goes straight to its first error or warning. **Findings** lists every issue with its severity (findings only about test points fold into one **Test points** row, closed until you open it);
    select one to see it on a small preview of the board, and select the preview to zoom into it on
    the **Board**, with its layer turned on. **Board** draws the board (drag to pan; scroll, or pinch on a phone or tablet, to zoom; the up and down arrow keys step through its findings list): click a finding and it zooms to the spot (or click a mark on the board to pick out its finding in the list), fading the layers above it so
    inner-layer problems stay visible. **Realistic** shows the board as it will be built: green mask,
@@ -62,7 +62,7 @@ is uploaded.
    typical industry limits, with their sources documented. Or make your own for a specific fab
    house on the **Fab rules** page: copy a profile, adjust the limits, and note the fab's
    capability document. Changing a limit re-checks the board straight away.
-4. **Revisions** compares two packages (what changed in the BOM, placements, copper and drill).
+4. **Revisions** compares two packages (what changed in the BOM, placements, copper, and drill).
    **Archive** checks the package's integrity.
 5. Every run is kept in your browser under **Recent runs**, so you can come back to it.
 
@@ -86,7 +86,7 @@ reads and an example finding.
 ### Architecture
 
 - **Static, client-side app.** Open `index.html` or host the folder. JSZip and SheetJS come from
-  cdnjs at pinned versions. Gerber, Excellon, pick-and-place, BOM, IPC-356 and ODB++ parsing are
+  cdnjs at pinned versions. Gerber, Excellon, pick-and-place, BOM, IPC-356, and ODB++ parsing are
   written for this tool (`assets/`). The checks are in `assets/checks/`.
 - **Rules are data.** The built-in profiles are in `assets/profiles.js`. Custom profiles are kept in
   the browser and shared with the team as `fabcheck/profiles/<id>.json` in the EE data repo,
@@ -136,7 +136,7 @@ are served read-only and never copied into the repo; the `.gitignore` keeps `*.z
   `tools/make_sample.py` from the original package (which stays off the repo). The script removes
   everything identifying (bottom silkscreen except the Dovetail mark, drawings, reports with local
   paths, the part number), trims each check to one finding, and plants a few more problems. It
-  refuses to write the zip if a local path, the client or the part number is still in any file. In
+  refuses to write the zip if a local path, the client, or the part number is still in any file. In
   the demo:
   - suite links go to the Signoff demos;
   - Send to Signoff writes into the Signoff EE demo (`signoff.demo.` in localStorage) and never to

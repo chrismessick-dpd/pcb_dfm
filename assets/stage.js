@@ -110,9 +110,9 @@
   // Short explanations, with the profile's own limits.
   function explain(label, module, prof) {
     const L = Fab.fmtLen, l = label || '';
-    if (/^Raster analysis/.test(l)) return 'Every copper and mask layer is painted and analyzed at once in background workers: copper-to-copper gaps, narrow necks, unconnected copper and mask webs.';
+    if (/^Raster analysis/.test(l)) return 'Every copper and mask layer is painted and analyzed at once in background workers: copper-to-copper gaps, narrow necks, unconnected copper, and mask webs.';
     if (/^Spacing and slivers/.test(l)) return `Gaps between copper of different nets under ${L(prof.minSpace)}, and copper necks under ${L(prof.minTrace)}, with any neck that would cut part of a plane off.`;
-    if (/^Isolated copper/.test(l)) return `Copper with no pad, via or plated hole on it, from ${prof.isoMinArea} mm² up.`;
+    if (/^Isolated copper/.test(l)) return `Copper with no pad, via, or plated hole on it, from ${prof.isoMinArea} mm² up.`;
     if (/^Mask dams/.test(l)) return `Solder mask webs between openings under ${L(prof.minMaskDam)}.`;
     const dfm = {
       'Minimum trace width': `Drawn traces under ${L(prof.minTrace)}.`,
@@ -128,7 +128,7 @@
       'BGA pads and vias in pads': `BGA lands under ${L(prof.minBgaPad)}, and open vias in pasted pads.`,
     };
     if (module === 'dfm') return dfm[l] || '';
-    return { package: 'Every file classified, and the layer set checked for what a fab needs.', assembly: 'Pick-and-place, BOM and Gerbers cross-checked part by part.', build: 'Variant, ODB++ components and stencil checked against each other.', pins: 'Pin 1 and pad centers from the IPC-356 netlist.', bom: 'Part numbers, descriptions, manufacturers and lifecycle.' }[module] || '';
+    return { package: 'Every file classified, and the layer set checked for what a fab needs.', assembly: 'Pick-and-place, BOM, and Gerbers cross-checked part by part.', build: 'Variant, ODB++ components, and stencil checked against each other.', pins: 'Pin 1 and pad centers from the IPC-356 netlist.', bom: 'Part numbers, descriptions, manufacturers, and lifecycle.' }[module] || '';
   }
 
   // ---- detail drawings: what the step measures, dimensioned with the profile's limit ----
@@ -350,7 +350,7 @@
     box.innerHTML = stepsHtml(e);
     for (const t of tints) box.appendChild(t);
   }
-  // Mark the step shown, on the bar, under it and for screen readers.
+  // Mark the step shown, on the bar, under it, and for screen readers.
   function barSync(e) {
     const box = document.getElementById('stg-steps');
     if (!box || !canPick(e)) return;
@@ -389,7 +389,7 @@
     return best;
   }
   // Press and slide along the bar (a vertical swipe still scrolls the page). From the keyboard, left
-  // and right step through anywhere on the page (unless typing); Home, End and Escape on the bar.
+  // and right step through anywhere on the page (unless typing); Home, End, and Escape on the bar.
   document.addEventListener('pointerdown', ev => {
     const bar = ev.target.closest && ev.target.closest('#stg-bar');
     if (!bar || !cur || !canPick(cur.e)) return;
@@ -475,7 +475,7 @@
     const long = a => a.reduce((x, l) => l.file.name.length > x.length ? l.file.name : x, '');
     return DFM_STEPS.concat([`Raster analysis · ${cu.length} copper and ${mk.length} mask layers in parallel`,
       `Spacing and slivers · ${long(cu)}`, `Isolated copper · ${long(cu)}`, mk.length ? `Mask dams (regions) · ${long(mk)}` : null])
-      .filter(Boolean).map(label => ({ module: 'dfm', label })).concat([{ module: 'assembly', label: 'Comments, footprints and size codes' }]);
+      .filter(Boolean).map(label => ({ module: 'dfm', label })).concat([{ module: 'assembly', label: 'Comments, footprints, and size codes' }]);
   }
   function holdRun(e, prof, root) {
     if (root._runH == null) {
@@ -509,7 +509,7 @@
     requestAnimationFrame(step);
   }
 
-  // The bar along the top: found so far on the left, jobs, percent and time on the right.
+  // The bar along the top: found so far on the left, jobs, percent, and time on the right.
   function progHtml(e, fx) {
     const run = e.live, done = e.status === 'ready';
     if (!run || (done && run.ms == null)) return '';

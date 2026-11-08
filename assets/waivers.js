@@ -6,7 +6,7 @@
 // findings each time they are shown, so they carry over to re-runs and to new revisions of the board.
 //
 //   rule (one finding): { id, kind: 'one', check, items: [snap], reason, by, at }
-//     A finding with the same subject whose severity, title or detail changed since is "stale": it
+//     A finding with the same subject whose severity, title, or detail changed since is "stale": it
 //     shows as active again, with what it said when it was waived.
 //   rule (similar):     { id, kind: 'similar', check | null (any check), sevs, facets, also, except, seen, reason, by, at }
 //     facets: the details every finding must share (designator, footprint, … see FACETS). sevs: the
@@ -14,7 +14,7 @@
 //     also: errors ticked one by one; except: findings left out by hand. seen: the subjects matched
 //     when the rule was made or last looked at; a match not among them is "new" and asks for a look.
 //   part type:          { id, kind: 'tp' | 'fid' | 'mh', by: 'des' | 'footprint', pattern, reason, who, at }
-//     Not a waiver: the checks treat those parts as test points, fiducials or mounting holes
+//     Not a waiver: the checks treat those parts as test points, fiducials, or mounting holes
 //     (checks/common.js, C.setPartKinds), so a re-run changes what they find.
 //
 // Kept in this browser (localStorage, fabcheck.v1.waivers) per scope: a Signoff project, or a
@@ -257,7 +257,7 @@
       if (d.key === 'title') { const v = cover(flat); out.title = { value: v, on: false, shown: many ? shown : '' }; continue; }
       const one = distinct.length === 1;
       const value = d.kind === 'exact' ? flat[0] : one ? flat[0] : cover(flat);
-      // A single example ticks only its footprint and part number: its comment, nets and side
+      // A single example ticks only its footprint and part number: its comment, nets, and side
       // say more about that part than about what is like it.
       const on = one && (many ? d.key !== 'side' && d.key !== 'layer' : d.key === 'footprint' || d.key === 'mpn');
       out[d.key] = { value, on: on && !!value, shown, differs: !one };

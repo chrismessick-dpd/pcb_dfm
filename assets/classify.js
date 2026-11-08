@@ -223,7 +223,7 @@
       else if (c.fn === 'mask' || c.fn === 'silk' || c.fn === 'paste') L[c.fn][c.side] = lay;
       else L.other.push(lay);
     }
-    // Flex layers (X2 mechanical layers typed as coverlay, stiffener or bend lines).
+    // Flex layers (X2 mechanical layers typed as coverlay, stiffener, or bend lines).
     L.coverlay = {}; L.stiffener = []; L.bend = [];
     for (const lay of L.other) {
       const c = lay.file.cls;
@@ -240,7 +240,7 @@
     // Board outline: X2 profile / GML first, then keep-out and mechanical layers that form a closed loop
     // around the copper.
     const copperBB = L.copper.filter(l => l.polarity !== 'negative').reduce((b, l) => Fab.bbox.union(b, l.bbox), Fab.bbox.empty());
-    // An X2 mechanical layer typed as an outline or board shape (Design_Outline, Board_Shape and so on)
+    // An X2 mechanical layer typed as an outline or board shape (Design_Outline, Board_Shape, and so on)
     // is the outline by function. A file the reviewer picked (opts.outline, its path) comes first.
     const x2Outline = f => f.cls.fn === 'other' && f.cls.role === 'outline';
     const picked = f => !!opts.outline && f.path === opts.outline;

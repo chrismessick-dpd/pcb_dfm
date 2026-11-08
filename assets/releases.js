@@ -7,7 +7,7 @@
   const WARN_MB = 25, MAX_MB = 90; // GitHub's blob API refuses 100 MB; the browser base64s each blob in memory
 
   // What goes in the fab package, by classifier type: [in by default, group, why]. Per-file overrides come from
-  // Send's Details. Kept in one place so the picks, the docs and storage can't drift.
+  // Send's Details. Kept in one place so the picks, the docs, and storage can't drift.
   const SET = {
     gerber: [true, 'fab', 'Gerber'], drill: [true, 'fab', 'NC drill'], 'drill-report': [true, 'fab', 'drill report'],
     ipc356: [true, 'fab', 'IPC-356 netlist, for electrical test'], ipc2581: [true, 'fab', 'IPC-2581'],
@@ -20,7 +20,7 @@
     pdf: [true, 'other', 'PDF (often schematics or notes)'], text: [true, 'other', 'notes'],
     report: [false, 'other', 'Altium report or log: the fab house doesn\'t need it'],
     archive: [false, 'other', 'nested archive'],
-    other: [false, 'other', 'image, CAD or unrecognized file'],
+    other: [false, 'other', 'image, CAD, or unrecognized file'],
   };
 
   // Default pick and reason per file. ODB++ is kept once: Altium often writes the same data as a
@@ -184,8 +184,8 @@
     if (ctx.pnp) L.push(`Pick-and-place: ${ctx.pnp}`);
     if (ctx.dnp) L.push(`Do not place: ${ctx.dnp}`);
     L.push('');
-    L.push('Fabrication/ has what the board house needs: Gerber, NC Drill, the netlist and the fabrication drawing.');
-    L.push('Assembly/ has what the assembly house needs: BOM, Pick Place and the assembly drawing (paste layers are in Fabrication/Gerber).');
+    L.push('Fabrication/ has what the board house needs: Gerber, NC Drill, the netlist, and the fabrication drawing.');
+    L.push('Assembly/ has what the assembly house needs: BOM, Pick Place, and the assembly drawing (paste layers are in Fabrication/Gerber).');
     L.push('');
     L.push('Files (SHA-256):');
     for (const f of list.slice().sort((a, b) => a.to < b.to ? -1 : 1)) L.push(`  ${f.to.slice(root.length + 1)}  ${f.size} bytes  ${f.sha256}`);
@@ -218,7 +218,7 @@
   // The fab package of an open package: form { pn, rev, picks, head }. head is the README's second
   // line (what the package is: a run sent to Signoff, an export). Files keep their bytes; the zip
   // is the same for the same files on the same day. Resolves { name, bytes, sha256, root, files },
-  // files listing each original path, its path in the zip, size and SHA-256.
+  // files listing each original path, its path in the zip, size, and SHA-256.
   async function packageFor(entry, form) {
     const picked = (entry.files || []).filter(f => form.picks.has(f.path) && !f.stub);
     if (!picked.length) throw new Error('no files are picked for the fab package');

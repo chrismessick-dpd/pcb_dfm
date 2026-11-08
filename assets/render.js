@@ -102,7 +102,7 @@
       this.knockC = document.createElement('canvas');
       this.scratch2 = document.createElement('canvas');
       this.scratch3 = document.createElement('canvas');
-      this.photo = false; // realistic look: substrate, mask, finish and silkscreen in their real colors
+      this.photo = false; // realistic look: substrate, mask, finish, and silkscreen in their real colors
       this.bare = false;  // a picture to save (board previews): no background or scale bar
       this.layers = []; // {id, label, layer|null, kind, color, alpha, visible}
       this.view = { cx: 0, cy: 0, scale: 10, flip: false };

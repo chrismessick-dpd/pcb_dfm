@@ -20,7 +20,7 @@ vendors give away their DFM viewers.
   - `xlsx@0.20.3` (SheetJS, from cdn.sheetjs.com: cdnjs stops at 0.18.5, which has a
     prototype-pollution bug on crafted files) reads BOMs in `.xlsx`/`.xls`/`.csv`.
   - Later phases: `pako@2.1.0` for ODB++ `.tgz` and `pdf.js` for previewing the fab drawing.
-- **Metric first.** Everything is converted to mm on parse. Every length shown also gives mil in parentheses, through one formatter, `Fab.fmtLen` ("0.084 mm (3.3 mil)"; `Fab.fmtSize` for pairs). Coordinates, areas and µm values stay metric only.
+- **Metric first.** Everything is converted to mm on parse. Every length shown also gives mil in parentheses, through one formatter, `Fab.fmtLen` ("0.084 mm (3.3 mil)"; `Fab.fmtSize` for pairs). Coordinates, areas, and µm values stay metric only.
 - **Style** matches the Signoff design-review tool: system font, `#f5f5f7` canvas, white rounded cards,
   translucent sidebar, Dovetail teal `#004952` accent, and dark mode via `prefers-color-scheme`.
 
@@ -67,7 +67,7 @@ Every finding has the same shape, so the UI only has to know one format:
   layer?, at?: {x, y}, bbox?: [x0, y0, x1, y1], value?, limit?, refs?: ['R12'] }
 ```
 
-Clicking a finding with `at` or `bbox` zooms the render there, turns on its layer and drops a marker.
+Clicking a finding with `at` or `bbox` zooms the render there, turns on its layer, and drops a marker.
 
 ### Gerber parsing: custom, not tracespace
 
@@ -77,7 +77,7 @@ reasons:
   macro parameters attached. tracespace's plot tree is aimed at SVG output, so we would still need to
   re-derive that geometry.
 - Altium only emits a small subset: `FS`, `MO`, `AD` (C/R/O/P), `AM` (primitives 1, 4, 5, 7, 20, 21),
-  `G01/02/03`, `G75`, `G36/37`, `LP`, `D01/02/03` and `SR`. It also writes X2 attributes either as
+  `G01/02/03`, `G75`, `G36/37`, `LP`, `D01/02/03`, and `SR`. It also writes X2 attributes either as
   `%TF…%` or, in 274X files, as `G04 #@! TF…` comments. Covering that is a few hundred lines.
 - We avoid a dependency on an alpha-version ESM package.
 
@@ -107,7 +107,7 @@ Excellon files come in several flavours, so the parser does not assume one:
 
 ### Coordinate alignment
 
-Gerber, drill, PnP and IPC-356 data can each use a different origin. For PnP we try a short list of
+Gerber, drill, PnP, and IPC-356 data can each use a different origin. For PnP we try a short list of
 candidate offsets: zero, the profile's bottom-left corner, and the drill-file origin. We keep the one that
 puts the most SMD placements next to copper pads on their stated side. If that offset is not zero, we
 report it as a finding.
@@ -127,7 +127,7 @@ Severity reflects what a fab or assembler would do: **error** means it will be r
 | Missing recommended items: paste, fab drawing, IPC-356 netlist, drill report, ODB++/IPC-2581 | 1 |
 | Two Gerber sets present (274X and X2); pick X2 and report it | 1 |
 | `TF.SameCoordinates` GUID differs within a set (files from mixed output runs) | 1 |
-| Copper layer count agrees across Gerber, drill report, IPC-356 stackup and ODB matrix | 1 (Gerber vs drill vs IPC-356) |
+| Copper layer count agrees across Gerber, drill report, IPC-356 stackup, and ODB matrix | 1 (Gerber vs drill vs IPC-356) |
 | Drill file per-tool hit counts match `.DRR` | 1 |
 | Units and format declared and consistent; mixed inch/mm noted | 1 |
 | Board outline is closed; drill and copper extents fit inside it | 1 |
@@ -151,7 +151,7 @@ Severity reflects what a fab or assembler would do: **error** means it will be r
 ### B2. Build consistency (variant, ODB++ components, stencil)
 
 These checks were taken from a manual release audit done earlier on the same kind of packages. That
-audit found real problems which only show up when the BOM, the PnP, the ODB++ component data and the
+audit found real problems which only show up when the BOM, the PnP, the ODB++ component data, and the
 paste layer are read together. Examples: outputs generated without the build variant, which left
 paste on unfitted Tag-Connect pads, and BOM part-number substitutions that did not match the board
 data.
@@ -181,7 +181,7 @@ data.
 | Name/Comment looks like an MPN but differs from MPN 1 | 1 |
 | Lifecycle / revision status: Obsolete, EOL, NRND, Last Time Buy, Deleted | 1 |
 | Single-source summary: no Manufacturer 2 column, or it is empty | 1 |
-| Size code mismatch: 0402/0603/0805… in footprint vs description/MPN; a part number of another size than the footprint is an error (2026-11-07). Families with a size field include Susumu RG/RR, Murata BLM/LQM/LQG/NCP and KOA RK73 | 1 |
+| Size code mismatch: 0402/0603/0805… in footprint vs description/MPN; a part number of another size than the footprint is an error (2026-11-07). Families with a size field include Susumu RG/RR, Murata BLM/LQM/LQG/NCP, and KOA RK73 | 1 |
 | Part number decoded offline vs description: value, voltage, dielectric, tolerance (Cal-Chip, Yageo, Murata, Samsung, KEMET, AVX, TDK, Vishay, Panasonic, Stackpole passives) | 1 |
 | Manufacturer column vs part-number prefix (e.g. a KEMET number listed as Yageo) | 1 |
 | Value column vs part type (pF on a diode, kΩ on an LED) | 1 |
@@ -191,7 +191,7 @@ data.
 | Online lifecycle/stock (Octopart/DigiKey). Opt-in only, because it sends MPNs off the machine | 4 |
 | Datasheet facts the package doesn't carry: current and voltage ratings, a body longer than its land pattern. Best taken from parametric columns exported into the BOM from the CAD tool's part data, then compared offline; a parts API breaks the client-side rule | not built |
 
-Test points, fiducials and mounting holes (pad-only parts) are recognized by designator, by footprint
+Test points, fiducials, and mounting holes (pad-only parts) are recognized by designator, by footprint
 (`TP_…`, `TESTPOINT`, `FIDUCIAL`, `MOUNTING_HOLE`) and by a "Test Point" or "Fiducial" comment or ODB++
 part name (`C.isPadOnly`), since many designs name test points by their net. Without that, a board with
 40 net-named test points drowned its real findings under 90 warnings and paste errors (2026-11-07).
@@ -224,7 +224,7 @@ until opened (`state.tpOpen`). On that board: 51 test points, one folded row of 
 | BGA pad size (X2 BGAPad) | vector | audit 2026-10 |
 | Solder mask dam involving region openings | raster gap between openings | 2 (shipped) |
 | Copper-to-copper spacing (separate copper areas); same net is a warning, different nets an error | raster feature transform, sub-pixel measurement, IPC-356 nets | 2 (shipped) |
-| Copper necks, wedges and sub-pixel hairlines in pours, pads and planes; necks that cut off part of a plane | raster ridge analysis, opening and whole-board connectivity | 2 (shipped) |
+| Copper necks, wedges, and sub-pixel hairlines in pours, pads, and planes; necks that cut off part of a plane | raster ridge analysis, opening, and whole-board connectivity | 2 (shipped) |
 | Acid traps (acute internal angle < 90° at copper junctions) | vector on track graph | 2 |
 | Via in pad (via hit inside a pasted SMD/BGA pad; checked against the profile's fill/cap setting) | vector | audit 2026-10 |
 | Isolated / unconnected copper (islands without drill or pad) | raster connected components | 2 (shipped) |
@@ -237,7 +237,7 @@ until opened (`state.tpOpen`). On that board: 51 test points, one folded row of 
 
 Spacing-type checks need geometry on the union of shapes, so they run on a raster:
 - **Painting.** Each layer is painted with the same canvas painter as the board view
-  (`Fab.render.paintLayer`), so clear polarity, negative planes and macro apertures match what the
+  (`Fab.render.paintLayer`), so clear polarity, negative planes, and macro apertures match what the
   user sees. Tiles are 2048 px, at 25 µm/px (or minimum space ÷ 5 if that is finer), with a margin
   wider than the limit, so a gap is measured in only one tile.
 - **Spacing.** Label copper with 8-connected components, then run an exact Euclidean feature
@@ -338,7 +338,7 @@ Each rule has a plain-English name, a unit (mm first, with mil alongside), a one
 the checks that use it, and a plausible range.
 
 **Built-in profiles.** These are read-only industry defaults: typical values, not any vendor's
-numbers. Every value, its source and the date it was checked are in [fab-rules.md](fab-rules.md)
+numbers. Every value, its source, and the date it was checked are in [fab-rules.md](fab-rules.md)
 (audit of 2026-10-24); values no source states are marked there as rules of thumb.
 
 There is no full microvia HDI profile. Fabcheck has no microvia checks yet, so its limits would
@@ -346,7 +346,7 @@ mislead.
 
 **Custom profiles.** "Duplicate and edit" works from any profile.
 - A custom profile keeps a base built-in and per-rule overrides, each stamped `{v, at, by}` like
-  Signoff's records. It also has a name and a source/notes field (fab house, capability doc or URL,
+  Signoff's records. It also has a name and a source/notes field (fab house, capability doc, or URL,
   date). Fabcheck never supplies vendor numbers.
 - Edited rules show the base value with a Reset button; "Reset all" resets the whole profile.
 - Profiles can be renamed, deleted, and exported or imported as JSON.
@@ -358,7 +358,7 @@ mislead.
 - **Memory:** the last profile used is remembered per package name and per Signoff project, and picked
   for the next run.
 
-**BOM & assembly checks** (second tab of the Fab rules page) list the package, assembly and BOM
+**BOM & assembly checks** (second tab of the Fab rules page) list the package, assembly, and BOM
 checks read-only: they are logic, not numbers.
 - Each check module declares its checks with `C.define(category, source, [...])` next to the code
   that raises them: name, what it looks for, the severities and when each is raised, the package
@@ -409,20 +409,20 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
   Severities are told apart without color (Chris is colorblind): errors are red with diagonal
   stripes, warnings a lighter yellow with dots, in cells and legend swatches alike (the suite's
   `--issue-hatch` and `--warn-hatch` tokens, used by every tool's pills and bars too).
-  Cells come from the check catalog for Package, Assembly and BOM, and from fixed lists in `app.js`
+  Cells come from the check catalog for Package, Assembly, and BOM, and from fixed lists in `app.js`
   (`DFM_CHECKS`, `FLEX_CHECKS`) for the DFM and Flex categories, plus any other check that found something. Fab rules is reached from
   its menu item only; its tab bar carries the open board's thickness on the right (overriding the
   profile's default thickness for the run, and re-checking when changed). The package build and every check module are generators that
   yield a label before each step. The pipeline runs one step, prints its result (errors and warnings,
   plus the first few hits) with timings, and repaints before the next.
-  - The stage (`assets/stage.js`) draws the package's own stack, exploded: silkscreen, mask and each
+  - The stage (`assets/stage.js`) draws the package's own stack, exploded: silkscreen, mask, and each
     copper layer (planes marked), on the board outline, with dielectric between copper and a sample
     of the board's real drill hits on the copper. While running, the layers a step reads glow, and
     hole checks light the drill hits in a ripple. Edge checks run a glowing line around the outline.
     - In the parallel raster pass, each worker job shows as a glowing patch over the area of its
       layer it is analyzing, with a line sweeping it, and a faint tint once done. `prepareRaster`
       reports the jobs through an optional `watch(event, job)` (`plan`, `start` when a worker takes
-      one, `done`), passed as `out.watch` like `out.sync`. It carries only layer, kind, box and pixel
+      one, `done`), passed as `out.watch` like `out.sync`. It carries only layer, kind, box, and pixel
       count, never touches the jobs sent to workers, and findings are identical with it.
     - A step's errors and warnings drop onto their layer as pins (`at` or `bbox` center; layerless
       ones on their side's copper, assembly ones on the silkscreen) and flash the layer red or amber.
@@ -430,13 +430,13 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
     small dimensioned drawing of what the step measures at those limits (`Fab.stage.detail`).
   - A bar along the top shows progress in weighted units: 1 per step, 3 per copper layer's
     spacing step, and the raster pass about as much as everything else, filled by the pixel area of
-    its finished jobs. Beside it: errors and warnings so far, raster jobs done, percent and time.
+    its finished jobs. Beside it: errors and warnings so far, raster jobs done, percent, and time.
     It moves by `transform`. While running, a soft light sweeps along the filled part only
     (`.stg-run`, sized to the fill), by transform on the compositor, so it keeps moving while a
     synchronous step blocks the page (the SVG effects pause then). A brighter streak with a pulsing
     head at the leading edge was tried and dropped as too loud.
     The run's clock works the same way (Chris, 2026-11-01: written from script, it hung through
-    long DFM steps): a column of digits each for minutes, tens of seconds and seconds, slid a digit
+    long DFM steps): a column of digits each for minutes, tens of seconds, and seconds, slid a digit
     at a time by `steps()` transform animations started at the run's start (a negative delay), so
     it keeps time while a step blocks the page. It sits outside the text the 500 ms update rewrites,
     which would restart it. The percent and raster job counts still change only between steps.  - Finished, each layer shows its error count (●) or warning count (▲) and keeps its pins.
@@ -503,7 +503,7 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
     its side's copper (and silkscreen for parts) and the outline, so it doesn't land on an empty board.
   - A filter change (severity, category, search) that hides the selected finding unselects it: the
     crosshair and the dimming go until another finding is selected (`dropHiddenSel`).
-  - Warnings are drawn as triangles everywhere (list dots, board marks, stage pins and counts), and
+  - Warnings are drawn as triangles everywhere (list dots, board marks, stage pins, and counts), and
     errors and info as circles, so severity doesn't depend on telling red from orange.
   - Zooming to a finding dims every layer between the viewer and the finding's layer to 15%
     (stack depth: silkscreen, mask, paste, then copper by order; mirrored from the bottom), so an inner
@@ -526,11 +526,11 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
     findings only. The inspector shows author and time and has **Delete note**; there is no edit yet.
 - **Assembly / BOM / Files.** Tables, including ODB++ placement status.
 - **Revisions.** The board's fab releases (`docs/releases.md`), then a compare against a baseline: an
-  open package, a release or a run kept in this browser. A one-line change scope and the findings
+  open package, a release, or a run kept in this browser. A one-line change scope and the findings
   fixed and new come first, then BOM designators
   added/removed/changed (grouped by identical change), placements moved/rotated/re-footprinted,
   Gerber geometry per layer (primitive signatures rounded to 1 µm, so re-ordered files compare equal),
-  and drill hits. The plan for tagged, stored and downloadable fab releases is in `docs/releases.md`.
+  and drill hits. The plan for tagged, stored, and downloadable fab releases is in `docs/releases.md`.
 - **Archive.** SHA-256 of the package archive (WebCrypto, with a JS fallback for `file://`), nested
   ODB++ `.zip`/`.tgz` vs the extracted `odb/` tree, and a byte-for-byte comparison with another copy.
 
@@ -540,14 +540,14 @@ Routing is `#/<view>`, so links and the back button work.
 
 A reviewer accepts an error or warning by waiving it. Waivers are rules kept apart from the
 findings, matched against them every time they're shown, so they carry over to re-runs and to new
-revisions of the board. Info findings, review notes and `internal` findings can't be waived.
+revisions of the board. Info findings, review notes, and `internal` findings can't be waived.
 
 - **Subjects, not ids.** `Fab.finding` ids are a per-session counter, so a waiver names what a
   finding is about (`subject`): the check plus its sorted designators (and layer); else the check
   plus layer (or side) and its place, matched within 0.25 mm, as Revisions' findings delta does;
   else the check plus title. Several findings can share a subject.
 - **Waive** (inspector, or W) asks for a reason (required) and makes a one-finding rule
-  (`kind: 'one'`) holding the finding's snapshot: subject, severity, title and detail. If the same
+  (`kind: 'one'`) holding the finding's snapshot: subject, severity, title, and detail. If the same
   subject later comes back with other words or another severity, the waiver is **stale**. The
   finding counts as active again, tagged "Waiver out of date", and the inspector shows what it said
   then, with **Waive again** (same reason, editable) and **Drop old waiver**.
@@ -568,10 +568,10 @@ revisions of the board. Info findings, review notes and `internal` findings can'
   - `seen` holds the subjects the rule matched when it was saved. A later match not among them is
     waived but **new**: the Overview says how many need a look, the Waived fold counts them, and
     **Looks fine** adds them to `seen`. **Unwaive** on a rule's finding adds it to `except`.
-    **Edit** reopens the panel with the rule's facets, and keeps the `also`, `except` and `seen`
+    **Edit** reopens the panel with the rule's facets, and keeps the `also`, `except`, and `seen`
     entries this run doesn't have (other revisions).
 - **Treat as…** sets a part type instead of waiving: designators or a footprint (wildcards) as test
-  points, fiducials or mounting holes. `C.setPartKinds` puts them on the package
+  points, fiducials, or mounting holes. `C.setPartKinds` puts them on the package
   (`pkg.partKinds`) and clears the `_padOnly` and `_testPoints` caches, and `C.overrideSet` feeds
   them into `padOnlySet` and `testPointSet`. The checks run again at once, and a run records the
   part types it was made with in `settings.partKinds`, only when there are any, so older runs and
@@ -584,13 +584,13 @@ revisions of the board. Info findings, review notes and `internal` findings can'
   of them), opened by a click or for a selected finding inside it. The board's list and marks leave
   them out, and say how many are hidden. After a waive, the selection moves to the next finding
   still to look at. The **Waivers** list at the end of Findings has every rule and part type in the
-  scope, with what each matches now, **Looks fine**, **Edit** and **Remove**.
+  scope, with what each matches now, **Looks fine**, **Edit**, and **Remove**.
 - **Storage.** `localStorage` `fabcheck.v1.waivers` (`fabcheck.demo.waivers` in the demo, so Reset
   demo clears it): `{ v: 1, scopes: { <scope>: { rules, kinds } } }`. The scope is `project:<id>`
   for a run linked to a Signoff project, else `pkg:<package name>`. When Send links a run to a
   project, the package's rules are copied into the project's (`mergeScope`). Nothing is stored on
-  the findings, so `compactFindings`, the run's `summary` and the re-run comparison are unchanged.
-  With no rules and no part types, both demo boards' findings, summaries and Send groups are
+  the findings, so `compactFindings`, the run's `summary`, and the re-run comparison are unchanged.
+  With no rules and no part types, both demo boards' findings, summaries, and Send groups are
   identical to `bom-checks` (checked 2026-11-07).
 - **Open:** waivers live in one browser. They aren't stored with a run in the project's repo, so
   another FTE doesn't see them. There's no area drawn on the board yet; **Nearby** uses a box
@@ -672,7 +672,7 @@ The contract shared with Signoff EE is `ee_design_review/docs/fabcheck-link.md`.
   "Open in Signoff EE") writes `signoff.v1.ui` and goes to Signoff in this tab. Runs are kept, so
   Back returns to them; leaving while a check runs asks first.
 - **Send's progress card.** Send shows a card (`busyCard`, styles `.busy` from Signoff EE) through
-  building the zip, drawing the pictures and uploading (`repo.js` `store`'s `progress`), and ends
+  building the zip, drawing the pictures, and uploading (`repo.js` `store`'s `progress`), and ends
   with the result and "Open in Signoff EE".
 - **Send to Signoff.** It puts `source.run` and up to 50 `source.locations` on each issue.
 
@@ -695,7 +695,7 @@ fabcheck/<projectId>/runs/<runId>.json
   - Files already in the repo are skipped.
   - The console shows progress and the commit link.
   - Send stores first, then writes the issues, so they carry `stored: {repo, dir}` from the start.
-    A confirm names the private repo, the files and their size; Cancel keeps everything in the browser.
+    A confirm names the private repo, the files, and their size; Cancel keeps everything in the browser.
   - The Send panel shows where the run will be stored, or why it can't (`repoRuns.readiness` without a
     request, then `probe`, which asks GitHub for the token's push permission and is cached per repo).
 - **When the run can't be stored** (no token in this tab, no write access, or a page opened from disk
@@ -736,7 +736,7 @@ fabcheck/<projectId>/runs/<runId>.json
 Slice 1 was checked against five real Altium packages. Three of them had already been audited by
 hand: an early package, a release candidate, and a final release, each from a different revision.
 Fabcheck reproduced that audit's verdicts. Two of the packages are described in more detail:
-- One has 274X and X2 sets, split round and slot drill files, an xlsx BOM, ODB++ and IPC-356, with
+- One has 274X and X2 sets, split round and slot drill files, an xlsx BOM, ODB++, and IPC-356, with
   4 layers and negative planes.
 - The other is 274X only, 6 layers, with a csv BOM, and inner pours that use clear-polarity cut-outs.
 
@@ -747,7 +747,7 @@ with `?pkg=`.
 Ground truth used:
 - `.DRR` per-tool hole counts against the Excellon parse.
 - `TF.SameCoordinates` agreement within a set.
-- Visual alignment of drills, outline and placements.
+- Visual alignment of drills, outline, and placements.
 - Individual findings cross-checked against the 274X set and the ODB++ `features`.
 
 **Not yet verified:** opening `index.html` straight from disk (`file://`). The code avoids the known

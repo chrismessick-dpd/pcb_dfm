@@ -101,7 +101,7 @@
   }
 
   // ---- values written on the board data (PnP comment and description, ODB++ part name) ----
-  // Size codes, tolerances and ratings are dropped first, so "1K, 0402" reads as 1 kΩ, not 402 Ω.
+  // Size codes, tolerances, and ratings are dropped first, so "1K, 0402" reads as 1 kΩ, not 402 Ω.
   const SIZE_TOKENS = /(^|[^\d.])(01005|0201|0402|0603|0805|1206|1210|1812|2010|2512|1005|1608|2012|3216|3225|4532|5025|6332)(?![\d.])(\s*metric)?/gi;
   // The capacitance or resistance a text states, in F or Ω; null when it states none.
   function valueOf(text, kind) {
@@ -119,7 +119,7 @@
     return null;
   }
   // A board part name that is a value, not a part number ("10K,_0402", "4.7uF,_X5R", "0", "49.9_kO").
-  // The first token (up to a comma, underscore or space) must be a whole value: 10K, 4.7uF, 2.2uH, 0,
+  // The first token (up to a comma, underscore, or space) must be a whole value: 10K, 4.7uF, 2.2uH, 0,
   // 953, 16.2 kO. Part numbers that start with digits (a 0402… capacitor, 1729128) are not.
   const isValueLabel = s => {
     const t = String(s || '').trim().replace(/_/g, ' ');

@@ -17,7 +17,7 @@
     [/^C(0402|0603|0805|1206|1210)C/i, m => m[1]],
     // Susumu thin film: the metric size in the part number (RG1608 is an 0603).
     [/^(RG|RR|PRG)(1005|1608|2012|3216|3225|5025)/i, m => METRIC2IMP[m[2]]],
-    // Murata ferrites, inductors and NTCs: BLM18, LQM18, NCP15…
+    // Murata ferrites, inductors, and NTCs: BLM18, LQM18, NCP15…
     [/^(BLM|LQM|LQG|LQW|LQP|NCP|NFM)(03|15|18|21|31)/i, m => ({ '03': '0201', '15': '0402', '18': '0603', '21': '0805', '31': '1206' })[m[2]]],
     [/^RK73[BHZ](1E|1J|2A|2B)/i, m => ({ '1E': '0402', '1J': '0603', '2A': '0805', '2B': '1206' })[m[1].toUpperCase()]],
     [/^CL(03|05|10|21|31|32)/i, m => ({ '03': '0201', '05': '0402', '10': '0603', '21': '0805', '31': '1206', '32': '1210' })[m[1]]],
@@ -50,14 +50,14 @@
   const LC_ERROR = /obsolete|end of life|eol|nrnd|not recommended|last time|discontinued/;
   const LC_WARN = /deleted|unknown|preview|new product/;
   const REV_BAD = /deleted|obsolete/i;
-  const DECODED = 'Cal-Chip GMC, Yageo CC/RC/RT, Murata GRM/GCM, Samsung CL, KEMET, AVX, TDK, Vishay CRCW, Panasonic ERJ and Stackpole RMCF passives';
+  const DECODED = 'Cal-Chip GMC, Yageo CC/RC/RT, Murata GRM/GCM, Samsung CL, KEMET, AVX, TDK, Vishay CRCW, Panasonic ERJ, and Stackpole RMCF passives';
   const re = C.pattern;
   const sizeFamilies = () => MPN_SIZE.map(([r]) => re(r).replace(/^\^/, '').replace(/\(\?:?/g, '(').replace(/\(([^)]*)\)\(.*$/, '$1').replace(/\(([^)]*)\).*$/, '$1')).join(', ');
 
   C.define('Assembly', 'checks/assembly.js', [
     { check: 'origin', name: 'Pick-and-place origin', looks: 'Whether the pick-and-place coordinates land on pads as they are, or only after a shift.',
       sev: { warn: 'the placements line up only with an offset', info: 'they share the Gerber origin' }, uses: ['Pick-and-place X/Y', 'Top and bottom copper pads', 'Drill file extents'],
-      rules: () => [`Tries no shift, the board lower-left corner, its negative and the drill lower-left corner; keeps the one that puts the most parts within ${Fab.fmtLen(T.padNear)} of a pad.`],
+      rules: () => [`Tries no shift, the board lower-left corner, its negative, and the drill lower-left corner; keeps the one that puts the most parts within ${Fab.fmtLen(T.padNear)} of a pad.`],
       example: 'Pick-and-place uses a different origin than the Gerbers' },
     { check: 'placement', name: 'Placements vs pads', looks: 'Parts placed outside the board, on the wrong side, or far from any pad.',
       sev: { error: 'outside the board, or no pads on its side but pads on the other', warn: `no pads on its side within ${Fab.fmtLen(T.padFar)}` }, uses: ['Pick-and-place X/Y, layer', 'Copper pads', 'Board outline'],
@@ -76,7 +76,7 @@
       uses: ['BOM DNP / Fitted column', 'Pick-and-place'], example: '3 DNP part(s) appear in the pick-and-place' },
     { check: 'footprint', name: 'One footprint per BOM line', looks: 'BOM lines whose designators use different footprints in the pick-and-place.', sev: { warn: 'a line has more than one footprint' },
       uses: ['BOM designators', 'Pick-and-place footprint'], example: 'BOM row 14 (GRM155R71C104KA88D) uses 2 different footprints' },
-    { check: 'comment', name: 'Comment vs BOM', looks: "Pick-and-place comments that don't match the BOM line's name, part number or value.", sev: { warn: 'a comment matches none of them' },
+    { check: 'comment', name: 'Comment vs BOM', looks: "Pick-and-place comments that don't match the BOM line's name, part number, or value.", sev: { warn: 'a comment matches none of them' },
       uses: ['Pick-and-place comment', 'BOM name, MPN, value'], rules: () => ['Compared only when the BOM has a name column or the comment looks like a part number (6+ characters, letters and digits, no spaces).',
         'Letters and digits only; the part number without its packaging suffix, or with a library prefix, matches.', 'A comment that states a value for a part number Fabcheck decodes is compared by value instead (BOM audit, check value).'],
       example: 'PnP comment differs from BOM row 22' },
@@ -87,7 +87,7 @@
   ]);
 
   C.define('BOM', 'checks/assembly.js', [
-    { check: 'summary', name: 'BOM summary', looks: 'Lines, designators and columns found.', sev: { info: 'always' }, uses: ['BOM file'], example: 'BOM: 84 lines, 312 designators' },
+    { check: 'summary', name: 'BOM summary', looks: 'Lines, designators, and columns found.', sev: { info: 'always' }, uses: ['BOM file'], example: 'BOM: 84 lines, 312 designators' },
     { check: 'designator', name: 'Designators present', looks: 'BOM lines with no designators.', sev: { error: 'a line has none' }, uses: ['BOM designator column'], example: 'BOM row 31 has no designators' },
     { check: 'qty', name: 'Quantity vs designators', looks: 'Lines whose quantity differs from their designator count.', sev: { error: 'they differ' }, uses: ['BOM quantity, designators'], example: 'BOM row 5: quantity 4 but 3 designators' },
     { check: 'duplicate', name: 'Duplicate designators', looks: 'A designator on two BOM lines.', sev: { error: 'any duplicate' }, uses: ['BOM designators'], example: 'C12 appears on two BOM rows' },
@@ -98,7 +98,7 @@
     { check: 'name-mpn', name: 'Name vs part number', looks: 'A Name/Comment cell that holds a different part number than the MPN column.', sev: { warn: 'they differ' },
       uses: ['BOM name, MPN, MPN 2'], rules: () => ['The name counts as a part number when it is 6+ characters, has letters and digits and no spaces.'], example: 'BOM row 12: part name LM3480IM3 ≠ MPN LM3480IM3-5.0' },
     { check: 'lifecycle', name: 'Lifecycle', looks: "Lifecycle and library revision states that put the part's supply at risk.",
-      sev: { error: 'obsolete, end of life, NRND or last-time buy', warn: 'deleted, unknown, preview or new, or a deleted/obsolete library revision' }, uses: ['BOM lifecycle column', 'Altium component revision status'],
+      sev: { error: 'obsolete, end of life, NRND, or last-time buy', warn: 'deleted, unknown, preview or new, or a deleted/obsolete library revision' }, uses: ['BOM lifecycle column', 'Altium component revision status'],
       rules: () => [`Error when the lifecycle matches: ${LC_ERROR.source.split('|').join(', ')}.`, `Warning when it matches: ${LC_WARN.source.split('|').join(', ')}.`, `Warning when the revision status matches: ${REV_BAD.source.split('|').join(', ')}.`],
       example: 'BOM row 18: TPS62130RGTR lifecycle "NRND"' },
     { check: 'mpn-dup', name: 'One line per part number', looks: 'The same part number on several BOM lines. Assemblers ask for one line per part; lines that disagree on footprint or pad count mean one line has the wrong part number.',
@@ -107,11 +107,11 @@
     { check: 'value', name: 'Value on the board data', looks: "The value written for each part in the pick-and-place (comment, description) and ODB++ (part name), against the value its part number decodes to.",
       sev: { error: 'a part is marked with another value than its part number', info: 'how many parts were compared' },
       uses: ['BOM MPN (decoded offline)', 'Pick-and-place comment and description', 'ODB++ part name'],
-      rules: () => ['Decodes ' + DECODED + '.', `Values match within ${+(T.valueTol * 100).toFixed(1)}%.`, 'Size codes, tolerances and ratings are ignored, so "4K7, 0402" reads as 4.7 kΩ; on resistors a bare number is ohms ("680" is 680 Ω).', 'Texts that are the part number itself, or state no value, are skipped.'],
+      rules: () => ['Decodes ' + DECODED + '.', `Values match within ${+(T.valueTol * 100).toFixed(1)}%.`, 'Size codes, tolerances, and ratings are ignored, so "4K7, 0402" reads as 4.7 kΩ; on resistors a bare number is ohms ("680" is 680 Ω).', 'Texts that are the part number itself, or state no value, are skipped.'],
       example: 'BOM row 5: RC0402FR-0710KL is 10 kΩ, but R1 is marked 4.7 kΩ' },
     { check: 'fp-name', name: 'Footprint named for another part', looks: 'A footprint whose name carries a part number other than the BOM line\'s (IC_OPT3001DNPR on a TMP117AIDRVR), a sign it was copied from that part.',
       sev: { warn: 'the footprint names another part' }, uses: ['BOM MPN, footprint', 'Pick-and-place footprint'],
-      rules: () => ['Library prefixes (IC_, HRS_, JST_, XTAL_, FP-…) are dropped. A name counts as a part number only with 8+ letters and digits, a letter run followed by 3+ digits, no decimal point, no size code (0402, 2012…), no pin count (-16P) and no package word (QFN, SON, BGA, SOT…, IPC-7351 names, TI designators such as DSG0008A).',
+      rules: () => ['Library prefixes (IC_, HRS_, JST_, XTAL_, FP-…) are dropped. A name counts as a part number only with 8+ letters and digits, a letter run followed by 3+ digits, no decimal point, no size code (0402, 2012…), no pin count (-16P), and no package word (QFN, SON, BGA, SOT…, IPC-7351 names, TI designators such as DSG0008A).',
         `It names the same part when it shares ${T.fpPrefix}+ leading letters and digits with the part number, or holds the part number with X as a wildcard (a family footprint such as LTST-C19X for LTST-C190).`],
       example: 'U1: footprint IC_OPT3001DNPR is named for OPT3001DNPR, not TMP117AIDRVR' },
     { check: 'pkg-code', name: 'Package code vs footprint', looks: "The package a TI part number ends in (TPS62162DSGR → DSG, a SON) against the package family its footprint names.",
@@ -120,7 +120,7 @@
       example: 'BOM row 26: TPS62162DSGR is a SON (DSG), but its footprint SOT-23-6 is a SOT-23' },
     { check: 'pins', name: 'Pin count vs pads', looks: 'A pin count stated in a description ("6-SON", "64LQFP", "SOT-89-5", "8 pins") against the pads the part has on the board.',
       sev: { warn: 'they differ', info: 'how many parts were checked' }, uses: ['BOM and pick-and-place description', 'ODB++ component pins or IPC-356 pads'],
-      rules: () => ['One extra pad is allowed (an exposed thermal pad).', `Connectors are skipped (designators ${re(C.CONNECTOR_DES)}, or a description naming a connector, header or socket): shells and pegs add pads.`],
+      rules: () => ['One extra pad is allowed (an exposed thermal pad).', `Connectors are skipped (designators ${re(C.CONNECTOR_DES)}, or a description naming a connector, header, or socket): shells and pegs add pads.`],
       example: 'U4: 8 pads, but the description says 6-SON' },
     { check: 'single-source', name: 'Single-source lines', looks: 'Lines with no approved alternate.', sev: { info: 'lists them' }, uses: ['BOM Manufacturer 2 / MPN 2 columns'], example: '61 of 84 BOM lines are single-source' },
     { check: 'pn-desc', name: 'Part number vs description', looks: 'Passive part numbers decoded offline (value, voltage, dielectric, tolerance) against the description and value columns.',
@@ -131,9 +131,9 @@
       uses: ['BOM MPN, manufacturer'], rules: () => ['Part numbers starting with:'].concat(Fab.parts.PREFIX_MFR.map(([r, names]) => `${re(r)} → ${names[0].replace(/^\w/, c => c.toUpperCase())}`)),
       example: 'BOM row 3: CL05A105KA5NQNC listed as made by Murata' },
     { check: 'value-type', name: 'Value vs part type', looks: 'A Value cell that does not fit the designator class: a resistance on a capacitor, a capacitance on a resistor or diode, ohms on an LED.',
-      sev: { warn: 'it does not fit' }, uses: ['BOM value, designators'], rules: () => ['Class from the designator prefix (C, R, D, DS, LED).', 'Capacitance: a number ending in F. Resistance: Ω, ohm, a bare number or R/k/M notation.'],
+      sev: { warn: 'it does not fit' }, uses: ['BOM value, designators'], rules: () => ['Class from the designator prefix (C, R, D, DS, LED).', 'Capacitance: a number ending in F. Resistance: Ω, ohm, a bare number, or R/k/M notation.'],
       example: 'BOM row 26: value "2pF" on a D part' },
-    { check: 'encoding', name: 'Lost characters', looks: 'Cells where µ, ± or Ω were lost in export (shown as �).', sev: { info: 'counts them' }, uses: ['BOM value, description, name'], example: '6 BOM cell(s) contain lost characters (�)' },
+    { check: 'encoding', name: 'Lost characters', looks: 'Cells where µ, ±, or Ω were lost in export (shown as �).', sev: { info: 'counts them' }, uses: ['BOM value, description, name'], example: '6 BOM cell(s) contain lost characters (�)' },
   ]);
 
   // ---- PnP origin alignment ----
@@ -225,7 +225,7 @@
           add('placement', 'error', `${p.des}: no pads on ${p.side}, but there are on the other side`, `Footprint ${p.footprint}. Check the Layer column in the PnP.`, ex);
         } else if (!far) {
           row.issues.push('no pads');
-          add('placement', 'warn', `${p.des}: no ${p.side} pads within ${Fab.fmtLen(T.padFar)}`, `Footprint ${p.footprint}. Wrong origin, side or a part without copper?`, ex);
+          add('placement', 'warn', `${p.des}: no ${p.side} pads within ${Fab.fmtLen(T.padFar)}`, `Footprint ${p.footprint}. Wrong origin, side, or a part without copper?`, ex);
         }
       }
       // Two-terminal pad pair centered on the placement (used for the rotation check).
@@ -283,7 +283,7 @@
       else if (line.dnp) dnpPlaced.push(p);
     }
     for (const [d, line] of bomDes) if (!placed.has(d) && !line.dnp) notPlaced.push({ d, line });
-    // Test points, fiducials and mounting holes usually have no BOM line on purpose.
+    // Test points, fiducials, and mounting holes usually have no BOM line on purpose.
     const padOnly = p => C.isPadOnly(pkg, p.des);
     const quiet = notInBom.filter(padOnly);
     if (quiet.length) add('bom-pnp', 'info', `${quiet.length} test point / fiducial placement(s) have no BOM line`,
@@ -297,7 +297,7 @@
     if (!notInBom.length && !notPlaced.length) add('bom-pnp', 'info', 'Every placement is in the BOM and every BOM designator is placed', `${pnp.parts.length} placements, ${bomDes.size} BOM designators.`);
 
     // Comment / footprint agreement per line
-    yield 'Comments, footprints and size codes';
+    yield 'Comments, footprints, and size codes';
     let sizeChecked = 0;
     for (const line of bom.lines) {
       const parts = line.des.map(d => placed.get(d)).filter(Boolean);
@@ -467,7 +467,7 @@
     }
     add('value', 'info', `Values compared on ${compared} parts`, `Pick-and-place comments and descriptions${comps.size ? ' and ODB++ part names' : ''} that state a value, against the value the part number decodes to (offline; ${DECODED}).`);
 
-    // ---- footprint names, package codes and pin counts ----
+    // ---- footprint names, package codes, and pin counts ----
     yield 'Footprints vs part numbers';
     let tiChecked = 0, pinChecked = 0;
     const pinBad = [];
@@ -509,7 +509,7 @@
       const says = [...new Set(b.stated.map(s => s.c))].join(' or ');
       add('pins', 'warn', `${b.d}: ${b.n} pads, but the description says ${says} pins`,
         `BOM row ${b.l.row} (${b.l.mpn || b.l.name || '?'}). ` + [...new Set(b.stated.map(s => `${s.src}: "${s.t.length > 90 ? s.t.slice(0, 90) + '…' : s.t}"`))].join('\n') +
-        '\nThe footprint, the part number or the description is for another package.', Object.assign({ refs: [b.d], row: b.l.row }, b.p && b.p.gx != null ? { at: { x: b.p.gx, y: b.p.gy }, side: b.p.side } : {}));
+        '\nThe footprint, the part number, or the description is for another package.', Object.assign({ refs: [b.d], row: b.l.row }, b.p && b.p.gx != null ? { at: { x: b.p.gx, y: b.p.gy }, side: b.p.side } : {}));
     }
     if (tiChecked) add('pkg-code', 'info', `Package code compared with the footprint on ${tiChecked} TI part(s)`, 'The package designator at the end of each TI part number against the package family its footprint names.');
     if (pinChecked) add('pins', 'info', `Pin count compared with pads on ${pinChecked} part(s)`, 'Pin counts stated in BOM and pick-and-place descriptions against the pads each part has (ODB++ or IPC-356).');
@@ -519,7 +519,7 @@
       if (single.length) add('single-source', 'info', `${single.length} of ${bom.lines.length} BOM lines are single-source`, single.map(l => l.mpn).join(', '));
     }
     add('pn-desc', 'info', `Part number decoded and compared with the description on ${decoded.n} BOM lines`, `Covers ${DECODED} (offline).`);
-    if (lostChars) add('encoding', 'info', `${lostChars} BOM cell(s) contain lost characters (�)`, 'Characters such as µ, ± or Ω were not exported correctly. Values like "10�F" are ambiguous to a buyer.');
+    if (lostChars) add('encoding', 'info', `${lostChars} BOM cell(s) contain lost characters (�)`, 'Characters such as µ, ±, or Ω were not exported correctly. Values like "10�F" are ambiguous to a buyer.');
     return;
   }
 

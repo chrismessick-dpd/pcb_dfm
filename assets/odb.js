@@ -1,5 +1,5 @@
 // ODB++ component layers (steps/<step>/layers/comp_+_top|bot/components) from an extracted odb/ tree.
-// Gives each placed component its part name, mount type, .no_pop flag and pin (toeprint) positions.
+// Gives each placed component its part name, mount type, .no_pop flag, and pin (toeprint) positions.
 (function (Fab) {
   'use strict';
 

@@ -17,14 +17,15 @@ guide, FTE section, demo mode), `docs/fab-rules.md` (every fab-rule default with
   package, which stays on Chris's machine (path in the local hand-over notes). The script scrubs it
   and refuses to write if a local path or a word from `tools/sample-forbid.txt` (git-ignored: client
   name, part numbers, date) remains. Chris approved publishing that scrubbed board (2026-10-24); don't
-  add other client data. This repo is public: client names, part numbers and local paths never go
-  in code, docs or commit messages.
+  add other client data. This repo is public: client names, part numbers, and local paths never go
+  in code, docs, or commit messages.
 - **Don't edit other repos** (`ee_design_review`, `me_design_review`, `signoff`): their own sessions
   own them. Fabcheck vendors from Signoff EE with `tools/sync_vendor.py` (`--check` to verify).
 - **Never** put a token in a page or commit. Don't touch Robotrxai / RMix / queue repos. Ask Chris
   before creating GitHub repos.
 - American English, metric first. Every length shown is `Fab.fmtLen(mm)` → "0.084 mm (3.3 mil)"
-  (`Fab.fmtSize` for pairs); coordinates, areas and µm stay metric only.
+  (`Fab.fmtSize` for pairs); coordinates, areas, and µm stay metric only.
+- **Serial comma** (Chris, 2026-11-08): use the Oxford comma in every list of three or more, in UI text, docs, demo data, checklists, and commit messages: "A, B, and C". Never change check ids or data keys to fit it.
 
 ## Code layout and conventions
 
@@ -37,7 +38,7 @@ guide, FTE section, demo mode), `docs/fab-rules.md` (every fab-rule default with
 - Check modules (`assets/checks/*.js`) are generators: `yield 'step label'`, push findings via
   `add(check, severity, title, detail, extra)`. `C.runner(gen)` drains one; the app runs `.steps`
   for the live console.
-- Package, assembly and BOM checks are declared with `C.define(category, source, [...])` next to the
+- Package, assembly, and BOM checks are declared with `C.define(category, source, [...])` next to the
   code; thresholds live in a `T` object and named patterns, and `rules()` reads them, so the
   "BOM & assembly checks" tab can't drift. `C.audit` warns on undeclared findings. Add a declaration
   whenever you add one of these checks.
@@ -106,7 +107,7 @@ Done: kept runs and deep links with Signoff EE (stages 1–2), editable/shared f
 sidebar, demo mode with the scrubbed Handle sample.
 
 Merged 2026-11-01: the `stage-glow` branch (inspection stage with live raster glow, finding pins,
-detail drawings, progress bar and transitions; finding preview; board fly-to; warning triangles)
+detail drawings, progress bar, and transitions; finding preview; board fly-to; warning triangles)
 and the `security` branch (trusted deep-link repos, `cleanFinding`, SRI, SheetJS 0.20.3, CSP).
 Findings identical to `961ae01` on the demo (all three profiles) and both Generator packages.
 
@@ -156,7 +157,7 @@ pushed). Read `docs/signoff-revisions.md` first; `docs/releases.md` is the histo
   - Signoff PL reading `summary.revisions`.
 
 Review notes (2026-11-03, pushed to `main`): a speech-bubble button at the board's top right places a
-reviewer's note (error, warning or info) on a spot of the board. Notes are findings in a new `Review`
+reviewer's note (error, warning, or info) on a spot of the board. Notes are findings in a new `Review`
 category (`check: 'note'`), kept with the run and through re-runs, left out of the run summary and the
 Revisions delta, and sent to Signoff EE as one issue each (Info notes too, as Minor). See *Review notes* in `docs/design.md`.
 Open: editing a note; notes don't carry over to a new run of the same package opened afresh.
@@ -206,11 +207,11 @@ Also fixed: the initial state's `profile: 'standard', thickness: 1.6` had been s
 since 2026-11-03, so a browser with no remembered profile ran with no board thickness (aspect ratio)
 and the profile picker showed Prototype.
 
-Waivers (2026-11-07, merged to `main` and pushed, `a0307b5`): Waive, Waive similar… and
+Waivers (2026-11-07, merged to `main` and pushed, `a0307b5`): Waive, Waive similar…, and
 Treat as… in the inspector; a closed Waived fold and a Waivers list on Findings; totals count active
 findings only. Send leaves waived findings out unless Details' *Waived, for reference* box is ticked;
 then each check's waived findings go as one reference row (`reference: true`), which the Signoff engine
-counts nowhere (merged and pushed in EE, ME, FW and PL too). Logic in `assets/waivers.js`, part-type overrides
+counts nowhere (merged and pushed in EE, ME, FW, and PL too). Logic in `assets/waivers.js`, part-type overrides
 in `checks/common.js` (`C.setPartKinds`, `C.overrideSet`), Send in `signoff.js` (`plan(findings,
 waiverOf)`). Read *Waivers* in `docs/design.md` first. With no rules, the demo boards' findings, summaries
 and Send groups were identical to `bom-checks` before it.
@@ -233,6 +234,6 @@ If you change the script: rerun it, regenerate EE's demo issues and pictures (`c
 `VERSION` and regenerate PL's snapshot.
 
 Suite context: the folder above holds a `CLAUDE.md` for the whole suite, covering engine
-vendoring, project summaries and the demo suite. The vendored `model.js`/`github.js` were last
+vendoring, project summaries, and the demo suite. The vendored `model.js`/`github.js` were last
 synced at ee_design_review `ae10959`. They add `project.summary`, which Fabcheck's writes keep as
 is, and `cfg.merge`.

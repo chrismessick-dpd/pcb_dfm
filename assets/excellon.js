@@ -1,5 +1,5 @@
 // Excellon NC drill parser -> { tools, hits, slots } in mm.
-// Handles METRIC/INCH, LZ/TZ zero suppression, Altium ;FILE_FORMAT and ;TYPE=PLATED comments,
+// Handles METRIC/INCH, LZ/TZ zero suppression, Altium ;FILE_FORMAT, and ;TYPE=PLATED comments,
 // G85 slots and routed slots (G00 … M15 G01 … M16).
 (function (Fab) {
   'use strict';

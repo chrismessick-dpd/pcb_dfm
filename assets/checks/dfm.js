@@ -485,7 +485,7 @@
       if (o && !o.board.synthetic && L.copper.length >= 2) {
         const area = o.board.area - o.cutouts.reduce((t, c) => t + c.area, 0);
         const pct = cover.map(a => Math.min(100, 100 * a / area));
-        add('copper-balance', 'info', 'Copper coverage by layer', L.copper.map((l, i) => `${l.file.name} ${pct[i].toFixed(0)}%`).join(' · ') + '. Approximate: includes pads, traces and pours inside the outline.');
+        add('copper-balance', 'info', 'Copper coverage by layer', L.copper.map((l, i) => `${l.file.name} ${pct[i].toFixed(0)}%`).join(' · ') + '. Approximate: includes pads, traces, and pours inside the outline.');
         const n = L.copper.length;
         for (let i = 0; i < Math.floor(n / 2); i++) {
           const j = n - 1 - i, d = Math.abs(pct[i] - pct[j]);
@@ -500,7 +500,7 @@
         Fab.raster.maskDams(pkg, mask, prof, add, MAX, pre && pre.mask.get(mask));
       }
     }
-    // Flex packages: coverlay, stiffeners and the flexible area (checks/flex.js, category Flex).
+    // Flex packages: coverlay, stiffeners, and the flexible area (checks/flex.js, category Flex).
     if (pkg.flex && C.flexSteps) yield* C.flexSteps(pkg, prof, out);
     return;
   }

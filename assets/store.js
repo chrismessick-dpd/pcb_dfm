@@ -1,5 +1,5 @@
 // Kept runs (contract: ee_design_review/docs/fabcheck-link.md). Every finished run is saved in
-// IndexedDB with its run record, findings and the slimmed package, so it reopens without the
+// IndexedDB with its run record, findings, and the slimmed package, so it reopens without the
 // original upload and can be stored in a Signoff project's repo.
 (function (Fab) {
   'use strict';

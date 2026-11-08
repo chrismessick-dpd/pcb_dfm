@@ -2,8 +2,8 @@
 
 Fabcheck was built for rigid boards. This page audits every check against flex and HDI flex
 packages, and lists what to add or change. It started from one real package (2026-11-04): a
-2-layer HDI flex from Altium Designer 26, Gerber X2, with ODB++, IPC-D-356, a BOM and pick-and-place.
-No client names, part numbers or board dimensions belong on this page. The repo is public.
+2-layer HDI flex from Altium Designer 26, Gerber X2, with ODB++, IPC-D-356, a BOM, and pick-and-place.
+No client names, part numbers, or board dimensions belong on this page. The repo is public.
 
 ## What an Altium flex package looks like
 
@@ -21,7 +21,7 @@ No client names, part numbers or board dimensions belong on this page. The repo 
   Altium didn't write it is not known yet. The output settings showed it as included, and the package
   came from a release snapshot, which may have run a different OutJob or configuration.
 - **Every layer carries a layer-name label below the board.** The label is text, outside the outline,
-  on copper, mask, paste, silkscreen and every mechanical layer. On some layers it is the only content:
+  on copper, mask, paste, silkscreen, and every mechanical layer. On some layers it is the only content:
   the top mask (top is covered by coverlay), the top paste and the bottom coverlay.
 - **Coverlay and mask are mixed.** The top is covered by coverlay: a full-board region with no
   openings. The bottom uses photoimageable solder mask (fine-pitch parts). The bottom coverlay layer
@@ -33,7 +33,7 @@ No client names, part numbers or board dimensions belong on this page. The repo 
 ## Fixed now (2026-11-04)
 
 - **Outline from an X2 mechanical layer.** `classify.js` now treats an X2 `Other,…` layer whose type
-  names an outline, profile or board shape as the outline, after a real profile. If copper strays
+  names an outline, profile, or board shape as the outline, after a real profile. If copper strays
   outside it (the layer-name labels), it still wins; the `extents` check reports that copper.
   Findings on the six reference packages (demo sample, both demo boards, Handle, both Generators;
   Standard and Advanced) are identical before and after.
@@ -79,7 +79,7 @@ exactly those (10 warnings, no errors). The real package this page started from 
 so it has not been re-run.
 
 - **Flex detection.** `classify.js` `otherRole` reads the X2 `Other,<type>` of mechanical layers:
-  coverlay, stiffener, bend lines and the outline. `pkg.layers.coverlay` / `stiffener` / `bend`,
+  coverlay, stiffener, bend lines, and the outline. `pkg.layers.coverlay` / `stiffener` / `bend`,
   `pkg.flex` (which of them draw inside the board), `pkg.onBoard(layer)`.
   - The Overview's facts say "2-layer flex" and where the outline came from.
   - The board's layer list names coverlay and stiffener layers, with their own colors.
@@ -96,7 +96,7 @@ so it has not been re-run.
   checks skip a side covered by coverlay with no mask openings.
 - **Flex checks** (`checks/flex.js`, category Flex, run at the end of DFM):
   - `flex`: what covers each side, the stiffeners, the limits used.
-  - `coverlay`: per pad, whether it sits in an opening, is anchored (coverlay over its edge) or is
+  - `coverlay`: per pad, whether it sits in an opening, is anchored (coverlay over its edge), or is
     covered (error), and the clearance to the coverlay (warn under `coverlayExp`). Works whether the
     layer draws the film or the openings.
   - `coverlay-web`: strips of coverlay between openings narrower than `coverlayWeb`, measured on the
@@ -114,7 +114,7 @@ so it has not been re-run.
 
 Still open:
 - The bend zone is guessed as "not under a stiffener". With a bend-line layer only the keep-away uses it.
-- Trace direction across a bend, trace corners and teardrops in the flexible area.
+- Trace direction across a bend, trace corners, and teardrops in the flexible area.
 - Microvia aspect ratio and stacked microvias (need the dielectric and drill spans).
 - Rigid-flex (below).
 - Signoff EE's demo doesn't link to the flex demo; it's in Fabcheck's demo only.
@@ -139,7 +139,7 @@ When Fabcheck isn't sure which file is the outline, it should ask:
 - **When:** no profile and no outline-typed layer, or the outline found doesn't enclose most of the
   copper.
 - **How:** show the candidates as small renders: mechanical and `Other` layers with a closed loop.
-  Each has its file name, X2 function and the board size it gives.
+  Each has its file name, X2 function, and the board size it gives.
 - **Then:** keep the choice with the run, so a re-run and a revision use it. Show which file the
   outline came from, and a "Change" link, next to the board size.
 
@@ -163,11 +163,11 @@ Coverlay is a drilled or laser-cut film, not a photoimaged mask, so its limits a
 - **Parts sit on a stiffener.** Each connector and fine-pitch part, from the pick-and-place, should
   have a stiffener behind it on the other side. Stiffeners on the same side as the part also count
   (FR4 around a connector).
-- **Stiffener edges are stress risers.** No pads, vias or plated holes within a set distance of a
+- **Stiffener edges are stress risers.** No pads, vias, or plated holes within a set distance of a
   stiffener edge.
 - **Bend zone:** the flex outside every stiffener (for rigid-flex, outside the rigid regions). In it,
   check for:
-  - vias, pads or plated holes (error);
+  - vias, pads, or plated holes (error);
   - solid copper pours (hatch them);
   - traces not crossing at right angles to the bend;
   - corners in traces;
@@ -185,7 +185,7 @@ A new built-in profile, *Flex HDI*, with every value sourced in `fab-rules.md`. 
   others).
 
 It needs these rules, some of them new:
-- trace, space, drill and ring (HDI flex);
+- trace, space, drill, and ring (HDI flex);
 - laser microvia drill and ring;
 - copper to edge (die or laser cut);
 - coverlay opening clearance and minimum web (new);
@@ -199,9 +199,9 @@ and the two profiles should share the microvia rules.
 
 ### 6. Revisions between two flex packages
 
-`revisions.js` `layerKey` keys a layer by function, side, copper index and mechanical number. Every
+`revisions.js` `layerKey` keys a layer by function, side, copper index, and mechanical number. Every
 X2 `Other,…` layer gets the same key (`other:::`), so the Map keeps only the last of them, and the
-coverlay, stiffener, outline and notes layers aren't compared one to one. Adding `x2fn` to the key
+coverlay, stiffener, outline, and notes layers aren't compared one to one. Adding `x2fn` to the key
 fixes that. It also changes revision results for existing X2 packages that have `Other` layers, so
 check them first.
 

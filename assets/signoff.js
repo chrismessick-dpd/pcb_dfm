@@ -65,7 +65,7 @@
       g.list.push(f);
       if (w) g.rules.push(w);
     }
-    // Errors, warnings and notes first; the waived groups after them.
+    // Errors, warnings, and notes first; the waived groups after them.
     return [...groups.values()].sort((a, b) => (a.waived ? 1 : 0) - (b.waived ? 1 : 0) || (a.severity === 'error' ? 0 : 1) - (b.severity === 'error' ? 0 : 1) || b.list.length - a.list.length);
   }
   // The reasons a waived group's rules give.

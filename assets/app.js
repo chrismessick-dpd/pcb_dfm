@@ -21,12 +21,12 @@
     ['bom', 'BOM'], ['files', 'Files'], ['revisions', 'Revisions'], ['archive', 'Archive'], ['rules', 'Fab rules'],
   ];
   const CATS = [
-    ['Package', 'Package', 'Files, layer sets, units, drill report and outline'],
-    ['Assembly', 'Build & assembly', 'Pick-and-place, BOM, ODB++, variant and stencil'],
-    ['BOM', 'BOM audit', 'Part numbers, descriptions, manufacturers and lifecycle'],
-    ['DFM', 'Fabrication DFM', 'Traces, drills, rings, edge, mask and silkscreen'],
+    ['Package', 'Package', 'Files, layer sets, units, drill report, and outline'],
+    ['Assembly', 'Build & assembly', 'Pick-and-place, BOM, ODB++, variant, and stencil'],
+    ['BOM', 'BOM audit', 'Part numbers, descriptions, manufacturers, and lifecycle'],
+    ['DFM', 'Fabrication DFM', 'Traces, drills, rings, edge, mask, and silkscreen'],
     // Shown for flex packages (coverlay or stiffener layers).
-    ['Flex', 'Flex', 'Coverlay openings, stiffeners and the flexible area'],
+    ['Flex', 'Flex', 'Coverlay openings, stiffeners, and the flexible area'],
     // Placed on the board by a reviewer (the note button on the board), not found by a check.
     ['Review', 'Review notes', 'Notes placed on the board by reviewers'],
   ];
@@ -290,7 +290,7 @@
     const notes = entry.findings.filter(f => f.category === 'Review');
     entry.findings = [];
     if (reason) log(entry, 'step', reason);
-    // Parts the reviewer set as test points, fiducials or mounting holes (Treat as…) count as such.
+    // Parts the reviewer set as test points, fiducials, or mounting holes (Treat as…) count as such.
     const kinds = Fab.waivers.kinds(scopeOf(entry));
     C.setPartKinds(pkg, kinds);
     entry.kindsAt = kindsSig(pkg.partKinds);
@@ -736,11 +736,11 @@
     return `<div class="page"><div class="drop" id="drop">
       <div class="empty-art">${ICON.upload}</div>
       <h2>Check a fab package before it goes out</h2>
-      <p>Drop an Altium output .zip or folder anywhere on this window: Gerber (RS-274X or X2), NC drill, pick-and-place, BOM, ODB++ and drawings.</p>
+      <p>Drop an Altium output .zip or folder anywhere on this window: Gerber (RS-274X or X2), NC drill, pick-and-place, BOM, ODB++, and drawings.</p>
       <div class="actions"><button class="btn btn-primary" data-act="open">Choose .zip…</button><button class="btn" data-act="open-dir">Choose folder…</button>${sampleButtons()}</div>
       <div class="drop-tiles">
         <div><b>Package</b>Every file classified; missing items, units, drill report</div>
-        <div><b>Build</b>PnP, BOM and ODB++ agree; variant and stencil</div>
+        <div><b>Build</b>PnP, BOM, and ODB++ agree; variant and stencil</div>
         <div><b>BOM</b>Part numbers decoded against descriptions</div>
         <div><b>DFM</b>Traces, drills, rings, edge, mask, silk</div>
       </div>
@@ -812,7 +812,7 @@
   const isWaived = (e, f) => !!waiverOf(e, f);
   const activeOf = (e, fs) => { const by = wv(e).by; return fs.filter(f => { const s = by.get(f.id); return !s || s.state === 'stale'; }); };
   const waivedOf = (e, fs) => { const by = wv(e).by; return fs.filter(f => { const s = by.get(f.id); return s && s.state !== 'stale'; }); };
-  // Errors, warnings and info still to deal with: what every total shows. Waived ones are counted apart.
+  // Errors, warnings, and info still to deal with: what every total shows. Waived ones are counted apart.
   const liveCounts = (e, fs) => counts(activeOf(e, fs || e.findings));
   const sendPlan = e => Fab.signoff.plan(e.findings, f => { const w = waiverOf(e, f); return w ? w.rule : null; });
   const fmtDate = s => { const d = new Date(s); return isNaN(d) ? '' : d.toLocaleDateString(); };
@@ -1061,12 +1061,12 @@
     ? `<button class="tag tag-link" data-act="check-doc" data-key="${esc(f.category + '/' + f.check)}" title="What this check looks for">${esc(f.check)}</button>`
     : `<span class="tag">${esc(f.check)}</span>`;
 
-  // Read-only list of the package, assembly and BOM checks, generated from the check modules' own declarations.
+  // Read-only list of the package, assembly, and BOM checks, generated from the check modules' own declarations.
   function checksHtml() {
     const e = active();
     const n = e && e.findings ? key => e.findings.filter(f => f.category + '/' + f.check === key).length : null;
     const sevs = [['error', 'Error'], ['warn', 'Warning'], ['info', 'Info']];
-    let h = `<div class="page wide">` + pageHead(null, 'Fab rules', 'BOM & assembly checks', 'What Fabcheck looks for in the package, the build data and the BOM. These are logic, not numbers, so they are not editable; this list is generated from the checks themselves.') + rulesTabs();
+    let h = `<div class="page wide">` + pageHead(null, 'Fab rules', 'BOM & assembly checks', 'What Fabcheck looks for in the package, the build data, and the BOM. These are logic, not numbers, so they are not editable; this list is generated from the checks themselves.') + rulesTabs();
     for (const [cat, title, sub] of CATS.filter(c => C.CATALOGED.includes(c[0]))) {
       const defs = C.catalog.filter(d => d.category === cat);
       h += `<div class="card sec"><div class="sec-head" style="cursor:default"><div class="sec-title">${esc(title)}<small>${defs.length} checks · ${esc(sub)}</small></div></div><div class="sec-body">`;
@@ -1179,7 +1179,7 @@
     const infoNotes = picked.some(r => r.group.severity === 'info');
     const sevs = [major && `${major} Major from errors`, picked.length - major && `${picked.length - major} Minor from warnings${infoNotes ? ' and Info notes' : ''}`].filter(Boolean).join(', ');
     const news = [fresh && `${fresh} new`, picked.length - fresh && `${picked.length - fresh} updating ${picked.length - fresh === 1 ? 'an issue' : 'issues'} sent before`].filter(Boolean).join(', ');
-    const issues = !nIssues ? 'No errors, warnings or review notes to send; earlier Fabcheck issues get a "no longer found" note.' : picked.length ? `Sends ${picked.length < nIssues ? picked.length + ' of ' : ''}${plural(nIssues, 'issue')} to the Fabrication &amp; Release checklist (${sevs}; ${news}).` : `No issues picked, so none are sent (${plural(nIssues, 'issue')} available)${Fab.repoRuns ? '; sending still stores the run and its fab package' : ''}, and earlier issues for these checks stay as they are.`;
+    const issues = !nIssues ? 'No errors, warnings, or review notes to send; earlier Fabcheck issues get a "no longer found" note.' : picked.length ? `Sends ${picked.length < nIssues ? picked.length + ' of ' : ''}${plural(nIssues, 'issue')} to the Fabrication &amp; Release checklist (${sevs}; ${news}).` : `No issues picked, so none are sent (${plural(nIssues, 'issue')} available)${Fab.repoRuns ? '; sending still stores the run and its fab package' : ''}, and earlier issues for these checks stay as they are.`;
     const refNote = nRef ? ` Also sends ${plural(nRef, 'group')} of waived findings, kept in Signoff for reference and counted nowhere.` : pv.rows.some(r => r.group.waived) ? ' Waived findings stay in Fabcheck (tick Waived under Details to send them for reference).' : '';
     h += `<p style="margin:0 0 12px;color:var(--text-2)">${issues}${refNote} Sending again updates the same issues and keeps the reviewer's status. ${Fab.DEMO ? 'In this demo they go to the Signoff EE demo in this browser.' : "Signoff's Sync then pushes the issues, and its Revisions tab lists the stored run, where it can be tagged and downloaded."}</p>
       <div class="filters" style="margin:0"><label class="tb-field" style="font-size:13px">Project <select data-act="signoff-project">${projects.map(p => `<option value="${esc(p.slug)}"${p.slug === e.signoffSlug ? ' selected' : ''}>${esc(p.meta.name)}${p.meta.board ? ' · ' + esc(p.meta.board) : ''}${(p.meta.checklists || []).includes('fab') ? '' : ' (no Fab checklist)'}</option>`).join('')}</select></label>
@@ -1197,7 +1197,7 @@
   // Send to Signoff stores the run with its fab package in the project's repo first, so every issue
   // carries where the run is, and Signoff lists it (docs/signoff-revisions.md). If it can't be
   // stored, nothing is sent until the user picks "Send without storing".
-  // A wait that says what it is doing: a card over the page with a spinner, a step line and a bar
+  // A wait that says what it is doing: a card over the page with a spinner, a step line, and a bar
   // (styles: .busy in suite.css, from Signoff EE). The spinner keeps turning while the zip is built.
   // Returns { step(text, fraction), stop(text, actions), close() }; actions are [label, fn, primary].
   function busyCard(title) {
@@ -1313,7 +1313,7 @@
         if (next) next();
       } catch (err) {
         msg.style.color = 'var(--warn)';
-        msg.textContent = err.status === 401 ? 'GitHub didn\'t accept that token (mistyped, expired or revoked?).' : 'Couldn\'t sign in: ' + (err.message || err);
+        msg.textContent = err.status === 401 ? 'GitHub didn\'t accept that token (mistyped, expired, or revoked?).' : 'Couldn\'t sign in: ' + (err.message || err);
       }
     };
     const onKey = ev => { if (ev.key === 'Escape') close(); if (ev.key === 'Enter' && ev.target === input) submit(); };
@@ -1324,7 +1324,7 @@
 
   // Nothing leaves the browser without saying where it goes; Cancel keeps it all here.
   function confirmStore(repo, pkg) {
-    return confirm(`This run, its findings and the fab package (${pkg.name}: ${plural(pkg.files.length, 'file')}, ${(pkg.bytes.length / 1048576).toFixed(2)} MB), plus top and bottom pictures of the board, will be stored in the private repository ${repo}, where everyone with access to the project can open and download them.\n\nOK to store them and send the issues. Cancel to keep everything in this browser.`);
+    return confirm(`This run, its findings, and the fab package (${pkg.name}: ${plural(pkg.files.length, 'file')}, ${(pkg.bytes.length / 1048576).toFixed(2)} MB), plus top and bottom pictures of the board, will be stored in the private repository ${repo}, where everyone with access to the project can open and download them.\n\nOK to store them and send the issues. Cancel to keep everything in this browser.`);
   }
 
   // Where Send will store the run, or why it can't, from a cached check of the project's repo.
@@ -1401,7 +1401,7 @@
     if (f.bbox) return `${((f.bbox[0] + f.bbox[2]) / 2).toFixed(2)}, ${((f.bbox[1] + f.bbox[3]) / 2).toFixed(2)} mm`;
     return '';
   }
-  // The severity filter, the same on Findings and beside the board: symbol, name and count. In a
+  // The severity filter, the same on Findings and beside the board: symbol, name, and count. In a
   // narrow list "Warnings" becomes "Warn".
   const sevButtons = c => ['error', 'warn', 'info'].map(s => `<button class="${state.filter[s] ? 'on' : ''}" data-act="sev-toggle" data-sev="${s}"><span class="dot ${s}"></span>${s === 'warn' ? '<span class="sev-long">Warnings</span><span class="sev-short">Warn</span>' : { error: 'Errors', info: 'Info' }[s]}<span class="count">${c[s]}</span></button>`).join('');
 
@@ -1565,7 +1565,7 @@
     }
     return `<div class="wv-acts"><button class="btn" data-act="waive-open" data-id="${id}" title="W">${st ? 'Waive again' : 'Waive'}</button>` +
       `<button class="btn" data-act="waive-sim" data-id="${id}" title="Shift+W">Waive similar…</button>` +
-      (f.refs && f.refs.length ? `<button class="btn btn-plain" data-act="kind-open" data-id="${id}" title="Set these parts as test points, fiducials or mounting holes">Treat as…</button>` : '') +
+      (f.refs && f.refs.length ? `<button class="btn btn-plain" data-act="kind-open" data-id="${id}" title="Set these parts as test points, fiducials, or mounting holes">Treat as…</button>` : '') +
       (st ? `<button class="btn btn-plain" data-act="waive-drop" data-id="${id}">Drop old waiver</button>` : '') + `</div>`;
   }
   const waiveUser = () => noteUser() || '';
@@ -1675,7 +1675,7 @@
     }
     return out;
   }
-  // Candidates, matches and near misses for the panel as it stands.
+  // Candidates, matches, and near misses for the panel as it stands.
   function simResults(e, s) {
     const W = Fab.waivers, by = wv(e).by, facets = simFacets(s);
     const ck = f => f.category + '/' + f.check;
@@ -1884,7 +1884,7 @@
     afterWaiverChange(e, f, old ? 'Waiver rule saved' : `Waived ${plural(hit.length, 'finding')}`, next);
   }
 
-  // ── Treat as a test point, fiducial or mounting hole ──
+  // ── Treat as a test point, fiducial, or mounting hole ──
   // Not a waiver: the reviewer says what the parts are, and the checks run again knowing it.
   function openKind(e, f) {
     const W = Fab.waivers;
@@ -2501,7 +2501,7 @@
   // ── Revisions ──
   // ── The fab package (docs/fab-package.md) ──
   // What the fab and assembly houses need, as one zip with Fabrication/ and Assembly/ folders. Send
-  // stores it with the run (Signoff lists, tags and downloads it); the Files tab exports it for anyone.
+  // stores it with the run (Signoff lists, tags, and downloads it); the Files tab exports it for anyone.
   const who = () => { try { return (JSON.parse(localStorage.getItem(Fab.signoffNs + 'settings') || '{}') || {}).user || ''; } catch (err) { return ''; } };
   const pkgSha = e => (e.run && e.run.package.sha256) || (e.pkgRec && e.pkgRec.sha256) || null;
 
@@ -2603,7 +2603,7 @@
     const layers = (rc.res.gerber || []).filter(g => g.status !== 'same');
     const same = (rc.res.gerber || []).length - layers.length;
     const quiet = !layers.length && !ch.bom && !ch.placements && !ch.drill;
-    let h = `<div class="card" style="padding:14px 18px;margin-bottom:14px"><div style="font-weight:600;margin-bottom:6px">Since ${esc(rc.label || 'the baseline')}: ${quiet ? 'no changes to the artwork, drill, BOM or placements' : esc(Fab.releases.changesText(ch))}</div>`;
+    let h = `<div class="card" style="padding:14px 18px;margin-bottom:14px"><div style="font-weight:600;margin-bottom:6px">Since ${esc(rc.label || 'the baseline')}: ${quiet ? 'no changes to the artwork, drill, BOM, or placements' : esc(Fab.releases.changesText(ch))}</div>`;
     if (layers.length) h += `<div class="chips" style="flex-wrap:wrap;gap:6px">${layers.map(g => `<span class="pill ${g.status === 'changed' ? 'warn' : 'error'}" title="${esc(g.layer)}">${esc(g.layer.split(/[\\/]/).pop())}${g.status === 'changed' ? ` +${g.added} −${g.removed}` : ' ' + g.status}</span>`).join('')}${same ? `<span class="pill ok">${plural(same, 'layer')} same</span>` : ''}</div>`;
     if (layers.length) h += `<p class="note">Show on a layer under Gerber geometry puts its changes on the board; a fixed or new finding below jumps to its place.</p>`;
     return h + '</div>';
@@ -2618,7 +2618,7 @@
     const rows = (fs, kind) => fs.slice().sort((a, b) => sevOrder[a.severity] - sevOrder[b.severity]).slice(0, 60).map(f =>
       `<tr${f.at ? ` data-act="rev-find" data-x="${+f.at.x}" data-y="${+f.at.y}" data-layer="${esc(f.layer || '')}"` : ''}><td><span class="pill ${kind === 'fixed' ? 'ok' : f.severity === 'error' ? 'error' : f.severity === 'warn' ? 'warn' : ''}">${kind === 'fixed' ? 'fixed' : 'new'}</span></td><td><span class="pill ${f.severity === 'error' ? 'error' : f.severity === 'warn' ? 'warn' : ''}">${esc(f.severity)}</span></td><td class="mono">${esc(f.check)}</td><td class="mono">${esc((f.layer || '').split(/[\\/]/).pop())}</td><td>${esc(f.title)}</td></tr>`).join('');
     const more = n => n > 60 ? `<tr><td colspan="5" class="muted">and ${n - 60} more</td></tr>` : '';
-    h += `<div class="card" style="padding:12px 18px;margin-bottom:10px">${d.fixed.length || d.added.length ? `<b>${d.fixed.length}</b> fixed, <b>${d.added.length}</b> new, ${d.same.length} unchanged` : `No change: all ${d.same.length} findings are the same`} <span class="muted">(matched by check, severity and layer within 0.25 mm)</span></div>`;
+    h += `<div class="card" style="padding:12px 18px;margin-bottom:10px">${d.fixed.length || d.added.length ? `<b>${d.fixed.length}</b> fixed, <b>${d.added.length}</b> new, ${d.same.length} unchanged` : `No change: all ${d.same.length} findings are the same`} <span class="muted">(matched by check, severity, and layer within 0.25 mm)</span></div>`;
     if (d.fixed.length || d.added.length) h += `<div class="card table-wrap"><table class="table compact"><thead><tr><th></th><th>Severity</th><th>Check</th><th>Layer</th><th>Finding</th></tr></thead><tbody>${rows(d.fixed, 'fixed')}${more(d.fixed.length)}${rows(d.added, 'new')}${more(d.added.length)}</tbody></table></div>`;
     return h;
   }
@@ -2626,7 +2626,7 @@
   function revisionsHtml(e) {
     loadKeptRuns();
     const opts = baselineOptions(e);
-    let h = `<div class="page wide">` + pageHead(e, 'Revisions', e.label, 'What changed against a baseline: Gerber geometry, drill, BOM, placements and findings. Tagging runs as the board\'s revisions is in Signoff EE.');
+    let h = `<div class="page wide">` + pageHead(e, 'Revisions', e.label, 'What changed against a baseline: Gerber geometry, drill, BOM, placements, and findings. Tagging runs as the board\'s revisions is in Signoff EE.');
     if (!opts.length) return h + `<div class="card" style="padding:28px;text-align:center"><div class="empty-art">${ICON.upload}</div><h2 style="font:600 19px var(--display);margin:12px 0 6px">Open a baseline to compare against</h2><p style="color:var(--text-2);margin:0 auto 18px;max-width:52ch">Open the previous release package, or just the BOM that was used last time. It joins the package list, and this page shows the differences. Runs kept in this browser are offered here too.</p><button class="btn btn-primary" data-act="open">Open baseline…</button></div></div>`;
     if (!e.baseline || !opts.some(o => o.key === e.baseline)) e.baseline = defaultBaseline(e, opts);
     const groups = [...new Set(opts.map(o => o.group))];
@@ -2757,7 +2757,7 @@
       case 'rerun':
         if (!e || !e.pkg || e.status !== 'ready') break;
         // A demo board's run keeps its fixed id when run again (saveRun's expect: same package), so the
-        // demo links, Send's project and the suite tour's steps still know it (Chris, 2026-11-08: the
+        // demo links, Send's project, and the suite tour's steps still know it (Chris, 2026-11-08: the
         // tour asks for a re-run on the Main PCBA).
         if (e.run && e.run.demo && !e.expect) e.expect = { run: e.run, project: null };
         runChecks(e, 'Re-running checks');
@@ -2790,7 +2790,7 @@
       }
       case 'toggle-sec': { const s = t.closest('.sec'); s.classList.toggle('collapsed'); state.closed[s.classList.contains('collapsed') ? 'add' : 'delete'](s.dataset.cat); break; }
       case 'finding': if (state.wvForm !== t.dataset.id) state.wvForm = null; openInspector(e.findings.find(f => f.id === t.dataset.id)); break;
-      // Waivers (waivers.js): the inspector's buttons, the Waived fold and the Waivers list.
+      // Waivers (waivers.js): the inspector's buttons, the Waived fold, and the Waivers list.
       case 'waive-open': { const f = e.findings.find(x => x.id === t.dataset.id); if (f) { state.wvForm = f.id; openInspector(f); } break; }
       case 'waive-cancel': { state.wvForm = null; const f = e.findings.find(x => x.id === state.sel); if (f) openInspector(f); break; }
       case 'waive-do': { const f = e.findings.find(x => x.id === t.dataset.id), r = $('#wv-reason'); if (f && r && r.value.trim()) waiveOne(e, f, r.value.trim()); break; }

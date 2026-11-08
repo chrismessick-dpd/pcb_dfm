@@ -59,7 +59,7 @@ fabcheck/<projectId>/preview/…                   board pictures, as now
     and `Assembly/` (BOM, Pick Place, ASSY drawing);
   - one README listing each file's SHA-256 (`docs/fab-package.md`).
 
-  Part number, revision and the files to keep are set under Send's Details, as now.
+  Part number, revision, and the files to keep are set under Send's Details, as now.
 - **The run record gains `package.zip`:** `{ "path", "name", "sha256", "size", "root", "files":
   [{ "path": original, "to": in the zip, "sha256", "size" }] }`. Signoff needs nothing else to
   list a run's contents or to check a download.
@@ -67,7 +67,7 @@ fabcheck/<projectId>/preview/…                   board pictures, as now
   and runs already stored keep theirs. The repo cost is about the same: git compresses the loose
   files, and the zip is compressed already.
 - **Fabcheck drops:**
-  - the Version field, the Versions list, statuses and Edit;
+  - the Version field, the Versions list, statuses, and Edit;
   - the home page's Versions, `releases/<id>.json`, and `source.release` on issues.
 - **Fabcheck keeps:**
   - Send's file picks and part number and revision, which feed the zip;
@@ -124,7 +124,7 @@ A new collection in the project document, merged like every other record (`updat
 - **Untrusted.** Enum fields go through `model.oneOf`, text is escaped, and paths are checked,
   like other review data (EE's *Security*).
 - **The project summary** gains `revisions: [{ label, status, sentAt }]` (deterministic, no "now"),
-  so Signoff PL can show what was built for each EVT, DVT or PVT build later.
+  so Signoff PL can show what was built for each EVT, DVT, or PVT build later.
 
 ### Issues
 
@@ -145,12 +145,12 @@ A new collection in the project document, merged like every other record (`updat
 
 1. **Fabcheck (`release-tags`):**
    - Send uploads the zip and `package.zip`.
-   - Remove the versions UI and the `releases/` writes. Keep export, picks and compare.
+   - Remove the versions UI and the `releases/` writes. Keep export, picks, and compare.
    - Tests with `tests/fake-github.js`; demo unchanged.
 2. **Contract:** update `ee_design_review/docs/fabcheck-link.md` with `package.zip`, and drop
    `releases/` and `source.release`. That's done in EE's branch.
 3. **Signoff engine (EE branch):**
-   - the revisions records, the tab, Download, the Overview line and the issue tag;
+   - the revisions records, the tab, Download, the Overview line, and the issue tag;
    - the summary field and the import;
    - tests, then sync into ME and FW (tab hidden where no source lists runs).
 4. **Demo:** the EE demo board gets two runs and one revision, with Signoff PL's snapshot
@@ -159,7 +159,7 @@ A new collection in the project document, merged like every other record (`updat
 ## Chris's answers (2026-11-03)
 
 1. **Reads move to Signoff; Fabcheck only writes.**
-   - Fabcheck no longer reads runs, packages or anything else back from a project's repo.
+   - Fabcheck no longer reads runs, packages, or anything else back from a project's repo.
    - It still writes at Send: the commit itself reads the branch's current tree, and the access
      check asks GitHub whether the token can push. Both are part of writing.
    - "Open in Fabcheck" from Signoff becomes a hand-off in the browser (below).
@@ -181,7 +181,7 @@ Both tools are served from one origin, so they share browser storage.
 
 Fabcheck then resolves the run in this order:
 1. its own kept runs, as now;
-2. the hand-off: it opens the zip, shows the stored findings and places the parts, then deletes
+2. the hand-off: it opens the zip, shows the stored findings, and places the parts, then deletes
    the entry;
 3. otherwise it asks for the package to be dropped in, as now.
 

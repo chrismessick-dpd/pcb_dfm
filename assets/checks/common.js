@@ -18,7 +18,7 @@
   // code that raises them; the Fab rules page lists them read-only. `rules` is a function so the
   // thresholds it shows are read from the same constants the code uses.
   C.catalog = [];
-  // Test points, fiducials and mounting holes: placed, but usually no BOM line and no paste on purpose.
+  // Test points, fiducials, and mounting holes: placed, but usually no BOM line and no paste on purpose.
   C.PAD_ONLY = /^(TP|FID|FD|MH|H|MTG)\d+$/i;
   // Many designs name test points by their net (TP_VBUS, SWDIO_TP, DBG_TX), so the footprint and the
   // part name count too: a TP_/TESTPOINT/FIDUCIAL/MOUNTING_HOLE footprint, or a "Test Point" comment.
@@ -50,7 +50,7 @@
     delete pkg._padOnly; delete pkg._testPoints;
   };
   C.isPadOnly = (pkg, des) => C.PAD_ONLY.test(des) || C.padOnlySet(pkg).has(des);
-  // Test points alone (not fiducials or mounting holes), by designator, footprint, comment or ODB++ part
+  // Test points alone (not fiducials or mounting holes), by designator, footprint, comment, or ODB++ part
   // name. Paste on a test point is a warning, not an error, and the Findings list folds test point
   // findings into one row. Anything not recognized here stays a part like any other.
   C.TP_DES = /^TP\d+$/i;
@@ -69,7 +69,7 @@
   C.markTestPoints = function (pkg, findings) {
     for (const f of findings) if (f.severity !== 'info' && f.refs && f.refs.length && f.refs.every(d => C.isTestPoint(pkg, d))) f.tp = true;
   };
-  // Connectors and mechanical parts: shells, pegs and mounting tabs add pads, and their origin is often
+  // Connectors and mechanical parts: shells, pegs, and mounting tabs add pads, and their origin is often
   // not their pad center. By designator (J1, JBATT, CN3, X2…) or a description naming a connector.
   C.CONNECTOR_DES = /^(J|CN|CON|X|SW|BT|LS|BZ|MH|P\d)/i;
   C.CONNECTOR_DESC = /\b(conn|connector|header|socket|receptacle|plug|terminal)s?\b/i;

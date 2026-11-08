@@ -119,9 +119,9 @@
     return { added: b.hits.filter(h => !sa.has(key(h))), removed: a.hits.filter(h => !sb.has(key(h))) };
   }
 
-  // Findings fixed, new and unchanged between two runs. The same finding has the same check, severity
+  // Findings fixed, new, and unchanged between two runs. The same finding has the same check, severity
   // and layer within 0.25 mm. One without a location is a summary ("230 pads with…"), so it matches
-  // on check, severity and layer whatever its count, preferring the same title.
+  // on check, severity, and layer whatever its count, preferring the same title.
   function findingsDelta(a, b, tol) {
     tol = tol || 0.25;
     const k = f => [f.check, f.severity, f.layer || ''].join('|');
