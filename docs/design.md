@@ -404,6 +404,8 @@ sidebar links to the other under "Dovetail tools", and the two share the light/d
   cell filters Findings to that check (`state.check`, cleared by the chip in the filter bar); the
   row heading filters to the category. Findings carries the same matrix at its top as numbered
   squares with names on hover ("Show check names" switches, kept in `fabcheck.v1.matrixNames`).
+  Severities are told apart without color (Chris is colorblind): errors are red with diagonal
+  stripes, warnings a lighter yellow with dots, in cells and legend swatches alike (`.mx` tokens).
   Cells come from the check catalog for Package, Assembly and BOM, and from fixed lists in `app.js`
   (`DFM_CHECKS`, `FLEX_CHECKS`) for the DFM and Flex categories, plus any other check that found something. Fab rules is reached from
   its menu item only; its tab bar carries the open board's thickness on the right (overriding the
