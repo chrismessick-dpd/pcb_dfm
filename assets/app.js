@@ -699,7 +699,59 @@
     if (e && state.view === 'archive') loadArchive(e);
   }
 
+  // ── The Dovetail tools switcher (Chris, 2026-11-09) ──
+  // Signed in to GitHub, it lists the whole suite, folded to a row of icons as in Signoff EE (the
+  // engine's app.js setupToolsFold, copied here); signed out, only the links that work without a
+  // sign-in. A link marked data-signed shows only when signed in, and data-internal only for an FTE.
+  const TOOLS_FOLD_MS = 10000;
+  function renderTools() {
+    const tools = document.querySelector('.side-tools');
+    if (!tools) return;
+    const signed = !!(Fab.repoRuns && Fab.repoRuns.signedIn()), fte = !!(Fab.repoRuns && Fab.repoRuns.isFte());
+    tools.querySelectorAll('[data-signed]').forEach(a => { a.hidden = !signed || (a.hasAttribute('data-internal') && !fte); });
+    if (signed && !tools.foldCtl) tools.foldCtl = setupToolsFold(tools);
+    if (tools.foldCtl) tools.foldCtl.enable(signed);
+  }
+  // Folded, the switcher is one row of tool icons; its chevron opens the full list, which folds again
+  // 10 s after the pointer and keyboard focus have left it.
+  function setupToolsFold(tools) {
+    const head = tools.querySelector('.side-head');
+    if (!head) return null;
+    const label = head.textContent.trim() || 'Dovetail Signoff';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'side-tools-toggle';
+    btn.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4l4 4-4 4"/></svg>' +
+      '<span class="side-label">' + esc(label) + '</span>';
+    // Signed out, the head is its plain label again (enable(false)).
+    const plain = document.createElement('span');
+    plain.className = 'side-label';
+    plain.textContent = label;
+    plain.hidden = true;
+    head.textContent = '';
+    head.append(btn, plain);
+    let timer = null, on = true;
+    const inUse = () => tools.matches(':hover') || !!tools.querySelector(':focus-visible');
+    const stop = () => { if (timer) { clearTimeout(timer); timer = null; } };
+    const arm = () => { stop(); if (on && !tools.classList.contains('folded') && !inUse()) timer = setTimeout(() => set(true), TOOLS_FOLD_MS); };
+    function set(folded) {
+      tools.classList.toggle('folded', folded);
+      const tip = (folded ? 'Show ' : 'Hide ') + label + ' tools';
+      btn.setAttribute('aria-expanded', String(!folded));
+      btn.title = tip; btn.setAttribute('aria-label', tip);
+      if (folded) stop(); else arm();
+    }
+    btn.addEventListener('click', () => set(!tools.classList.contains('folded')));
+    tools.addEventListener('mouseenter', stop);
+    tools.addEventListener('mouseleave', () => setTimeout(arm, 0));
+    tools.addEventListener('focusin', () => { if (inUse()) stop(); });
+    tools.addEventListener('focusout', () => setTimeout(arm, 0));
+    set(true);
+    // Signed out again: the short list, open, with no chevron.
+    return { enable(yes) { if (yes === on) return; on = yes; btn.hidden = !yes; plain.hidden = yes; set(yes); } };
+  }
   function renderSidebar() {
+    renderTools();
     $('#pkg-list').innerHTML = state.pkgs.map(e => {
       const live = liveCounts(e), n = s => live[s];
       const busy = e.status === 'loading' || e.status === 'running';
