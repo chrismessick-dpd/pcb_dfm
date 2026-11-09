@@ -9,7 +9,7 @@ Read first: `docs/design.md` (architecture, check catalog, every decision), `doc
 guide, FTE section, demo mode), `docs/fab-rules.md` (every fab-rule default with its source).
 
 
-**Tools switcher (2026-11-09, Chris; not committed).** Signed in, the sidebar's Dovetail Signoff list adds Signoff ME,
+**Tools switcher (2026-11-09, Chris; pushed `028c9e3`).** Signed in, the sidebar's Dovetail Signoff list adds Signoff ME,
 FW, PL (FTE only, `repoRuns.isFte()`), and Loom, and folds to a row of icons like Signoff EE's (`renderTools`,
 `setupToolsFold` in `app.js`, a copy of the engine's). Signed out it's Signoff EE and All tools as before.
 ## Hard rules
