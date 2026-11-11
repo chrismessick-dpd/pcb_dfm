@@ -1350,11 +1350,12 @@
     w.className = 'sheet-wrap'; w.id = 'signin';
     w.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="si-title"><div class="sheet-head"><h2 id="si-title">Sign in to GitHub</h2>
       <p>Signoff keeps each board's review in a private GitHub repository. To store the run and its fab package there and send issues, Fabcheck needs a GitHub token that can write to those repositories. It stays in this browser and is sent only to GitHub.</p></div>
-      <div class="sheet-body">${ghSignIn() ? `<button type="button" class="btn btn-primary" data-si="github" style="margin:0 0 6px">Sign in with GitHub</button>
+      <div class="sheet-body">${ghSignIn() ? `<div class="signin-row"><button type="button" class="btn btn-primary" data-si="github">Sign in with GitHub</button>
+      <button type="button" class="btn token-toggle" data-si="token" aria-expanded="false" aria-controls="si-token-panel">Use a token instead</button></div>
       <p class="note" style="margin:0 0 14px">Uses your GitHub login, with its two-factor step, and brings you back here. No token to create. Then send again.</p>
-      <details class="guide"><summary>Use a token instead</summary><div style="margin-top:10px">` : ''}<label class="tb-field" style="font-size:13px;display:flex;flex-direction:column;align-items:stretch;gap:4px">Personal access token<input id="si-token" type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_…"></label>
+      <div class="token-panel" id="si-token-panel" hidden>` : ''}<label class="tb-field" style="font-size:13px;display:flex;flex-direction:column;align-items:stretch;gap:4px">Personal access token<input id="si-token" type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_…"></label>
       <p class="note"><a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener" style="color:var(--accent)">Create a token on GitHub</a>: fine-grained, with access to your Signoff repositories and Contents set to read and write. Signoff EE uses the same token.</p>
-      <label class="check" style="margin-top:10px"><input type="checkbox" id="si-remember"> Remember it after closing the browser (avoid on shared computers)</label>${ghSignIn() ? '</div></details>' : ''}
+      <label class="check" style="margin-top:10px"><input type="checkbox" id="si-remember"> Remember it after closing the browser (avoid on shared computers)</label>${ghSignIn() ? '</div>' : ''}
       <p class="note" id="si-msg" role="status"></p></div>
       <div class="sheet-foot"><button class="btn" data-si="cancel">Cancel</button><button class="btn btn-primary" data-si="ok">Sign in</button></div></div>`;
     document.body.appendChild(w);
@@ -1383,8 +1384,13 @@
       if (ev.target === w || ev.target.closest('[data-si="cancel"]')) close();
       else if (ev.target.closest('[data-si="ok"]')) submit();
       else if (ev.target.closest('[data-si="github"]')) github(ev.target.closest('[data-si="github"]'));
+      else if (ev.target.closest('[data-si="token"]')) {
+        const b = ev.target.closest('[data-si="token"]'), panel = w.querySelector('#si-token-panel'), opening = panel.hidden;
+        panel.hidden = !opening; b.setAttribute('aria-expanded', String(opening));
+        if (opening) input.focus();
+      }
     });
-    input.focus();
+    if (!w.querySelector('#si-token-panel')) input.focus();
   }
 
   // Nothing leaves the browser without saying where it goes; Cancel keeps it all here.
