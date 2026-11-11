@@ -709,8 +709,9 @@
     if (!tools) return;
     const signed = !!(Fab.repoRuns && Fab.repoRuns.signedIn()), fte = !!(Fab.repoRuns && Fab.repoRuns.isFte());
     tools.querySelectorAll('[data-signed]').forEach(a => { a.hidden = !signed || (a.hasAttribute('data-internal') && !fte); });
-    if (signed && !tools.foldCtl) tools.foldCtl = setupToolsFold(tools);
-    if (tools.foldCtl) tools.foldCtl.enable(signed);
+    // Folded to icons signed in or out, as in every tool (Chris, 2026-11-10).
+    if (!tools.foldCtl) tools.foldCtl = setupToolsFold(tools);
+    tools.foldCtl.enable(true);
   }
   // Folded, the switcher is one row of tool icons; its chevron opens the full list, which folds again
   // 10 s after the pointer and keyboard focus have left it.
@@ -3061,6 +3062,14 @@
         seenTag = tag;
       }
       if (ev.key === 'signoff.token' || ev.key === 'signoff.login' || ev.key === Fab.signoffNs + 'settings' || ev.key === Fab.signoffNs + 'homes' || ev.key === Fab.signoffNs + 'roster') { state.repoProbe.clear(); renderAll(); }
+    });
+    // The sidebar foot shared with the suite (signoff/assets/sidefoot.js): the sign-in pill, Settings,
+    // and People & access for FTEs. The tools list keeps renderTools above.
+    if (window.SignoffFoot) window.SignoffFoot.mount({
+      pill: '#sync-pill', settings: '[data-foot-settings]', people: '#people-link',
+      theme: readTheme, setTheme: t => { writeTheme(t); applyTheme(t); },
+      intro: 'Fabcheck stores runs and sends issues to Signoff EE with your GitHub sign-in, the same one every Signoff tool here uses.',
+      changed: () => { state.repoProbe.clear(); renderAll(); }
     });
     document.addEventListener('click', onClick);
     document.addEventListener('toggle', ev => {

@@ -30,8 +30,9 @@
 .pkg-icon { width: 26px; height: 26px; border-radius: 7px; background: var(--accent-soft); color: var(--accent); display: grid; place-items: center; flex: none; }
 .proj.active .pkg-icon { background: rgba(255, 255, 255, 0.2); color: #fff; }
 .pkg-icon svg { width: 15px; height: 15px; }
-.privacy { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; padding: 7px 8px; font-size: 12px; color: var(--text-3); line-height: 1.25; }
-.privacy svg { width: 15px; height: 15px; flex: none; color: var(--pass); }
+/* Above the sidebar foot (which is the suite's: signoff/assets/sidefoot.js). */
+.side-privacy { display: flex; align-items: center; gap: 8px; padding: 4px 22px 8px; font-size: 12px; color: var(--text-3); line-height: 1.25; }
+.side-privacy svg { width: 15px; height: 15px; flex: none; color: var(--pass); }
 
 /* Toolbar fields */
 .tb-field { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-3); }
