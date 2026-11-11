@@ -1339,6 +1339,9 @@
     renderAll();
   }
 
+  // Sign in with GitHub (the engine's auth.js), where this site has a GitHub App.
+  function ghSignIn() { const A = window.SignoffAuth; return !Fab.DEMO && A && A.status().available; }
+
   // GitHub sign-in, asked for the first time someone sends (Fabcheck is otherwise a public tool).
   // The token goes where Signoff EE keeps it, so one sign-in covers both.
   function showSignIn(next) {
@@ -1347,9 +1350,11 @@
     w.className = 'sheet-wrap'; w.id = 'signin';
     w.innerHTML = `<div class="sheet" role="dialog" aria-modal="true" aria-labelledby="si-title"><div class="sheet-head"><h2 id="si-title">Sign in to GitHub</h2>
       <p>Signoff keeps each board's review in a private GitHub repository. To store the run and its fab package there and send issues, Fabcheck needs a GitHub token that can write to those repositories. It stays in this browser and is sent only to GitHub.</p></div>
-      <div class="sheet-body"><label class="tb-field" style="font-size:13px;display:flex;flex-direction:column;align-items:stretch;gap:4px">Personal access token<input id="si-token" type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_…"></label>
+      <div class="sheet-body">${ghSignIn() ? `<button type="button" class="btn btn-primary" data-si="github" style="margin:0 0 6px">Sign in with GitHub</button>
+      <p class="note" style="margin:0 0 14px">Uses your GitHub login, with its two-factor step, and brings you back here. No token to create. Then send again.</p>
+      <details class="guide"><summary>Use a token instead</summary><div style="margin-top:10px">` : ''}<label class="tb-field" style="font-size:13px;display:flex;flex-direction:column;align-items:stretch;gap:4px">Personal access token<input id="si-token" type="password" autocomplete="off" spellcheck="false" placeholder="github_pat_…"></label>
       <p class="note"><a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener" style="color:var(--accent)">Create a token on GitHub</a>: fine-grained, with access to your Signoff repositories and Contents set to read and write. Signoff EE uses the same token.</p>
-      <label class="check" style="margin-top:10px"><input type="checkbox" id="si-remember"> Remember it after closing the browser (avoid on shared computers)</label>
+      <label class="check" style="margin-top:10px"><input type="checkbox" id="si-remember"> Remember it after closing the browser (avoid on shared computers)</label>${ghSignIn() ? '</div></details>' : ''}
       <p class="note" id="si-msg" role="status"></p></div>
       <div class="sheet-foot"><button class="btn" data-si="cancel">Cancel</button><button class="btn btn-primary" data-si="ok">Sign in</button></div></div>`;
     document.body.appendChild(w);
@@ -1370,7 +1375,15 @@
     };
     const onKey = ev => { if (ev.key === 'Escape') close(); if (ev.key === 'Enter' && ev.target === input) submit(); };
     document.addEventListener('keydown', onKey);
-    w.addEventListener('click', ev => { if (ev.target === w || ev.target.closest('[data-si="cancel"]')) close(); else if (ev.target.closest('[data-si="ok"]')) submit(); });
+    const github = btn => {
+      btn.disabled = true;
+      window.SignoffAuth.signIn(location.href).catch(err => { btn.disabled = false; msg.style.color = 'var(--warn)'; msg.textContent = err.message; });
+    };
+    w.addEventListener('click', ev => {
+      if (ev.target === w || ev.target.closest('[data-si="cancel"]')) close();
+      else if (ev.target.closest('[data-si="ok"]')) submit();
+      else if (ev.target.closest('[data-si="github"]')) github(ev.target.closest('[data-si="github"]'));
+    });
     input.focus();
   }
 
@@ -2933,7 +2946,7 @@
       case 'export': exportPackage(e); break;
       case 'gh-signin': showSignIn(); break;
       case 'gh-signout':
-        if (confirm('Sign out of GitHub in this browser? Signoff EE shares the sign-in, so it signs out too.')) { Fab.repoRuns.signOut(); state.repoProbe.clear(); renderAll(); }
+        if (confirm('Sign out of GitHub in this browser? Signoff EE shares the sign-in, so it signs out too.')) Fab.repoRuns.signOut().then(() => { state.repoProbe.clear(); renderAll(); });
         break;
       case 'signoff-details': e.signoffOpen = !e.signoffOpen; renderAll(); break;
       case 'back-signoff': {
@@ -3032,8 +3045,16 @@
       });
     }
     // A token or project home set in Signoff EE meanwhile: check where runs can be stored again.
+    // A sign-in's refresh replaces the token every 8 hours without changing who it is (its tag).
+    const whoTag = () => { const t = (() => { try { return sessionStorage.getItem('signoff.token') || localStorage.getItem('signoff.token') || ''; } catch (e) { return ''; } })(); return t && window.Signoff.model ? window.Signoff.model.tokenTag(t) : t ? 'x' : ''; };
+    let seenTag = whoTag();
     window.addEventListener('storage', ev => {
-      if (ev.key === 'signoff.token' || ev.key === Fab.signoffNs + 'settings' || ev.key === Fab.signoffNs + 'homes' || ev.key === Fab.signoffNs + 'roster') { state.repoProbe.clear(); renderAll(); }
+      if (ev.key === 'signoff.token' || ev.key === 'signoff.login') {
+        const tag = whoTag();
+        if (tag === seenTag) return;
+        seenTag = tag;
+      }
+      if (ev.key === 'signoff.token' || ev.key === 'signoff.login' || ev.key === Fab.signoffNs + 'settings' || ev.key === Fab.signoffNs + 'homes' || ev.key === Fab.signoffNs + 'roster') { state.repoProbe.clear(); renderAll(); }
     });
     document.addEventListener('click', onClick);
     document.addEventListener('toggle', ev => {

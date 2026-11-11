@@ -31,7 +31,10 @@
     probes.clear();
     return me && me.login;
   }
-  function signOut() {
+  // A sign-in (the engine's auth.js) is revoked on GitHub too. Resolves once both are done.
+  async function signOut() {
+    const A = window.SignoffAuth;
+    if (A) await A.signOut().catch(() => { /* cleared below anyway */ });
     try { sessionStorage.removeItem('signoff.token'); localStorage.removeItem('signoff.token'); } catch (e) { /* storage blocked */ }
     probes.clear();
   }
