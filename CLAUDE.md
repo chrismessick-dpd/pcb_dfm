@@ -204,6 +204,10 @@ its demo `VERSION` is 9 (synced into ME and FW); PL's snapshot did not change ap
 was left alone (PL tests pass). Same branch name, `bom-checks`, in `ee_design_review`,
 `me_design_review` and `fw_design_review`; merge all four together, since EE's demo names this
 branch's zip hash.
+Same-result folds (2026-11-12, Chris): on Findings and in the board's list, findings of one check with the
+same severity and the same `value` and `limit` (or the same title when they have no value) fold into one row
+with a dropdown (`foldKey`, `foldList`, `foldTitle` in `app.js`; `state.foldOpen`; `.rg` in the rail). Display
+only: findings, pins, Send, waivers, and Revisions are unchanged. A selected finding opens its fold.
 Test points (same branch, later): paste on a recognized test point (`C.isTestPoint`) is a warning, not an
 error, and Findings folds errors and warnings about test points only (`tp: true`, `C.markTestPoints`) into
 one closed *Test points* row per area. The demo boards' findings did not change.

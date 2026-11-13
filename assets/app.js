@@ -39,7 +39,7 @@
 
   const state = {
     pkgs: [], active: null, view: 'overview', filter: { error: true, warn: true, info: false }, cat: null, check: null, q: '',
-    closed: new Set(), tpOpen: new Set(), sel: null, showPnp: true,
+    closed: new Set(), tpOpen: new Set(), foldOpen: new Set(), sel: null, showPnp: true,
     waivedOpen: false, wvForm: null, // the Waived fold on Findings; the finding whose waive form is open
     sim: null, // the Waive similar panel's working state
     placing: false, draft: null, // review notes: waiting for a click on the board; the note being written
@@ -1473,6 +1473,45 @@
     if (f.bbox) return `${((f.bbox[0] + f.bbox[2]) / 2).toFixed(2)}, ${((f.bbox[1] + f.bbox[3]) / 2).toFixed(2)} mm`;
     return '';
   }
+  // Same check, same result: findings of one check with the same severity and the same measured value
+  // (and limit), or the same title when they carry no value, fold into one row with a dropdown, on
+  // Findings and beside the board (Chris, 2026-11-12: 14 NPTH warnings were 7 holes × 2 layers at one
+  // gap). Display only: the findings themselves, their pins, Send, waivers, and Revisions are unchanged.
+  const foldKey = f => {
+    if (f.check === 'note' || f.tp) return null;
+    const v = typeof f.value === 'number' && isFinite(f.value) ? f.value.toFixed(4) : null;
+    const l = typeof f.limit === 'number' && isFinite(f.limit) ? f.limit.toFixed(4) : '';
+    return `${f.category}|${f.check}|${f.severity}|` + (v != null ? `v${v}|${l}` : `t${f.title}`);
+  };
+  // The list in its order, with each fold (two or more) standing where its first member stood.
+  function foldList(list) {
+    const by = new Map();
+    for (const f of list) { const k = foldKey(f); if (k) (by.get(k) || by.set(k, []).get(k)).push(f); }
+    const out = [], done = new Set();
+    for (const f of list) {
+      const k = foldKey(f), g = k && by.get(k);
+      if (!g || g.length < 2) out.push({ f });
+      else if (!done.has(k)) { done.add(k); out.push({ key: k, items: g }); }
+    }
+    return out;
+  }
+  // A fold's title: what its members' titles share, cut at a word (the NPTH rows differ only in the
+  // hole size at the end), else the first title.
+  function foldTitle(items) {
+    const ts = items.map(f => f.title || '');
+    let p = ts[0];
+    for (const t of ts) { let i = 0; while (i < p.length && i < t.length && p[i] === t[i]) i++; p = p.slice(0, i); }
+    if (p.length === ts[0].length) return p;
+    p = p.replace(/[\s(⌀,:·-]*[^\s]*$/, '').trim();
+    return p.length >= 12 ? p : ts[0];
+  }
+  function foldSub(items) {
+    const places = new Set(items.filter(f => f.at || f.bbox).map(f => { const c = f.at || Fab.bbox.center(f.bbox); return c.x.toFixed(2) + ',' + c.y.toFixed(2); }));
+    const layers = [...new Set(items.map(f => f.layer).filter(Boolean))];
+    return `${plural(items.length, 'finding')}${places.size && places.size < items.length ? ` at ${plural(places.size, 'place')}` : ''}${layers.length ? ' · ' + layers.join(', ') : ''}`;
+  }
+  const foldOpen = (k, items) => state.foldOpen.has(k) || items.some(f => f.id === state.sel);
+
   // The severity filter, the same on Findings and beside the board: symbol, name, and count. In a
   // narrow list "Warnings" becomes "Warn".
   const sevButtons = c => ['error', 'warn', 'info'].map(s => `<button class="${state.filter[s] ? 'on' : ''}" data-act="sev-toggle" data-sev="${s}"><span class="dot ${s}"></span>${s === 'warn' ? '<span class="sev-long">Warnings</span><span class="sev-short">Warn</span>' : { error: 'Errors', info: 'Info' }[s]}<span class="count">${c[s]}</span></button>`).join('');
@@ -1505,7 +1544,15 @@
       // Errors and warnings that are only about test points fold into one row (closed until opened),
       // after the other errors and warnings, so dozens of probe pads don't bury the rest.
       const tps = list.filter(f => f.tp), rest = list.filter(f => !f.tp);
-      for (const f of rest.filter(f => f.severity !== 'info')) h += row(f);
+      const rows = fl => foldList(fl).map(x => {
+        if (x.f) return row(x.f);
+        const open = foldOpen(x.key, x.items), tc = counts(x.items);
+        return `<div class="tp-group fold-group${open ? ' open' : ''}" data-key="${esc(x.key)}"><div class="item tp-head" data-act="fold-toggle">${ICON.chev}` +
+          `<div><div class="item-text">${esc(foldTitle(x.items))}<small>${esc(foldSub(x.items))}</small></div>${x.items[0].detail ? `<div class="item-detail">${esc(x.items[0].detail)}</div>` : ''}</div>` +
+          `<div class="item-right">${tc.error ? `<span class="pill error">${tc.error}</span>` : ''}${tc.warn ? `<span class="pill warn">${tc.warn}</span>` : ''}${tc.info ? `<span class="pill">${tc.info}</span>` : ''}</div></div>` +
+          `<div class="tp-body">${open ? x.items.map(row).join('') : ''}</div></div>`;
+      }).join('');
+      h += rows(rest.filter(f => f.severity !== 'info'));
       if (tps.length) {
         const open = state.tpOpen.has(cat) || tps.some(f => f.id === state.sel), tc = counts(tps);
         const des = [...new Set(tps.flatMap(f => f.refs || []))].sort(Fab.natCmp);
@@ -1515,7 +1562,7 @@
           `<div class="item-right">${tc.error ? `<span class="pill error">${tc.error}</span>` : ''}${tc.warn ? `<span class="pill warn">${tc.warn}</span>` : ''}</div></div>` +
           `<div class="tp-body">${open ? tps.map(row).join('') : ''}</div></div>`;
       }
-      for (const f of rest.filter(f => f.severity === 'info')) h += row(f);
+      h += rows(rest.filter(f => f.severity === 'info'));
       h += `</div></div>`;
     }
     if (!fs.length) h += `<div class="empty"><h2>${waived.length ? 'Nothing left to look at' : 'Nothing to show'}</h2><p>${waived.length ? 'Every finding these filters show is waived.' : 'No findings match these filters.'}</p></div>`;
@@ -2188,7 +2235,13 @@
       const list = fs.filter(f => f.category === cat).sort((a, b) => order[a.severity] - order[b.severity]);
       if (!list.length) continue;
       h += `<div class="cat-label">${title} · ${list.length}</div>`;
-      for (const f of list) h += `<div class="rf${state.sel === f.id ? ' sel' : ''}" data-act="board-finding" data-id="${esc(f.id)}"><span class="dot ${esc(f.severity)}"></span><div class="rf-t">${esc(f.title)}</div><div class="rf-d">${esc(whereText(f))}${f.layer ? ' · ' + esc(f.layer) : ''}</div></div>`;
+      const rf = f => `<div class="rf${state.sel === f.id ? ' sel' : ''}" data-act="board-finding" data-id="${esc(f.id)}"><span class="dot ${esc(f.severity)}"></span><div class="rf-t">${esc(f.title)}</div><div class="rf-d">${esc(whereText(f))}${f.layer ? ' · ' + esc(f.layer) : ''}</div></div>`;
+      for (const x of foldList(list)) {
+        if (x.f) { h += rf(x.f); continue; }
+        const open = foldOpen(x.key, x.items);
+        h += `<div class="rg${open ? ' open' : ''}" data-key="${esc(x.key)}"><div class="rg-head" data-act="fold-toggle"><span class="dot ${esc(x.items[0].severity)}"></span><div class="rf-t">${esc(foldTitle(x.items))}</div>${ICON.chev}<div class="rf-d">${esc(foldSub(x.items))}</div></div>` +
+          `<div class="rg-body">${open ? x.items.map(rf).join('') : ''}</div></div>`;
+      }
     }
     if (!fs.length) h += `<div class="side-empty">No located findings match the filter.</div>`;
     if (nw) h += `<div class="side-empty wv-rail">${plural(nw, 'waived finding')} not shown. <button class="link-btn" data-act="waived-show">List them</button></div>`;
@@ -2852,6 +2905,14 @@
       case 'mx-names': try { localStorage.setItem(MX_KEY, mxNames() ? '0' : '1'); } catch (err) { /* storage blocked */ } renderAll(); break;
       case 'sev-toggle': state.filter[t.dataset.sev] = !state.filter[t.dataset.sev]; dropHiddenSel(e); if (state.view === 'board') { renderRail(e); viewer.draw(); } else renderAll(); break;
       case 'cat-filter': state.cat = t.dataset.cat || null; state.check = null; dropHiddenSel(e); renderAll(); break;
+      case 'fold-toggle': {
+        const g = t.closest('[data-key]'), key = g.dataset.key, open = !g.classList.contains('open');
+        state.foldOpen[open ? 'add' : 'delete'](key);
+        // Closing a fold hides its selected finding, so drop the selection with it.
+        if (!open && e && e.findings.some(f => f.id === state.sel && foldKey(f) === key)) { state.sel = null; closeInspector(); if (viewer) { viewer.highlight = null; viewer.focusLayer = null; } }
+        if (state.view === 'board') { renderRail(e); if (viewer) viewer.draw(); } else renderAll();
+        break;
+      }
       case 'tp-toggle': {
         const cat = t.closest('.tp-group').dataset.cat, open = !t.closest('.tp-group').classList.contains('open');
         state.tpOpen[open ? 'add' : 'delete'](cat);
