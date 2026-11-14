@@ -5,6 +5,7 @@
 //
 //   <dataPath>fabcheck/<projectId>/runs/<runId>.json                { run, findings }
 //   <dataPath>fabcheck/<projectId>/packages/<key>/<root>.zip        the fab package
+//   <dataPath>fabcheck/<projectId>/packages/<key>/<root>.zip.001 …  or, over 4 MB, its parts
 //   <dataPath>fabcheck/<projectId>/preview/…                        board pictures
 //
 // Writes go through the Signoff engine's GitHubStore.putFiles (assets/vendor/github.js), which skips
@@ -102,11 +103,15 @@
     const h = home(projectId);
     const stored = { repo: h.repo, dir: h.dir };
     const zipPath = h.dir + 'packages/' + run.package.key + '/' + pkg.name;
+    // A big zip goes up in parts (<zip>.001, .002, …): GitHub drops any one upload that runs past
+    // about a minute, and Signoff joins the parts back (readVerified, docs/fabcheck-link.md).
+    const split = window.Signoff.GitHubStore.splitParts ? window.Signoff.GitHubStore.splitParts(zipPath, pkg.bytes) : null;
     const zip = { path: zipPath, name: pkg.name, sha256: pkg.sha256, size: pkg.bytes.length, root: pkg.root, files: pkg.files };
+    if (split) zip.parts = split.map(p => ({ path: p.path, size: p.bytes.length }));
     const runRec = Object.assign({}, run, { stored, package: Object.assign({}, run.package, { zip }) });
     const kept = await Fab.store.getRun(run.id);
     const files = [
-      { path: zipPath, bytes: pkg.bytes },
+      ...(split || [{ path: zipPath, bytes: pkg.bytes }]),
       { path: h.dir + 'runs/' + run.id + '.json', text: json({ run: runRec, findings: (kept && kept.findings) || Fab.store.compactFindings(entry.findings) }) },
     ];
     // The board's pictures, for Signoff EE's overview and Signoff PL's tiles.
@@ -126,7 +131,7 @@
     const bytes = files.reduce((n, f) => n + (f.bytes ? f.bytes.length : f.text.length), 0);
     progress(`Uploading to ${h.repo} (${(bytes / 1048576).toFixed(1)} MB)…`, 0.3);
     log('step', `Storing run ${run.id} in ${h.repo}/${h.dir}`);
-    log('dim', `         ${pkg.name} and ${files.length - 1} more files (${(bytes / 1048576).toFixed(2)} MB); files already there are skipped`);
+    log('dim', `         ${pkg.name}${split ? ` in ${split.length} parts` : ''} and ${files.length - (split ? split.length : 1)} more files (${(bytes / 1048576).toFixed(2)} MB); files already there are skipped`);
     try {
       let last = 0;
       const res = await storeFor(h.repo, h.branch).putFiles(files, {
