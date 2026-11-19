@@ -17,6 +17,7 @@ FILES = [
     ("assets/styles.css", "assets/suite.css"),
     ("assets/model.js", "assets/vendor/model.js"),
     ("assets/github.js", "assets/vendor/github.js"),
+    ("assets/localstore.js", "assets/vendor/localstore.js"),
     ("assets/auth.js", "assets/vendor/auth.js"),
 ]
 

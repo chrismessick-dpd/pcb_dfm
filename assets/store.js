@@ -146,7 +146,9 @@
   // A run record named on a Signoff EE issue (source.run), when this browser has never seen the run.
   function runFromSignoff(runId, ns) {
     let projects = {};
-    try { projects = JSON.parse(localStorage.getItem((ns || Fab.signoffNs) + 'projects') || '{}'); } catch (e) { /* ignore */ }
+    // Signoff EE's reviews, from its local store (Fab.signoff.all), or localStorage for another namespace.
+    if (!ns && Fab.signoff && Fab.signoff.all) projects = Fab.signoff.all();
+    else try { projects = JSON.parse(localStorage.getItem((ns || Fab.signoffNs) + 'projects') || '{}'); } catch (e) { /* ignore */ }
     for (const p of Object.values(projects)) for (const c of Object.values(p.custom || {})) {
       if (c.source && c.source.run && c.source.run.id === runId) return { run: c.source.run, project: p };
     }

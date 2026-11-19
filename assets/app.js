@@ -547,12 +547,14 @@
       // A demo board's fixed run (Signoff EE's demo links to these): open the board and run it again.
       const board = demoBoards().find(b => b.run === q.run);
       if (board) {
+        await Fab.signoff.ready;
         await openPackage(() => Fab.loader.fromUrl(board.file), board.name, { expect: { run: demoRun(board), project: Fab.signoff.projectById(board.project) }, link: q });
         return;
       }
+      await Fab.signoff.ready;
       const known = stored ? { run: stored.run, project: null } : Fab.store.runFromSignoff(q.run);
       // A link from a Signoff EE demo issue that arrived without ?demo: the run lives in the demo.
-      if (!known && !Fab.DEMO && Fab.store.runFromSignoff(q.run, 'signoff.demo.')) {
+      if (!known && !Fab.DEMO && await demoHasRun(q.run)) {
         location.replace(location.pathname + (location.search ? location.search + '&demo' : '?demo') + location.hash);
         return;
       }
@@ -867,6 +869,13 @@
   const waivedOf = (e, fs) => { const by = wv(e).by; return fs.filter(f => { const s = by.get(f.id); return s && s.state !== 'stale'; }); };
   // Errors, warnings, and info still to deal with: what every total shows. Waived ones are counted apart.
   const liveCounts = (e, fs) => counts(activeOf(e, fs || e.findings));
+  // Whether Signoff EE's demo names this run (its reviews in the demo's local store, or localStorage before it moved).
+  async function demoHasRun(runId) {
+    if (Fab.store.runFromSignoff(runId, 'signoff.demo.')) return true;
+    if (!window.SignoffLocal) return false;
+    const d = await window.SignoffLocal.store('signoff.demo.').load().catch(() => ({ projects: {} }));
+    return Object.values(d.projects || {}).some(p => Object.values(p.custom || {}).some(c => c.source && c.source.run && c.source.run.id === runId));
+  }
   const sendPlan = e => Fab.signoff.plan(e.findings, f => { const w = waiverOf(e, f); return w ? w.rule : null; });
   const fmtDate = s => { const d = new Date(s); return isNaN(d) ? '' : d.toLocaleDateString(); };
   // A measured value in its check's unit (most are lengths).
@@ -1325,7 +1334,9 @@
       }
       const plan = sendPlan(e);
       sendSkip(e, plan);
+      await Fab.signoff.ready;
       const r = Fab.signoff.send(e.signoffSlug, plan, { label: e.label, sha: run ? run.package.sha256 : null, run, profileName: run ? run.settings.profileName : profileName(e) }, e.signoffSkip);
+      await r.saved;   // kept in Signoff EE's local store before anything else happens
       if (run) Fab.rules.remember(run.settings.profile, { projectId: r.projectId });
       // Waivers made before the run was linked to this project (kept under the package name) come along.
       const was = scopeOf(e);

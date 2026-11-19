@@ -1,7 +1,8 @@
 // Send to Signoff EE: write Fabcheck errors and warnings into a board's Signoff review as issues on
-// the Fabrication & Release checklist. Signoff keeps its working copy in localStorage (same origin
-// as Fabcheck when both are served from the tools folder); writing there in Signoff's own format,
-// stamped and marked dirty, lets Signoff's normal Sync push the issues.
+// the Fabrication & Release checklist. Signoff keeps its working copy in IndexedDB (assets/vendor/localstore.js,
+// from Signoff EE, 2026-11-19; same origin as Fabcheck when both are served from the tools folder), or in
+// localStorage before Signoff EE has moved it there; writing it in Signoff's own format, stamped and marked
+// dirty, lets Signoff's normal Sync push the issues.
 //
 // Format (ee_design_review/assets/model.js and app.js):
 //   signoff.v1.projects  slug -> project { id, meta, items, sections, comments, custom }
@@ -18,6 +19,32 @@
   function load(key, fallback) { try { const v = localStorage.getItem(NS + key); return v ? JSON.parse(v) : fallback; } catch (e) { return fallback; } }
   function save(key, value) { localStorage.setItem(NS + key, JSON.stringify(value)); }
   function user() { return (load('settings', {}) || {}).user || 'Fabcheck'; }
+  // Signoff EE's reviews: its local store once it has moved them there (idb: { projects, dirty }), else
+  // localStorage as before. Kept up to date while another tab saves (the store's BroadcastChannel).
+  const LOCAL = window.SignoffLocal ? window.SignoffLocal.store(NS) : null;
+  let idb = null;
+  const ready = LOCAL ? LOCAL.load().then(d => { if (d.backend === 'idb' && Object.keys(d.projects).length) idb = d; }, () => {}) : Promise.resolve();
+  if (LOCAL) LOCAL.onChange(m => {
+    if (!idb) { if (m.slugs && m.slugs.length) LOCAL.load().then(d => { if (d.backend === 'idb' && Object.keys(d.projects).length) idb = d; }); return; }
+    if (m.slugs && m.slugs.length) LOCAL.read(m.slugs).then(o => Object.assign(idb.projects, o));
+    (m.removed || []).forEach(s => { delete idb.projects[s]; });
+    if ((m.keys || []).indexOf('dirty') >= 0) LOCAL.get('dirty').then(v => { idb.dirty = v; });
+  });
+  function all() { return idb ? idb.projects : load('projects', {}); }
+  // Save a changed review and mark it unsynced. Resolves when it's kept (localStorage: at once).
+  async function keep(map, id, t) {
+    if (idb) {
+      const dirty = Object.assign({}, await LOCAL.get('dirty'));
+      dirty[id] = t;
+      if (!(await LOCAL.save({ projects: map, dirty }))) throw new Error('Couldn’t save the issues in this browser.');
+      idb.dirty = dirty;
+      return;
+    }
+    const dirty = load('dirty', {});
+    dirty[id] = t;
+    save('projects', map);
+    save('dirty', dirty);
+  }
   function stamp(rec, who) { rec.updatedAt = now(); rec.updatedBy = who; return rec; }
 
   // Stable id per board + Fabcheck check, so re-sending updates the same Signoff issue.
@@ -40,8 +67,8 @@
   }
 
   function projects() {
-    const all = load('projects', {});
-    return Object.keys(all).map(slug => Object.assign({ slug }, all[slug])).filter(p => p && p.meta && !p.meta.archived)
+    const map = all();
+    return Object.keys(map).map(slug => Object.assign({ slug }, map[slug])).filter(p => p && p.meta && !p.meta.archived)
       .sort((a, b) => (b.meta.updatedAt || '').localeCompare(a.meta.updatedAt || ''));
   }
 
@@ -83,7 +110,7 @@
   // earlier Fabcheck issues that would be noted as no longer found. Groups left out still count as
   // found, so they never get that note.
   function preview(slug, groups) {
-    const p = load('projects', {})[slug];
+    const p = all()[slug];
     if (!p) return null;
     const custom = p.custom || {}, items = p.items || {};
     const rows = groups.map(g => {
@@ -116,12 +143,12 @@
   }
 
   // Write the groups into the project, except those whose key is in `skip`: they are left as they
-  // are in Signoff and still count as found. Returns {created, updated, resolvedNotes, skipped}.
+  // are in Signoff and still count as found. Returns {created, updated, resolvedNotes, skipped, saved}:
+  // await `saved` (it rejects when the browser couldn't keep them) before leaving the page.
   function send(slug, groups, source, skip) {
-    const all = load('projects', {});
-    const p = all[slug];
+    const map = all();
+    const p = map[slug];
     if (!p) throw new Error('That Signoff project is no longer in this browser.');
-    const dirty = load('dirty', {});
     const who = user(), t = now();
     p.custom = p.custom || {}; p.items = p.items || {}; p.comments = p.comments || {};
     const seen = new Set(groups.map(g => groupId(p.id, g)));
@@ -181,21 +208,19 @@
     // Reference rows whose findings are no longer waived: removed (tombstoned; Signoff merges deletions).
     let dropped = 0;
     for (const id of droppedRefs(p, seen)) { p.custom[id] = stamp(Object.assign({}, p.custom[id], { deleted: true }), who); dropped++; }
-    all[slug] = p;
-    dirty[p.id] = t;
-    save('projects', all);
-    save('dirty', dirty);
+    map[slug] = p;
+    const saved = keep(map, p.id, t);
     // Open the project's Findings page next time Signoff loads.
     const ui = load('ui', {}) || {};
     save('ui', Object.assign(ui, { slug, view: 'findings' }));
-    return { created, updated, resolvedNotes, dropped, skipped: groups.length - picked.length, projectId: p.id, slug, name: (p.meta || {}).name };
+    return { created, updated, resolvedNotes, dropped, skipped: groups.length - picked.length, projectId: p.id, slug, name: (p.meta || {}).name, saved };
   }
 
   // Show a project's Findings in Signoff EE, in this tab (the suite's tools hand over in one tab;
   // Fabcheck keeps its runs, so Back returns to them).
   function openFindings(projectId) {
-    const all = load('projects', {});
-    const slug = Object.keys(all).find(k => all[k].id === projectId);
+    const map = all();
+    const slug = Object.keys(map).find(k => map[k].id === projectId);
     if (!slug) return false;
     // Opened from Signoff EE ("Open in Fabcheck"): go back to the tab it came from, and Signoff
     // puts back the open check and the scroll (fabReturn, ee_design_review app.js). Otherwise
@@ -207,7 +232,8 @@
     location.href = Fab.demoHref('../ee_design_review/index.html');
     return true;
   }
-  function projectById(id) { const all = load('projects', {}); const slug = Object.keys(all).find(k => all[k].id === id); return slug ? Object.assign({ slug }, all[slug]) : null; }
+  function projectById(id) { const map = all(); const slug = Object.keys(map).find(k => map[k].id === id); return slug ? Object.assign({ slug }, map[slug]) : null; }
 
-  Fab.signoff = { projects, plan, preview, send, sectionFor, stableId, openFindings, projectById };
+  // ready: Signoff EE's reviews have loaded from its local store. all(): slug -> review, for store.js.
+  Fab.signoff = { projects, plan, preview, send, sectionFor, stableId, openFindings, projectById, ready, all };
 })(window.Fab);
